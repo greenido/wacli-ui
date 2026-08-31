@@ -40,7 +40,7 @@ export const SettingsModal: React.FC = () => {
 
   if (activeModal !== 'settings') return null;
 
-  const isReadOnly = settings?.readOnly ?? true;
+  const isReadOnly = settings?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
   const doctor = health?.doctor;
 
   return (

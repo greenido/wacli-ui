@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Search, X, MessageSquare } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
@@ -24,9 +24,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
 
   const results = searchResults?.results ?? [];
 
-  useEffect(() => {
+  const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuery(e.target.value);
     setSelectedIndex(0);
-  }, [query, searchResults]);
+  };
 
   const handleSelectResult = (msg: UnifiedMessage) => {
     setSelectedChat({
@@ -84,7 +85,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             type="text"
             autoFocus
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={handleQueryChange}
             placeholder="Full-text search across all messages (FTS5)..."
             className="flex-1 bg-transparent text-sm text-mc-text placeholder-mc-textMuted/60 focus:outline-none font-sans"
           />

@@ -81,7 +81,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
 
   const pendingScheduled = scheduledItems.filter((i) => i.status === 'pending');
 
-  const isReadOnly = health?.readOnly ?? true;
+  const isReadOnly = health?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
   const processState = health?.processState ?? 'stopped';
   const doctor = health?.doctor;
   const heartbeatAge = health?.heartbeatAgeSeconds;

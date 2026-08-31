@@ -117,21 +117,21 @@ describe('ModeManager', () => {
     }
   });
 
-  it('defaults to readOnly = true when no settings file exists', () => {
+  it('defaults to readOnly = false (allow sends) when no settings file exists', () => {
     const mm = new ModeManager(tmpSettingsPath);
-    expect(mm.isReadOnly()).toBe(true);
+    expect(mm.isReadOnly()).toBe(false);
   });
 
   it('persists and updates readOnly state', () => {
     const mm = new ModeManager(tmpSettingsPath);
-    expect(mm.isReadOnly()).toBe(true);
-
-    mm.setReadOnly(false);
     expect(mm.isReadOnly()).toBe(false);
+
+    mm.setReadOnly(true);
+    expect(mm.isReadOnly()).toBe(true);
 
     // Reload from disk
     const mm2 = new ModeManager(tmpSettingsPath);
-    expect(mm2.isReadOnly()).toBe(false);
+    expect(mm2.isReadOnly()).toBe(true);
   });
 });
 

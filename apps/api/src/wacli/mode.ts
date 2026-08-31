@@ -45,7 +45,7 @@ export class ModeManager {
         const raw = fs.readFileSync(this.settingsFilePath, 'utf8');
         const parsed = JSON.parse(raw) as Partial<AppSettings>;
         return {
-          readOnly: parsed.readOnly !== undefined ? Boolean(parsed.readOnly) : true,
+          readOnly: parsed.readOnly !== undefined ? Boolean(parsed.readOnly) : false,
           storeDir: parsed.storeDir,
           account: parsed.account,
         };
@@ -54,7 +54,7 @@ export class ModeManager {
       // fallback to default
     }
 
-    return { readOnly: true };
+    return { readOnly: false };
   }
 
   private saveSettings(): void {

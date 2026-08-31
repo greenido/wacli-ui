@@ -36,7 +36,7 @@ export const Composer: React.FC = () => {
     },
   });
 
-  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : true);
+  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
 
   // Auto-focus composer when selected chat changes or when trigger is fired
   useEffect(() => {
