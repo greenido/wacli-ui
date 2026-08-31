@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { MessageSquare, Search, Pin, VolumeX, Archive, Plus } from 'lucide-react';
+import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -15,7 +15,12 @@ export const ChatList: React.FC = () => {
   const presenceMap = useAppStore((s) => s.presenceMap);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
 
-  const { data: chats = [], isLoading } = useQuery({
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.getHealth(),
+  });
+
+  const { data: chats = [], isLoading, isError } = useQuery({
     queryKey: ['chats', searchQuery, chatFilter],
     queryFn: () =>
       api.getChats({
@@ -124,9 +129,33 @@ export const ChatList: React.FC = () => {
           <div className="p-6 text-center text-xs font-mono text-mc-textMuted">
             Loading chats...
           </div>
+        ) : health?.wacliInstalled === false ? (
+          <div className="p-6 text-center space-y-3 font-mono">
+            <div className="w-9 h-9 rounded-full bg-mc-danger/10 border border-mc-danger/30 text-mc-danger flex items-center justify-center mx-auto">
+              <AlertOctagon size={18} />
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-mc-danger">wacli Not Installed</div>
+              <div className="text-[11px] text-mc-textMuted font-sans">
+                Install the wacli CLI to sync and view your WhatsApp chats.
+              </div>
+            </div>
+          </div>
+        ) : health?.statusSummary === 'not_authenticated' || (health?.doctor && !health.doctor.authenticated) ? (
+          <div className="p-6 text-center space-y-3 font-mono">
+            <div className="w-9 h-9 rounded-full bg-mc-safe/10 border border-mc-safe/30 text-mc-safe flex items-center justify-center mx-auto">
+              <AlertTriangle size={18} />
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs font-semibold text-mc-safe">Pairing Required</div>
+              <div className="text-[11px] text-mc-textMuted font-sans">
+                Run <code className="text-mc-live font-mono font-semibold">wacli auth</code> in your terminal to pair your WhatsApp account.
+              </div>
+            </div>
+          </div>
         ) : filteredChats.length === 0 ? (
-          <div className="p-6 text-center text-xs text-mc-textMuted">
-            No chats found.
+          <div className="p-6 text-center text-xs text-mc-textMuted font-sans">
+            {isError ? 'Unable to load chats. Check CLI connection.' : 'No chats found.'}
           </div>
         ) : (
           filteredChats.map((chat: UnifiedChat) => {

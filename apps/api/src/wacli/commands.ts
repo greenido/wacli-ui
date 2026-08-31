@@ -25,6 +25,44 @@ export interface ExecWacliOptions {
   account?: string;
 }
 
+export interface WacliInstallStatus {
+  installed: boolean;
+  version: string | null;
+  binPath: string;
+  error: string | null;
+}
+
+export async function checkWacliInstalled(): Promise<WacliInstallStatus> {
+  const bin = process.env.WACLI_BIN ?? 'wacli';
+  try {
+    const { stdout, stderr } = await execFileAsync(bin, ['--version'], {
+      timeout: 5000,
+    });
+    const versionOutput = (stdout.trim() || stderr.trim()).split('\n')[0] || 'unknown';
+    return {
+      installed: true,
+      version: versionOutput,
+      binPath: bin,
+      error: null,
+    };
+  } catch (err: unknown) {
+    const execErr = err as { code?: string | number; message?: string };
+    const isNotFound =
+      execErr.code === 'ENOENT' ||
+      (typeof execErr.message === 'string' &&
+        (execErr.message.includes('ENOENT') || execErr.message.includes('not found')));
+
+    return {
+      installed: false,
+      version: null,
+      binPath: bin,
+      error: isNotFound
+        ? `wacli binary '${bin}' was not found in PATH.`
+        : (execErr.message || 'Failed to execute wacli binary'),
+    };
+  }
+}
+
 export async function execWacli<T>(
   args: string[],
   options: ExecWacliOptions = {}

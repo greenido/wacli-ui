@@ -87,6 +87,56 @@ export const SettingsModal: React.FC = () => {
             </p>
           </div>
 
+          {/* wacli CLI Installation Status */}
+          <div className="space-y-2">
+            <div className="text-[11px] text-mc-textMuted tracking-wider uppercase font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 size={12} className={health?.wacliInstalled ? 'text-mc-live' : 'text-mc-danger'} />
+                wacli CLI Environment
+              </span>
+              <button
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['health'] });
+                  queryClient.invalidateQueries({ queryKey: ['settings'] });
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
+                title="Refresh CLI health"
+              >
+                <RotateCw size={10} />
+                <span>Re-check</span>
+              </button>
+            </div>
+            <div className="bg-mc-bg rounded border border-mc-border p-3 space-y-2 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-mc-textMuted">Binary Status:</span>
+                <span className={`font-semibold uppercase ${health?.wacliInstalled ? 'text-mc-live' : 'text-mc-danger'}`}>
+                  {health?.wacliInstalled ? 'Installed & Detected' : 'Not Found'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-mc-textMuted">CLI Version:</span>
+                <span className="text-mc-text">{health?.wacliVersion ?? 'Unknown'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-mc-textMuted">Health Assessment:</span>
+                <span className={`font-semibold uppercase ${
+                  health?.wacliWorking
+                    ? 'text-mc-live'
+                    : health?.statusSummary === 'not_authenticated'
+                    ? 'text-mc-safe'
+                    : 'text-mc-danger'
+                }`}>
+                  {health?.statusSummary ?? 'Unknown'}
+                </span>
+              </div>
+              {health?.statusMessage && (
+                <div className="text-[10px] text-mc-textMuted pt-1 border-t border-mc-border/50">
+                  {health.statusMessage}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Sync Daemon Status & Control */}
           <div className="space-y-2">
             <div className="text-[11px] text-mc-textMuted tracking-wider uppercase font-semibold flex items-center justify-between">

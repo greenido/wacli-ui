@@ -45,6 +45,61 @@ describe('Express Server Foundation', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data).toHaveProperty('readOnly');
     expect(res.body.data).toHaveProperty('processState');
+    expect(res.body.data).toHaveProperty('wacliInstalled');
+    expect(res.body.data).toHaveProperty('wacliWorking');
+    expect(res.body.data).toHaveProperty('statusSummary');
+  });
+
+  it('GET /api/health reports not_installed when wacli binary is missing', async () => {
+    const commands = await import('../wacli/commands.js');
+    const spy = vi.spyOn(commands, 'checkWacliInstalled').mockResolvedValueOnce({
+      installed: false,
+      version: null,
+      binPath: 'wacli',
+      error: "wacli binary 'wacli' was not found in PATH.",
+    });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const app = createApp(pm);
+
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.data.wacliInstalled).toBe(false);
+    expect(res.body.data.wacliWorking).toBe(false);
+    expect(res.body.data.statusSummary).toBe('not_installed');
+    expect(res.body.data.statusMessage).toContain('not found in PATH');
+
+    spy.mockRestore();
+  });
+
+  it('GET /api/health reports not_authenticated when wacli doctor is unauthenticated', async () => {
+    const commands = await import('../wacli/commands.js');
+    const spyInstalled = vi.spyOn(commands, 'checkWacliInstalled').mockResolvedValueOnce({
+      installed: true,
+      version: 'wacli 0.17.1',
+      binPath: 'wacli',
+      error: null,
+    });
+    const spyExec = vi.spyOn(commands, 'execWacli').mockResolvedValueOnce({
+      store_dir: '/mock/.wacli',
+      authenticated: false,
+      connected: false,
+      connection_state: 'logged_out',
+      linked_jid: null,
+      store: {},
+    });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const app = createApp(pm);
+
+    const res = await request(app).get('/api/health');
+    expect(res.status).toBe(200);
+    expect(res.body.data.wacliInstalled).toBe(true);
+    expect(res.body.data.wacliWorking).toBe(false);
+    expect(res.body.data.statusSummary).toBe('not_authenticated');
+
+    spyInstalled.mockRestore();
+    spyExec.mockRestore();
   });
 
   it('GET /api/mode and POST /api/mode manage read-only toggle', async () => {

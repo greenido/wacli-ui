@@ -94,6 +94,47 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
           </div>
         </div>
 
+        {/* CLI Binary Status */}
+        <div className="bg-mc-bg p-2.5 rounded border border-mc-border space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-mc-textMuted">WACLI CLI</span>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  health?.wacliInstalled === false
+                    ? 'bg-mc-danger'
+                    : health?.wacliWorking
+                    ? 'bg-mc-live'
+                    : 'bg-mc-safe'
+                }`}
+              />
+              <span
+                className={`font-semibold uppercase text-[11px] ${
+                  health?.wacliInstalled === false
+                    ? 'text-mc-danger'
+                    : health?.wacliWorking
+                    ? 'text-mc-live'
+                    : 'text-mc-safe'
+                }`}
+              >
+                {health?.wacliInstalled === false
+                  ? 'NOT FOUND'
+                  : health?.wacliWorking
+                  ? 'READY'
+                  : 'NEEDS AUTH'}
+              </span>
+            </div>
+          </div>
+          {health?.wacliVersion && (
+            <div className="flex items-center justify-between text-[11px] text-mc-textMuted pt-1 border-t border-mc-border/50">
+              <span>VERSION</span>
+              <span className="text-mc-text truncate font-mono text-[10px]">
+                {health.wacliVersion}
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Sync Daemon Connection */}
         <div className="bg-mc-bg p-2.5 rounded border border-mc-border space-y-1.5">
           <div className="flex items-center justify-between">

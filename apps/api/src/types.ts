@@ -61,6 +61,12 @@ export interface MissionControlStatus {
   lastError: string | null;
   reconnectAttempts: number;
   doctor: UnifiedDoctor | null;
+  wacliInstalled: boolean;
+  wacliWorking: boolean;
+  wacliVersion: string | null;
+  wacliBinaryPath: string | null;
+  statusSummary: 'ok' | 'not_installed' | 'not_authenticated' | 'error' | 'daemon_error';
+  statusMessage: string | null;
 }
 
 export interface ScheduledMessage {
