@@ -237,7 +237,9 @@ export const ThreadView: React.FC = () => {
             return (
               <div
                 key={msg.msgId}
-                className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'} ${
+                  activeReactionMsgId === msg.msgId ? 'relative z-40' : 'relative z-0'
+                }`}
               >
                 {/* Sender Name in group */}
                 {!isMe && msg.senderName && selectedChat.kind === 'group' && (
@@ -249,6 +251,8 @@ export const ThreadView: React.FC = () => {
                 {/* Bubble */}
                 <div
                   className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-shadow ${
+                    activeReactionMsgId === msg.msgId ? 'z-40' : 'z-0'
+                  } ${
                     isMe
                       ? 'bg-[#1B2823] border border-mc-live/30 text-mc-text'
                       : 'bg-mc-surface border border-mc-border text-mc-text'
@@ -359,6 +363,7 @@ export const ThreadView: React.FC = () => {
                   {/* Expanded Emoji Drawer Popover */}
                   {activeReactionMsgId === msg.msgId && (
                     <EmojiReactionDrawer
+                      align={isMe ? 'right' : 'left'}
                       onSelectEmoji={(emoji) => handleReact(msg, emoji)}
                       onClose={() => setActiveReactionMsgId(null)}
                     />
