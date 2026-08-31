@@ -8,6 +8,7 @@ interface AppState {
   replyingTo: UnifiedMessage | null;
   presenceMap: Record<string, { state: 'composing' | 'paused'; sender: string }>;
   sendLogs: SendLogEntry[];
+  highlightedMessageId: string | null;
   activeModal: 'send-confirm' | 'settings' | 'new-chat' | null;
   composerDraft: string;
   composerFile: File | null;
@@ -29,6 +30,7 @@ interface AppState {
   setPresence: (chatJid: string, state: 'composing' | 'paused', sender: string) => void;
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
+  setHighlightedMessageId: (id: string | null) => void;
   setActiveModal: (modal: 'send-confirm' | 'settings' | 'new-chat' | null) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
   setComposerDraft: (draft: string) => void;
@@ -44,6 +46,7 @@ export const useAppStore = create<AppState>((set) => ({
   replyingTo: null,
   presenceMap: {},
   sendLogs: [],
+  highlightedMessageId: null,
   activeModal: null,
   composerDraft: '',
   composerFile: null,
@@ -75,6 +78,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({
       sendLogs: s.sendLogs.map((item) => (item.id === id ? { ...item, ...update } : item)),
     })),
+  setHighlightedMessageId: (id) => set({ highlightedMessageId: id }),
   setActiveModal: (modal) => set({ activeModal: modal }),
   setSendConfirmData: (data) => set({ sendConfirmData: data }),
   setComposerDraft: (draft) => set({ composerDraft: draft }),

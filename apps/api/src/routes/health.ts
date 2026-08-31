@@ -12,9 +12,9 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
     const installStatus = await checkWacliInstalled();
     let doctor: UnifiedDoctor | null = null;
     let doctorError: string | null = null;
-    let wacliWorking = false;
-    let statusSummary: MissionControlStatus['statusSummary'] = 'ok';
-    let statusMessage: string | null = null;
+    let wacliWorking: boolean;
+    let statusSummary: MissionControlStatus['statusSummary'];
+    let statusMessage: string | null;
 
     if (!installStatus.installed) {
       doctorError = installStatus.error;

@@ -23,6 +23,8 @@ export const ThreadView: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
   const setReplyingTo = useAppStore((s) => s.setReplyingTo);
   const presenceMap = useAppStore((s) => s.presenceMap);
+  const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
+  const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
@@ -41,7 +43,7 @@ export const ThreadView: React.FC = () => {
     queryKey: ['messages', selectedChat?.jid],
     queryFn: () =>
       selectedChat
-        ? api.getMessages({ chat: selectedChat.jid, limit: 100 })
+        ? api.getMessages({ chat: selectedChat.jid, limit: 200 })
         : Promise.resolve({ messages: [], hasMore: false }),
     enabled: Boolean(selectedChat?.jid),
     refetchInterval: 5000,
@@ -119,12 +121,26 @@ export const ThreadView: React.FC = () => {
     return { messages: visibleMsgs, reactionsMap: rxMap };
   }, [messagesData?.messages]);
 
-  // Auto-scroll to bottom on message load or new incoming
+  // Auto-scroll to bottom on message load or new incoming (unless navigating to a specific highlighted msg)
   useEffect(() => {
-    if (scrollRef.current) {
+    if (highlightedMessageId) {
+      const el = document.getElementById(`msg-${highlightedMessageId}`);
+      if (el) {
+        const raf = requestAnimationFrame(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        const timer = setTimeout(() => {
+          setHighlightedMessageId(null);
+        }, 5000);
+        return () => {
+          cancelAnimationFrame(raf);
+          clearTimeout(timer);
+        };
+      }
+    } else if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [selectedChat?.jid, messages.length]);
+  }, [selectedChat?.jid, messages, highlightedMessageId, setHighlightedMessageId]);
 
   const handleReact = async (msg: UnifiedMessage, emoji: string) => {
     setActiveReactionMsgId(null);
@@ -328,10 +344,13 @@ export const ThreadView: React.FC = () => {
 
                 {/* Bubble */}
                 <div
-                  className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-shadow ${
+                  id={`msg-${msg.msgId}`}
+                  className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-all duration-300 ${
                     activeReactionMsgId === msg.msgId ? 'z-40' : 'z-0'
                   } ${
-                    isMe
+                    highlightedMessageId === msg.msgId
+                      ? 'ring-2 ring-mc-live ring-offset-2 ring-offset-mc-bg shadow-[0_0_20px_rgba(37,211,102,0.7)] bg-[#1e3d2f] border-mc-live animate-pulse'
+                      : isMe
                       ? 'bg-[#1B2823] border border-mc-live/30 text-mc-text'
                       : 'bg-mc-surface border border-mc-border text-mc-text'
                   }`}

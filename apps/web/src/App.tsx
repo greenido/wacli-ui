@@ -9,11 +9,72 @@ import { SendConfirmModal } from './components/SendConfirmModal/SendConfirmModal
 import { SettingsModal } from './components/SettingsModal/SettingsModal.tsx';
 import { NewChatModal } from './components/NewChatModal/NewChatModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
+import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useWebSocket } from './hooks/useWebSocket.ts';
+
+const DEFAULT_CHAT_LIST_WIDTH = 320;
+const DEFAULT_STATUS_STRIP_WIDTH = 256;
 
 export const App: React.FC = () => {
   const { isConnected } = useWebSocket();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Resizable pane widths with localStorage persistence
+  const [chatListWidth, setChatListWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('wacli_chat_list_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 180 && parsed <= 650) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_CHAT_LIST_WIDTH;
+  });
+
+  const [statusStripWidth, setStatusStripWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('wacli_status_strip_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 160 && parsed <= 500) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_STATUS_STRIP_WIDTH;
+  });
+
+  const handleChatListResize = (newWidth: number) => {
+    setChatListWidth(newWidth);
+    try {
+      localStorage.setItem('wacli_chat_list_width', String(newWidth));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleStatusStripResize = (newWidth: number) => {
+    setStatusStripWidth(newWidth);
+    try {
+      localStorage.setItem('wacli_status_strip_width', String(newWidth));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleResetChatListWidth = () => {
+    handleChatListResize(DEFAULT_CHAT_LIST_WIDTH);
+  };
+
+  const handleResetStatusStripWidth = () => {
+    handleStatusStripResize(DEFAULT_STATUS_STRIP_WIDTH);
+  };
 
   // Global shortcut Cmd+K or Ctrl+K to open search
   useEffect(() => {
@@ -38,16 +99,36 @@ export const App: React.FC = () => {
       {/* Main 3-Pane Console */}
       <div className="flex-1 flex min-h-0">
         {/* Left Rail: Chat List */}
-        <ChatList />
+        <ChatList width={chatListWidth} />
+
+        {/* Left Splitter */}
+        <ResizeHandle
+          side="left"
+          currentWidth={chatListWidth}
+          minWidth={200}
+          maxWidth={600}
+          onResize={handleChatListResize}
+          onReset={handleResetChatListWidth}
+        />
 
         {/* Dominant Center: Thread View + Fixed Composer */}
-        <div className="flex-1 flex flex-col min-w-0 h-full border-r border-mc-border relative z-10">
+        <div className="flex-1 flex flex-col min-w-0 h-full relative z-10">
           <ThreadView />
           <Composer />
         </div>
 
+        {/* Right Splitter */}
+        <ResizeHandle
+          side="right"
+          currentWidth={statusStripWidth}
+          minWidth={180}
+          maxWidth={500}
+          onResize={handleStatusStripResize}
+          onReset={handleResetStatusStripWidth}
+        />
+
         {/* Right Rail: System Status Strip & Send Audit */}
-        <StatusStrip wsConnected={isConnected} />
+        <StatusStrip wsConnected={isConnected} width={statusStripWidth} />
       </div>
 
       {/* Modals */}

@@ -5,7 +5,11 @@ import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
-export const ChatList: React.FC = () => {
+interface ChatListProps {
+  width?: number;
+}
+
+export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const selectedChat = useAppStore((s) => s.selectedChat);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
   const searchQuery = useAppStore((s) => s.searchQuery);
@@ -76,7 +80,11 @@ export const ChatList: React.FC = () => {
   };
 
   return (
-    <aside aria-label="Chats sidebar" className="w-80 bg-mc-surface border-r border-mc-border flex flex-col h-full select-none">
+    <aside
+      aria-label="Chats sidebar"
+      style={{ width }}
+      className="shrink-0 bg-mc-surface flex flex-col h-full select-none"
+    >
       {/* Header & Search */}
       <div className="p-3 border-b border-mc-border space-y-2.5">
         <div className="flex items-center justify-between">

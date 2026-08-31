@@ -3,16 +3,55 @@ import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Tra
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import type { UnifiedChat } from '../../types.ts';
 
 interface StatusStripProps {
   wsConnected: boolean;
+  width?: number;
 }
 
-export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
+export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 256 }) => {
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const sendLogs = useAppStore((s) => s.sendLogs);
+  const selectedChat = useAppStore((s) => s.selectedChat);
+  const setSelectedChat = useAppStore((s) => s.setSelectedChat);
+  const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
+  const searchQuery = useAppStore((s) => s.searchQuery);
+  const chatFilter = useAppStore((s) => s.chatFilter);
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'activity' | 'scheduled'>('activity');
+
+  const handleSelectMessageChat = (toJid: string, name?: string, msgId?: string) => {
+    if (!toJid) return;
+    const cachedChats =
+      queryClient.getQueryData<UnifiedChat[]>(['chats', searchQuery, chatFilter]) ||
+      queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all']) ||
+      [];
+    const existing = cachedChats.find((c) => c.jid === toJid);
+
+    const targetChat: UnifiedChat = existing || {
+      jid: toJid,
+      name: name || toJid.split('@')[0],
+      kind: toJid.endsWith('@g.us') ? 'group' : 'dm',
+      lastMessageTs: null,
+      archived: false,
+      pinned: false,
+      mutedUntil: 0,
+      unread: false,
+      unreadCount: 0,
+    };
+
+    setSelectedChat(targetChat);
+    try {
+      localStorage.setItem('wacli_selected_chat', targetChat.jid);
+    } catch {
+      // ignore
+    }
+
+    if (msgId) {
+      setHighlightedMessageId(msgId);
+    }
+  };
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -58,7 +97,11 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
   };
 
   return (
-    <aside aria-label="System status strip" className="w-64 bg-mc-surface border-l border-mc-border flex flex-col h-full select-none text-xs font-mono">
+    <aside
+      aria-label="System status strip"
+      style={{ width }}
+      className="shrink-0 bg-mc-surface flex flex-col h-full select-none text-xs font-mono"
+    >
       {/* Header */}
       <div className="h-12 border-b border-mc-border flex items-center justify-between px-3">
         <div className="flex items-center gap-2">
@@ -229,38 +272,58 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
                 No outbound sends in this session.
               </div>
             ) : (
-              sendLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="p-2 rounded bg-mc-bg border border-mc-border/70 space-y-1 text-[11px]"
-                >
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-mc-textMuted">
-                      {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </span>
-                    <span
-                      className={`font-semibold uppercase ${
-                        log.status === 'success'
-                          ? 'text-mc-live'
-                          : log.status === 'pending'
-                          ? 'text-mc-safe'
-                          : 'text-mc-danger'
-                      }`}
-                    >
-                      {log.status}
-                    </span>
+              sendLogs.map((log) => {
+                const isSelected = selectedChat?.jid === log.to;
+                return (
+                  <div
+                    key={log.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectMessageChat(log.to, log.chatName)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectMessageChat(log.to, log.chatName);
+                      }
+                    }}
+                    className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+                      isSelected
+                        ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                        : 'border-mc-border/70'
+                    }`}
+                    title="Click to view conversation in main chat area"
+                  >
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-mc-textMuted">
+                        {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                      <span
+                        className={`font-semibold uppercase ${
+                          log.status === 'success'
+                            ? 'text-mc-live'
+                            : log.status === 'pending'
+                            ? 'text-mc-safe'
+                            : 'text-mc-danger'
+                        }`}
+                      >
+                        {log.status}
+                      </span>
+                    </div>
+                    <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
+                      <span className="truncate">{log.chatName || log.to}</span>
+                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                        OPEN →
+                      </span>
+                    </div>
+                    <div className="text-mc-textMuted truncate">
+                      {log.message}
+                    </div>
+                    {log.error && (
+                      <div className="text-[10px] text-mc-danger truncate">{log.error}</div>
+                    )}
                   </div>
-                  <div className="text-mc-text truncate font-semibold">
-                    {log.chatName || log.to}
-                  </div>
-                  <div className="text-mc-textMuted truncate">
-                    {log.message}
-                  </div>
-                  {log.error && (
-                    <div className="text-[10px] text-mc-danger truncate">{log.error}</div>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         ) : (
@@ -270,54 +333,77 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
                 No scheduled messages queued.
               </div>
             ) : (
-              scheduledItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-2 rounded bg-mc-bg border border-mc-border/70 space-y-1 text-[11px]"
-                >
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-mc-live font-semibold flex items-center gap-1">
-                      <Clock size={10} />
-                      {new Date(item.scheduledAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
-                      {new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span
-                      className={`font-semibold uppercase ${
-                        item.status === 'sent'
-                          ? 'text-mc-live'
-                          : item.status === 'pending'
-                          ? 'text-mc-safe'
-                          : 'text-mc-textMuted'
-                      }`}
-                    >
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className="text-mc-text truncate font-semibold">
-                    {item.recipientName || item.to}
-                  </div>
-                  <div className="text-mc-textMuted truncate">
-                    {item.fileName ? `[File: ${item.fileName}] ` : ''}
-                    {item.message}
-                  </div>
-                  {item.status === 'pending' && (
-                    <div className="pt-1 flex justify-end">
-                      <button
-                        onClick={() => cancelMutation.mutate(item.id)}
-                        disabled={cancelMutation.isPending}
-                        className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors"
-                        title="Cancel scheduled dispatch"
+              scheduledItems.map((item) => {
+                const isSelected = selectedChat?.jid === item.to;
+                return (
+                  <div
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId);
+                      }
+                    }}
+                    className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+                      isSelected
+                        ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                        : 'border-mc-border/70'
+                    }`}
+                    title="Click to view conversation in main chat area"
+                  >
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-mc-live font-semibold flex items-center gap-1">
+                        <Clock size={10} />
+                        {new Date(item.scheduledAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
+                        {new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span
+                        className={`font-semibold uppercase ${
+                          item.status === 'sent'
+                            ? 'text-mc-live'
+                            : item.status === 'pending'
+                            ? 'text-mc-safe'
+                            : 'text-mc-textMuted'
+                        }`}
                       >
-                        <Trash2 size={10} />
-                        <span>CANCEL</span>
-                      </button>
+                        {item.status}
+                      </span>
                     </div>
-                  )}
-                  {item.error && (
-                    <div className="text-[10px] text-mc-danger truncate">{item.error}</div>
-                  )}
-                </div>
-              ))
+                    <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
+                      <span className="truncate">{item.recipientName || item.to}</span>
+                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                        OPEN →
+                      </span>
+                    </div>
+                    <div className="text-mc-textMuted truncate">
+                      {item.fileName ? `[File: ${item.fileName}] ` : ''}
+                      {item.message}
+                    </div>
+                    {item.status === 'pending' && (
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancelMutation.mutate(item.id);
+                          }}
+                          disabled={cancelMutation.isPending}
+                          className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors"
+                          title="Cancel scheduled dispatch"
+                        >
+                          <Trash2 size={10} />
+                          <span>CANCEL</span>
+                        </button>
+                      </div>
+                    )}
+                    {item.error && (
+                      <div className="text-[10px] text-mc-danger truncate">{item.error}</div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         )}

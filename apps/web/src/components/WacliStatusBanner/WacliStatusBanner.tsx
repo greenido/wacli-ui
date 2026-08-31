@@ -80,7 +80,6 @@ export const WacliStatusBanner: React.FC = () => {
 
   const isNotInstalled = health?.wacliInstalled === false || health?.statusSummary === 'not_installed';
   const isNotAuth = health?.statusSummary === 'not_authenticated' || health?.doctor?.authenticated === false;
-  const isDaemonError = health?.statusSummary === 'daemon_error' || health?.processState === 'failed';
 
   return (
     <div

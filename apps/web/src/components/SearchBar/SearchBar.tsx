@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MessageSquare } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
@@ -11,7 +11,10 @@ interface SearchBarProps {
 
 export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const [query, setQuery] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
+  const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
 
   const { data: searchResults, isFetching } = useQuery({
     queryKey: ['search', query],
@@ -20,6 +23,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   });
 
   const results = searchResults?.results ?? [];
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query, searchResults]);
 
   const handleSelectResult = (msg: UnifiedMessage) => {
     setSelectedChat({
@@ -33,12 +40,43 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
       unread: false,
       unreadCount: 0,
     });
+    setHighlightedMessageId(msg.msgId);
+    try {
+      localStorage.setItem('wacli_selected_chat', msg.chatJid);
+    } catch {
+      // ignore
+    }
     onClose();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (results.length > 0 ? (prev + 1) % results.length : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (results.length > 0 ? (prev - 1 + results.length) % results.length : 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (results.length > 0 && results[selectedIndex]) {
+        handleSelectResult(results[selectedIndex]);
+      }
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center pt-20 p-4">
-      <div className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-2xl flex flex-col max-h-[70vh]">
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center pt-20 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-2xl flex flex-col max-h-[70vh]"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+      >
         {/* Input Bar */}
         <div className="p-3 border-b border-mc-border flex items-center gap-2">
           <Search size={16} className="text-mc-live shrink-0" />
@@ -60,7 +98,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
         </div>
 
         {/* Results List */}
-        <div className="flex-1 overflow-y-auto p-2 divide-y divide-mc-border/40">
+        <div ref={resultsContainerRef} className="flex-1 overflow-y-auto p-2 divide-y divide-mc-border/40">
           {!query.trim() ? (
             <div className="p-8 text-center text-xs font-mono text-mc-textMuted">
               Type a word, phrase, or keyword to search the local FTS5 SQLite index.
@@ -70,26 +108,34 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
               No matching messages found for "{query}".
             </div>
           ) : (
-            results.map((msg) => (
-              <button
-                key={msg.msgId}
-                onClick={() => handleSelectResult(msg)}
-                className="w-full text-left p-3 hover:bg-mc-surfaceHover rounded transition-colors flex flex-col gap-1"
-              >
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="font-semibold text-mc-live flex items-center gap-1">
-                    <MessageSquare size={12} />
-                    {msg.chatName || msg.chatJid}
-                  </span>
-                  <span className="text-mc-textMuted text-[10px]">
-                    {new Date(msg.ts).toLocaleDateString()} {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <div className="text-xs text-mc-text line-clamp-2">
-                  {msg.snippet || msg.displayText || msg.text}
-                </div>
-              </button>
-            ))
+            results.map((msg, idx) => {
+              const isSelected = idx === selectedIndex;
+              return (
+                <button
+                  key={msg.msgId}
+                  onClick={() => handleSelectResult(msg)}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`w-full text-left p-3 rounded transition-colors flex flex-col gap-1 ${
+                    isSelected
+                      ? 'bg-mc-surfaceHover ring-1 ring-mc-live/50'
+                      : 'hover:bg-mc-surfaceHover'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="font-semibold text-mc-live flex items-center gap-1">
+                      <MessageSquare size={12} />
+                      {msg.chatName || msg.chatJid}
+                    </span>
+                    <span className="text-mc-textMuted text-[10px]">
+                      {new Date(msg.ts).toLocaleDateString()} {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className="text-xs text-mc-text line-clamp-2">
+                    {msg.snippet || msg.displayText || msg.text}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </div>
