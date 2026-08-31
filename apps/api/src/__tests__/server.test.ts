@@ -1,8 +1,31 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import crypto from 'node:crypto';
 import { createApp, isLoopbackOrigin } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
+
+vi.mock('../wacli/commands.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../wacli/commands.js')>();
+  return {
+    ...actual,
+    execWacli: vi.fn(async (args: string[]) => {
+      if (args[0] === 'doctor') {
+        return {
+          store_dir: '/mock/.wacli',
+          authenticated: true,
+          connected: true,
+          connection_state: 'connected',
+          linked_jid: '15551234567@s.whatsapp.net',
+          store: {
+            messages: 100,
+            chats: 10,
+          },
+        };
+      }
+      return {};
+    }),
+  };
+});
 
 describe('Express Server Foundation', () => {
   it('identifies loopback origins accurately', () => {

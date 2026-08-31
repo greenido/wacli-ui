@@ -263,7 +263,30 @@ npm run verify
 ```
 
 ---
+## How to Release a New Version
 
+To trigger a release and publish to npm:
+
+``` 
+# 1. Bump version and tag (e.g., v0.1.0)
+git tag v0.1.0
+
+# 2. Push tag to GitHub
+git push origin v0.1.0
+```
+
+Once published, users can run:
+
+```bash
+# Direct run without installing
+npx wacli-mission-control
+
+# Or install globally
+npm install -g wacli-mission-control
+wacli-mission-control --open
+```
+
+---
 ## License
 
 MIT © [wacli Mission Control Contributors](LICENSE)
