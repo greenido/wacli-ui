@@ -18,6 +18,8 @@ interface AppState {
     messageText: string;
     replyToId?: string;
     fileAttachment?: File;
+    scheduleMode?: boolean;
+    scheduledAt?: string;
   } | null;
 
   setSelectedChat: (chat: UnifiedChat | null) => void;

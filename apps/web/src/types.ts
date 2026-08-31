@@ -63,11 +63,28 @@ export interface MissionControlStatus {
   doctor: UnifiedDoctor | null;
 }
 
+export interface ScheduledMessage {
+  id: string;
+  to: string;
+  recipientName?: string;
+  message: string;
+  replyTo?: string;
+  filePath?: string;
+  fileName?: string;
+  mimeType?: string;
+  scheduledAt: string;
+  createdAt: string;
+  status: 'pending' | 'sent' | 'cancelled' | 'failed';
+  error?: string;
+  sentMessageId?: string;
+}
+
 export type MissionControlEvent =
   | { type: 'message.new'; data: UnifiedMessage; ts: string }
   | { type: 'message.receipt'; data: { chatJid: string; messageIds: string[]; status: 'delivered' | 'read' | 'played'; sender: string; isFromMe: boolean }; ts: string }
   | { type: 'chat.presence'; data: { chatJid: string; senderJid: string; state: 'composing' | 'paused'; media: 'audio' | '' }; ts: string }
   | { type: 'chat.update'; data: UnifiedChat; ts: string }
+  | { type: 'scheduled.update'; data: ScheduledMessage; ts: string }
   | { type: 'sync.progress'; data: { phase: string; detail?: string }; ts: string }
   | { type: 'connection.status'; data: { state: MissionControlStatus['processState'] | 'connected' | 'disconnected'; reason?: string }; ts: string };
 

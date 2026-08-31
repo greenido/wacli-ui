@@ -28,4 +28,19 @@ describe('API Read Endpoints', () => {
     expect(res.body.data).toHaveProperty('messages');
     expect(Array.isArray(res.body.data.messages)).toBe(true);
   });
+
+  it('POST /api/messages/star toggles star status', async () => {
+    const res = await request(app)
+      .post('/api/messages/star')
+      .send({
+        chat: '15551234567@s.whatsapp.net',
+        id: 'MSG-999',
+        starred: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.starred).toBe(true);
+    expect(res.body.data.id).toBe('MSG-999');
+  });
 });

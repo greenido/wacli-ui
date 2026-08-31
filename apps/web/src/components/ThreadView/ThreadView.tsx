@@ -1,11 +1,20 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { Reply, Smile, Check, CheckCheck, FileText, Music, Image as ImageIcon, Video } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import {
+  Reply,
+  Smile,
+  Check,
+  CheckCheck,
+  Copy,
+  Star,
+  Clock,
+  Trash2,
+} from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { MediaViewer } from './MediaViewer.tsx';
+import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import type { UnifiedMessage } from '../../types.ts';
-
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 export const ThreadView: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
@@ -13,6 +22,9 @@ export const ThreadView: React.FC = () => {
   const presenceMap = useAppStore((s) => s.presenceMap);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
 
   const {
     data: messagesData,
@@ -25,6 +37,51 @@ export const ThreadView: React.FC = () => {
         : Promise.resolve({ messages: [], hasMore: false }),
     enabled: Boolean(selectedChat?.jid),
     refetchInterval: 5000,
+  });
+
+  // Scheduled messages for current chat
+  const { data: scheduledList = [] } = useQuery({
+    queryKey: ['scheduled', selectedChat?.jid],
+    queryFn: () => (selectedChat ? api.getScheduled({ chat: selectedChat.jid }) : []),
+    enabled: Boolean(selectedChat?.jid),
+    refetchInterval: 5000,
+  });
+
+  const pendingScheduled = scheduledList.filter((s) => s.status === 'pending');
+
+  const cancelScheduledMutation = useMutation({
+    mutationFn: (id: string) => api.cancelScheduled(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
+  });
+
+  // Star / Unstar mutation
+  const starMutation = useMutation({
+    mutationFn: (params: { chat: string; id: string; starred: boolean }) =>
+      api.starMessage(params),
+    onMutate: async ({ chat, id, starred }) => {
+      await queryClient.cancelQueries({ queryKey: ['messages', chat] });
+      const prev = queryClient.getQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>([
+        'messages',
+        chat,
+      ]);
+      if (prev) {
+        queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+          ['messages', chat],
+          {
+            ...prev,
+            messages: prev.messages.map((m) => (m.msgId === id ? { ...m, starred } : m)),
+          }
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, { chat }, context) => {
+      if (context?.prev) {
+        queryClient.setQueryData(['messages', chat], context.prev);
+      }
+    },
   });
 
   // Reaction folding: map reactions onto target messages
@@ -74,9 +131,34 @@ export const ThreadView: React.FC = () => {
     }
   };
 
+  const handleCopyText = async (msg: UnifiedMessage) => {
+    const content = msg.displayText || msg.text || msg.mediaCaption || '';
+    if (!content) return;
+
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMsgId(msg.msgId);
+      setTimeout(() => setCopiedMsgId((prev) => (prev === msg.msgId ? null : prev)), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  const handleToggleStar = (msg: UnifiedMessage) => {
+    if (!selectedChat) return;
+    starMutation.mutate({
+      chat: selectedChat.jid,
+      id: msg.msgId,
+      starred: !msg.starred,
+    });
+  };
+
   if (!selectedChat) {
     return (
-      <section aria-label="Conversation Thread" className="flex-1 flex flex-col items-center justify-center bg-mc-bg text-mc-textMuted select-none">
+      <section
+        aria-label="Conversation Thread"
+        className="flex-1 flex flex-col items-center justify-center bg-mc-bg text-mc-textMuted select-none"
+      >
         <div className="text-center space-y-2">
           <div className="font-mono text-xs tracking-widest uppercase">wacli Mission Control</div>
           <div className="text-sm">Select a chat from the rail to view messages.</div>
@@ -89,7 +171,7 @@ export const ThreadView: React.FC = () => {
   const isTyping = presence && presence.state === 'composing';
 
   return (
-    <section aria-label="Conversation Thread" className="flex-1 flex flex-col bg-mc-bg h-full min-w-0">
+    <section aria-label="Conversation Thread" className="flex-1 flex flex-col bg-mc-bg h-full min-w-0 relative">
       {/* Header */}
       <div className="h-14 border-b border-mc-border bg-mc-surface/80 backdrop-blur px-4 flex items-center justify-between shrink-0">
         <div className="min-w-0">
@@ -105,6 +187,28 @@ export const ThreadView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Scheduled Messages Banner for this chat (Send Later FR) */}
+      {pendingScheduled.length > 0 && (
+        <div className="bg-mc-surface border-b border-mc-border/80 px-3 py-2 flex items-center justify-between text-xs font-mono text-mc-text">
+          <div className="flex items-center gap-2 truncate">
+            <Clock size={14} className="text-mc-live shrink-0 animate-pulse" />
+            <span className="text-mc-live font-semibold">SCHEDULED ({pendingScheduled.length}):</span>
+            <span className="truncate text-mc-textMuted text-[11px]">
+              {pendingScheduled[0].message || pendingScheduled[0].fileName} (due{' '}
+              {new Date(pendingScheduled[0].scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+            </span>
+          </div>
+          <button
+            onClick={() => cancelScheduledMutation.mutate(pendingScheduled[0].id)}
+            className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0 ml-2"
+            title="Cancel scheduled message"
+          >
+            <Trash2 size={11} />
+            <span>CANCEL</span>
+          </button>
+        </div>
+      )}
 
       {/* Message List */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -128,6 +232,7 @@ export const ThreadView: React.FC = () => {
           messages.map((msg) => {
             const reactions = reactionsMap.get(msg.msgId) || [];
             const isMe = msg.fromMe;
+            const isCopied = copiedMsgId === msg.msgId;
 
             return (
               <div
@@ -143,34 +248,35 @@ export const ThreadView: React.FC = () => {
 
                 {/* Bubble */}
                 <div
-                  className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm ${
+                  className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-shadow ${
                     isMe
                       ? 'bg-[#1B2823] border border-mc-live/30 text-mc-text'
                       : 'bg-mc-surface border border-mc-border text-mc-text'
                   }`}
                 >
-                  {/* Media Content */}
+                  {/* Media Content (Image/Audio/Video/Document) */}
                   {msg.mediaType && (
-                    <div className="mb-2 p-2 rounded bg-mc-bg/50 border border-mc-border/50 flex items-center gap-2 text-[11px] font-mono">
-                      {msg.mediaType === 'image' && <ImageIcon size={15} className="text-mc-live" />}
-                      {msg.mediaType === 'audio' && <Music size={15} className="text-mc-live" />}
-                      {msg.mediaType === 'video' && <Video size={15} className="text-mc-live" />}
-                      {msg.mediaType === 'document' && <FileText size={15} className="text-mc-live" />}
-                      <span className="truncate">{msg.filename || `${msg.mediaType} attachment`}</span>
-                    </div>
+                    <MediaViewer msg={msg} chatJid={selectedChat.jid} />
                   )}
 
                   {/* Body Text */}
-                  <div className="whitespace-pre-wrap break-words leading-relaxed">
-                    {msg.revoked ? (
-                      <span className="italic text-mc-textMuted">This message was deleted.</span>
-                    ) : (
-                      msg.displayText || msg.text
-                    )}
-                  </div>
+                  {(msg.displayText || msg.text) && (
+                    <div className="whitespace-pre-wrap break-words leading-relaxed">
+                      {msg.revoked ? (
+                        <span className="italic text-mc-textMuted">This message was deleted.</span>
+                      ) : (
+                        msg.displayText || msg.text
+                      )}
+                    </div>
+                  )}
 
-                  {/* Message Footer: Timestamp, Edited, Status */}
-                  <div className="flex items-center justify-end gap-1 mt-1 text-[10px] font-mono text-mc-textMuted">
+                  {/* Message Footer: Timestamp, Edited, Star Badge, Status */}
+                  <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] font-mono text-mc-textMuted">
+                    {msg.starred && (
+                      <span title="Starred message">
+                        <Star size={11} className="fill-[#F5A623] text-[#F5A623]" />
+                      </span>
+                    )}
                     {msg.edited && <span className="italic">edited</span>}
                     <span>
                       {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -199,41 +305,63 @@ export const ThreadView: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Hover Actions Menu */}
-                  <div className="absolute -top-3 right-2 hidden group-hover:flex items-center gap-1 bg-mc-surface border border-mc-border rounded px-1 py-0.5 shadow-md">
+                  {/* Hover Quick Actions Menu (FR-SR-7) */}
+                  <div className="absolute -top-3.5 right-2 hidden group-hover:flex items-center gap-0.5 bg-mc-surface/95 backdrop-blur-sm border border-mc-border rounded px-1 py-0.5 shadow-md z-20">
+                    {/* Reply */}
                     <button
                       onClick={() => setReplyingTo(msg)}
-                      className="p-1 hover:text-mc-live text-mc-textMuted transition-colors"
+                      className="p-1 hover:text-mc-live text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
                       title="Reply"
                     >
                       <Reply size={12} />
                     </button>
+
+                    {/* Copy Text to Clipboard */}
+                    <button
+                      onClick={() => handleCopyText(msg)}
+                      className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                        isCopied ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
+                      }`}
+                      title={isCopied ? 'Copied to clipboard!' : 'Copy message text'}
+                    >
+                      {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+
+                    {/* Star / Unstar Message */}
+                    <button
+                      onClick={() => handleToggleStar(msg)}
+                      className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                        msg.starred ? 'text-[#F5A623]' : 'text-mc-textMuted hover:text-[#F5A623]'
+                      }`}
+                      title={msg.starred ? 'Unstar message' : 'Star message'}
+                    >
+                      <Star size={12} className={msg.starred ? 'fill-[#F5A623]' : ''} />
+                    </button>
+
+                    {/* Expanded Emoji Reaction Drawer */}
                     <button
                       onClick={() =>
                         setActiveReactionMsgId(
                           activeReactionMsgId === msg.msgId ? null : msg.msgId
                         )
                       }
-                      className="p-1 hover:text-mc-live text-mc-textMuted transition-colors"
-                      title="React"
+                      className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                        activeReactionMsgId === msg.msgId
+                          ? 'text-mc-live'
+                          : 'text-mc-textMuted hover:text-mc-live'
+                      }`}
+                      title="React with emoji"
                     >
                       <Smile size={12} />
                     </button>
                   </div>
 
-                  {/* Quick Reaction Popup */}
+                  {/* Expanded Emoji Drawer Popover */}
                   {activeReactionMsgId === msg.msgId && (
-                    <div className="absolute -top-9 right-2 flex gap-1 bg-mc-surface border border-mc-border rounded-full p-1 shadow-lg z-10">
-                      {QUICK_EMOJIS.map((emoji) => (
-                        <button
-                          key={emoji}
-                          onClick={() => handleReact(msg, emoji)}
-                          className="hover:scale-125 transition-transform px-1"
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
+                    <EmojiReactionDrawer
+                      onSelectEmoji={(emoji) => handleReact(msg, emoji)}
+                      onClose={() => setActiveReactionMsgId(null)}
+                    />
                   )}
                 </div>
               </div>

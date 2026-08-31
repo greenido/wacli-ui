@@ -12,6 +12,8 @@ import { createChatsRouter } from './routes/chats.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createSearchRouter } from './routes/search.js';
 import { createSendRouter } from './routes/send.js';
+import { createMediaRouter } from './routes/media.js';
+import { scheduler } from './wacli/scheduler.js';
 
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
@@ -82,6 +84,7 @@ export function createApp(
   app.use('/api', createMessagesRouter());
   app.use('/api', createSearchRouter());
   app.use('/api', createSendRouter());
+  app.use('/api', createMediaRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
 
   // Global Error Handler
@@ -123,6 +126,8 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
   const server = http.createServer(app);
 
   eventBridge.initialize(server);
+  scheduler.setEventBridge(eventBridge);
+  scheduler.start();
 
   server.listen(port, host, () => {
     logger.info('api', `wacli Mission Control API listening on http://${host}:${port}`);

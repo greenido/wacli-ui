@@ -15,13 +15,22 @@ export class ModeManager {
   constructor(customPath?: string) {
     if (customPath) {
       this.settingsFilePath = customPath;
+    } else if (process.env.WACLI_SETTINGS_FILE) {
+      this.settingsFilePath = process.env.WACLI_SETTINGS_FILE;
     } else {
-      const configDir = path.join(os.homedir(), '.wacli-mission-control');
-      if (!fs.existsSync(configDir)) {
-        try {
+      let configDir = path.join(os.homedir(), '.wacli-mission-control');
+      try {
+        if (!fs.existsSync(configDir)) {
           fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+        }
+      } catch {
+        configDir = path.join(process.cwd(), '.wacli-mission-control');
+        try {
+          if (!fs.existsSync(configDir)) {
+            fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+          }
         } catch {
-          // ignore directory creation errors in restricted environments
+          configDir = os.tmpdir();
         }
       }
       this.settingsFilePath = path.join(configDir, 'settings.json');

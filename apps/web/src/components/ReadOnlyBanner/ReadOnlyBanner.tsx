@@ -3,6 +3,8 @@ import { ShieldAlert, Unlock, Lock } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 
+const STORAGE_KEY = 'wacli_safe_mode';
+
 export const ReadOnlyBanner: React.FC = () => {
   const queryClient = useQueryClient();
 
@@ -12,15 +14,24 @@ export const ReadOnlyBanner: React.FC = () => {
     refetchInterval: 5000,
   });
 
+  React.useEffect(() => {
+    if (modeData && typeof modeData.readOnly === 'boolean') {
+      localStorage.setItem(STORAGE_KEY, String(modeData.readOnly));
+    }
+  }, [modeData]);
+
   const mutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => api.setMode(newReadOnly),
+    mutationFn: (newReadOnly: boolean) => {
+      localStorage.setItem(STORAGE_KEY, String(newReadOnly));
+      return api.setMode(newReadOnly);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mode'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
     },
   });
 
-  const isReadOnly = modeData?.readOnly ?? true;
+  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem(STORAGE_KEY) !== null ? localStorage.getItem(STORAGE_KEY) === 'true' : true);
 
   if (!isReadOnly) {
     return (

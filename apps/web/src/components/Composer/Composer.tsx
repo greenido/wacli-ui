@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Send, Paperclip, X, Lock, Unlock, ShieldAlert } from 'lucide-react';
+import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -26,21 +26,24 @@ export const Composer: React.FC = () => {
   });
 
   const modeMutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => api.setMode(newReadOnly),
+    mutationFn: (newReadOnly: boolean) => {
+      localStorage.setItem('wacli_safe_mode', String(newReadOnly));
+      return api.setMode(newReadOnly);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mode'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
     },
   });
 
-  const isReadOnly = modeData?.readOnly ?? true;
+  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : true);
 
   // Auto-focus composer when selected chat changes or when trigger is fired
   useEffect(() => {
     if (selectedChat && textareaRef.current) {
       textareaRef.current.focus();
     }
-  }, [selectedChat?.jid, focusComposerTrigger]);
+  }, [selectedChat, focusComposerTrigger]);
 
   if (!selectedChat) {
     return null;
@@ -58,6 +61,24 @@ export const Composer: React.FC = () => {
       messageText: composerDraft.trim(),
       replyToId: replyingTo?.msgId,
       fileAttachment: composerFile ?? undefined,
+      scheduleMode: false,
+    });
+    setActiveModal('send-confirm');
+  };
+
+  const handleTriggerSendLater = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!composerDraft.trim() && !composerFile) {
+      return;
+    }
+
+    setSendConfirmData({
+      toJid: selectedChat.jid,
+      recipientName: selectedChat.name,
+      messageText: composerDraft.trim(),
+      replyToId: replyingTo?.msgId,
+      fileAttachment: composerFile ?? undefined,
+      scheduleMode: true,
     });
     setActiveModal('send-confirm');
   };
@@ -146,6 +167,22 @@ export const Composer: React.FC = () => {
             <span className="hidden sm:inline font-semibold">SAFE</span>
           </button>
         ) : null}
+
+        {/* Send Later Button */}
+        <button
+          type="button"
+          disabled={!hasContent}
+          onClick={handleTriggerSendLater}
+          className={`p-2 rounded font-mono text-xs flex items-center justify-center gap-1 transition-all ${
+            !hasContent
+              ? 'text-mc-textMuted/40 hover:text-mc-textMuted/40 cursor-not-allowed'
+              : 'text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover border border-mc-border'
+          }`}
+          title="Schedule message for later dispatch"
+        >
+          <Clock size={15} />
+          <span className="hidden lg:inline text-[11px]">LATER</span>
+        </button>
 
         <button
           type="submit"

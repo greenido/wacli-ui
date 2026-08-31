@@ -20,7 +20,10 @@ export const SettingsModal: React.FC = () => {
   });
 
   const modeMutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => api.setMode(newReadOnly),
+    mutationFn: (newReadOnly: boolean) => {
+      localStorage.setItem('wacli_safe_mode', String(newReadOnly));
+      return api.setMode(newReadOnly);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mode'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });

@@ -56,4 +56,35 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('No file attachment provided');
   });
+
+  it('POST /api/send/schedule schedules a message and lists it', async () => {
+    const scheduledAt = new Date(Date.now() + 3600000).toISOString();
+
+    const res = await request(app)
+      .post('/api/send/schedule')
+      .set('X-Mission-Control-Request', '1')
+      .send({
+        to: '15559876543@s.whatsapp.net',
+        recipientName: 'Bob',
+        message: 'Reminder for meeting tomorrow',
+        scheduledAt,
+        confirm: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.item.status).toBe('pending');
+    expect(res.body.data.item.message).toBe('Reminder for meeting tomorrow');
+
+    // List scheduled
+    const listRes = await request(app).get('/api/send/scheduled?chat=15559876543@s.whatsapp.net');
+    expect(listRes.status).toBe(200);
+    expect(Array.isArray(listRes.body.data)).toBe(true);
+    expect(listRes.body.data.some((i: { id: string }) => i.id === res.body.data.item.id)).toBe(true);
+
+    // Cancel scheduled
+    const cancelRes = await request(app).delete(`/api/send/scheduled/${res.body.data.item.id}`);
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.data.cancelled).toBe(true);
+  });
 });

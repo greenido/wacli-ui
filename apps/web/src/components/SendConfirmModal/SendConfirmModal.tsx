@@ -1,9 +1,25 @@
 import React, { useState } from 'react';
-import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calendar } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
+
+// Preset time helper
+const getPresetTime = (minutesOffset: number) => {
+  const d = new Date(Date.now() + minutesOffset * 60 * 1000);
+  // Format for datetime-local input YYYY-MM-DDTHH:mm
+  const pad = (n: number) => (n < 10 ? `0${n}` : n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const getTomorrowMorning = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n: number) => (n < 10 ? `0${n}` : n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00`;
+};
 
 export const SendConfirmModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);
@@ -17,6 +33,9 @@ export const SendConfirmModal: React.FC = () => {
 
   const [isCommitted, setIsCommitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [isScheduled, setIsScheduled] = useState(() => Boolean(sendConfirmData?.scheduleMode));
+  const [scheduleTime, setScheduleTime] = useState(() => getPresetTime(30));
 
   const { data: modeData } = useQuery({
     queryKey: ['mode'],
@@ -34,120 +53,168 @@ export const SendConfirmModal: React.FC = () => {
     mutationFn: (formData: FormData) => api.sendFile(formData),
   });
 
+  const scheduleTextMutation = useMutation({
+    mutationFn: (data: {
+      to: string;
+      recipientName?: string;
+      message: string;
+      replyTo?: string;
+      scheduledAt: string;
+      confirm: boolean;
+    }) => api.scheduleText(data),
+  });
+
+  const scheduleFileMutation = useMutation({
+    mutationFn: (formData: FormData) => api.scheduleFile(formData),
+  });
+
   if (activeModal !== 'send-confirm' || !sendConfirmData) return null;
 
   const handleConfirmSend = async () => {
     setErrorMessage(null);
     setIsCommitted(true);
 
+    const isScheduling = isScheduled && scheduleTime;
+    const isoScheduledAt = isScheduling ? new Date(scheduleTime).toISOString() : undefined;
+
     const logId = addSendLog({
       to: sendConfirmData.toJid,
       chatName: sendConfirmData.recipientName,
-      message: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || 'File Attachment',
+      message: `${isScheduling ? '[Scheduled] ' : ''}${sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || 'File Attachment'}`,
       status: 'pending',
     });
 
     try {
-      // If currently in safe read-only mode, unlock live sends first
-      if (isReadOnly) {
-        await api.setMode(false);
-        queryClient.invalidateQueries({ queryKey: ['mode'] });
-        queryClient.invalidateQueries({ queryKey: ['health'] });
-      }
+      if (isScheduling && isoScheduledAt) {
+        // Send Later flow
+        if (sendConfirmData.fileAttachment) {
+          const fd = new FormData();
+          fd.append('file', sendConfirmData.fileAttachment);
+          fd.append('to', sendConfirmData.toJid);
+          fd.append('recipientName', sendConfirmData.recipientName);
+          if (sendConfirmData.messageText) {
+            fd.append('caption', sendConfirmData.messageText);
+          }
+          if (sendConfirmData.replyToId) {
+            fd.append('replyTo', sendConfirmData.replyToId);
+          }
+          fd.append('scheduledAt', isoScheduledAt);
+          fd.append('confirm', 'true');
 
-      let sentResult: { sent: boolean; messageId?: string } | undefined;
-
-      if (sendConfirmData.fileAttachment) {
-        const fd = new FormData();
-        fd.append('file', sendConfirmData.fileAttachment);
-        fd.append('to', sendConfirmData.toJid);
-        if (sendConfirmData.messageText) {
-          fd.append('caption', sendConfirmData.messageText);
+          await scheduleFileMutation.mutateAsync(fd);
+        } else {
+          await scheduleTextMutation.mutateAsync({
+            to: sendConfirmData.toJid,
+            recipientName: sendConfirmData.recipientName,
+            message: sendConfirmData.messageText,
+            replyTo: sendConfirmData.replyToId,
+            scheduledAt: isoScheduledAt,
+            confirm: true,
+          });
         }
-        if (sendConfirmData.replyToId) {
-          fd.append('replyTo', sendConfirmData.replyToId);
-        }
-        fd.append('confirm', 'true');
 
-        sentResult = await sendFileMutation.mutateAsync(fd);
+        updateSendLog(logId, { status: 'success' });
+        queryClient.invalidateQueries({ queryKey: ['scheduled'] });
       } else {
-        sentResult = await sendTextMutation.mutateAsync({
-          to: sendConfirmData.toJid,
-          message: sendConfirmData.messageText,
-          replyTo: sendConfirmData.replyToId,
+        // Immediate Send flow
+        if (isReadOnly) {
+          localStorage.setItem('wacli_safe_mode', 'false');
+          await api.setMode(false);
+          queryClient.invalidateQueries({ queryKey: ['mode'] });
+          queryClient.invalidateQueries({ queryKey: ['health'] });
+        }
+
+        let sentResult: { sent: boolean; messageId?: string } | undefined;
+
+        if (sendConfirmData.fileAttachment) {
+          const fd = new FormData();
+          fd.append('file', sendConfirmData.fileAttachment);
+          fd.append('to', sendConfirmData.toJid);
+          if (sendConfirmData.messageText) {
+            fd.append('caption', sendConfirmData.messageText);
+          }
+          if (sendConfirmData.replyToId) {
+            fd.append('replyTo', sendConfirmData.replyToId);
+          }
+          fd.append('confirm', 'true');
+
+          sentResult = await sendFileMutation.mutateAsync(fd);
+        } else {
+          sentResult = await sendTextMutation.mutateAsync({
+            to: sendConfirmData.toJid,
+            message: sendConfirmData.messageText,
+            replyTo: sendConfirmData.replyToId,
+          });
+        }
+
+        updateSendLog(logId, { status: 'success' });
+
+        // Optimistic message append in active thread
+        const optimisticMsg: UnifiedMessage = {
+          chatJid: sendConfirmData.toJid,
+          chatName: sendConfirmData.recipientName,
+          msgId: sentResult?.messageId || `out-${Date.now()}`,
+          senderJid: '',
+          senderName: 'Me',
+          ts: new Date().toISOString(),
+          fromMe: true,
+          text: sendConfirmData.messageText,
+          displayText: sendConfirmData.messageText,
+          isForwarded: false,
+          reactionToId: null,
+          reactionEmoji: null,
+          mediaType: sendConfirmData.fileAttachment ? 'document' : null,
+          mediaCaption: sendConfirmData.messageText || null,
+          filename: sendConfirmData.fileAttachment?.name || null,
+          mimeType: sendConfirmData.fileAttachment?.type || null,
+          localPath: null,
+          starred: false,
+          edited: false,
+          revoked: false,
+          deliveryStatus: 'sent',
+        };
+
+        queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+          ['messages', sendConfirmData.toJid],
+          (old) => {
+            if (!old) return { messages: [optimisticMsg], hasMore: false };
+            return {
+              ...old,
+              messages: [...old.messages, optimisticMsg],
+            };
+          }
+        );
+
+        queryClient.setQueryData<UnifiedChat[]>(['chats'], (old) => {
+          const chats = old ? [...old] : [];
+          const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
+          const updatedChat: UnifiedChat = existingIdx >= 0
+            ? {
+                ...chats[existingIdx],
+                lastMessageTs: new Date().toISOString(),
+              }
+            : {
+                jid: sendConfirmData.toJid,
+                name: sendConfirmData.recipientName,
+                kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
+                lastMessageTs: new Date().toISOString(),
+                archived: false,
+                pinned: false,
+                mutedUntil: 0,
+                unread: false,
+                unreadCount: 0,
+              };
+
+          const filtered = chats.filter((c) => c.jid !== sendConfirmData.toJid);
+          return [updatedChat, ...filtered];
         });
+
+        queryClient.invalidateQueries({ queryKey: ['messages', sendConfirmData.toJid] });
+        queryClient.invalidateQueries({ queryKey: ['chats'] });
       }
 
-      updateSendLog(logId, { status: 'success' });
-
-      // Optimistic message append in active thread
-      const optimisticMsg: UnifiedMessage = {
-        chatJid: sendConfirmData.toJid,
-        chatName: sendConfirmData.recipientName,
-        msgId: sentResult?.messageId || `out-${Date.now()}`,
-        senderJid: '',
-        senderName: 'Me',
-        ts: new Date().toISOString(),
-        fromMe: true,
-        text: sendConfirmData.messageText,
-        displayText: sendConfirmData.messageText,
-        isForwarded: false,
-        reactionToId: null,
-        reactionEmoji: null,
-        mediaType: sendConfirmData.fileAttachment ? 'document' : null,
-        mediaCaption: sendConfirmData.messageText || null,
-        filename: sendConfirmData.fileAttachment?.name || null,
-        mimeType: sendConfirmData.fileAttachment?.type || null,
-        localPath: null,
-        starred: false,
-        edited: false,
-        revoked: false,
-        deliveryStatus: 'sent',
-      };
-
-      queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-        ['messages', sendConfirmData.toJid],
-        (old) => {
-          if (!old) return { messages: [optimisticMsg], hasMore: false };
-          return {
-            ...old,
-            messages: [...old.messages, optimisticMsg],
-          };
-        }
-      );
-
-      // Update chats list query cache so new/updated chat appears at top
-      queryClient.setQueryData<UnifiedChat[]>(['chats'], (old) => {
-        const chats = old ? [...old] : [];
-        const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
-        const updatedChat: UnifiedChat = existingIdx >= 0
-          ? {
-              ...chats[existingIdx],
-              lastMessageTs: new Date().toISOString(),
-            }
-          : {
-              jid: sendConfirmData.toJid,
-              name: sendConfirmData.recipientName,
-              kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
-              lastMessageTs: new Date().toISOString(),
-              archived: false,
-              pinned: false,
-              mutedUntil: 0,
-              unread: false,
-              unreadCount: 0,
-            };
-
-        const filtered = chats.filter((c) => c.jid !== sendConfirmData.toJid);
-        return [updatedChat, ...filtered];
-      });
-
-      queryClient.invalidateQueries({ queryKey: ['messages', sendConfirmData.toJid] });
-      queryClient.invalidateQueries({ queryKey: ['chats'] });
-
-      // Clear composer draft
       clearComposer();
 
-      // Clean up & close modal
       setTimeout(() => {
         setIsCommitted(false);
         setSendConfirmData(null);
@@ -171,8 +238,8 @@ export const SendConfirmModal: React.FC = () => {
         {/* Modal Header */}
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
           <div className="flex items-center gap-2 text-mc-live font-semibold">
-            <Send size={15} />
-            <span>CONFIRM OUTBOUND DISPATCH</span>
+            {isScheduled ? <Clock size={15} /> : <Send size={15} />}
+            <span>{isScheduled ? 'SCHEDULE OUTBOUND DISPATCH' : 'CONFIRM OUTBOUND DISPATCH'}</span>
           </div>
           <button
             onClick={() => setActiveModal(null)}
@@ -183,9 +250,9 @@ export const SendConfirmModal: React.FC = () => {
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 space-y-4">
-          {/* Safe Mode notice if active */}
-          {isReadOnly && (
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Safe Mode notice if active and immediate send */}
+          {isReadOnly && !isScheduled && (
             <div className="p-3 bg-[#E8B96A]/10 border border-[#E8B96A]/40 rounded text-mc-safe flex items-start gap-2.5 text-xs">
               <ShieldAlert size={16} className="shrink-0 mt-0.5" />
               <div>
@@ -194,6 +261,91 @@ export const SendConfirmModal: React.FC = () => {
                   Confirming dispatch will automatically switch to Live Mode and transmit this message.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Send Mode Toggle: Now vs Later */}
+          <div className="flex items-center justify-between p-2.5 bg-mc-bg rounded border border-mc-border">
+            <span className="text-mc-text font-semibold flex items-center gap-1.5">
+              <Clock size={14} className={isScheduled ? 'text-mc-live' : 'text-mc-textMuted'} />
+              <span>DISPATCH TIMING:</span>
+            </span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setIsScheduled(false)}
+                className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
+                  !isScheduled
+                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
+                }`}
+              >
+                SEND NOW
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsScheduled(true);
+                  if (!scheduleTime) setScheduleTime(getPresetTime(30));
+                }}
+                className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
+                  isScheduled
+                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
+                }`}
+              >
+                SEND LATER
+              </button>
+            </div>
+          </div>
+
+          {/* Schedule Time Selector */}
+          {isScheduled && (
+            <div className="p-3 bg-mc-bg rounded border border-mc-border/80 space-y-2.5">
+              <div className="text-[10px] text-mc-textMuted uppercase tracking-wider flex items-center gap-1">
+                <Calendar size={12} />
+                <span>SELECT DISPATCH TIME (LOCAL)</span>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setScheduleTime(getPresetTime(15))}
+                  className="p-1.5 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-text"
+                >
+                  +15 MIN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleTime(getPresetTime(60))}
+                  className="p-1.5 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-text"
+                >
+                  +1 HOUR
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleTime(getPresetTime(180))}
+                  className="p-1.5 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-text"
+                >
+                  +3 HOURS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleTime(getTomorrowMorning())}
+                  className="p-1.5 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-text truncate"
+                >
+                  TOMORROW 9AM
+                </button>
+              </div>
+
+              <input
+                type="datetime-local"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                min={getPresetTime(1)}
+                className="w-full bg-mc-surface border border-mc-border rounded p-2 text-xs text-mc-text focus:outline-none focus:border-mc-live font-mono"
+              />
             </div>
           )}
 
@@ -252,7 +404,7 @@ export const SendConfirmModal: React.FC = () => {
           <button
             type="button"
             onClick={handleConfirmSend}
-            disabled={isCommitted}
+            disabled={isCommitted || (isScheduled && !scheduleTime)}
             className={`px-4 py-1.5 rounded font-bold flex items-center gap-1.5 transition-all ${
               isCommitted
                 ? 'bg-mc-live text-[#12151B]'
@@ -262,7 +414,12 @@ export const SendConfirmModal: React.FC = () => {
             {isCommitted ? (
               <>
                 <CheckCircle2 size={14} className="animate-spin" />
-                <span>DISPATCHING...</span>
+                <span>{isScheduled ? 'SCHEDULING...' : 'DISPATCHING...'}</span>
+              </>
+            ) : isScheduled ? (
+              <>
+                <Clock size={14} />
+                <span>SCHEDULE DISPATCH</span>
               </>
             ) : (
               <>

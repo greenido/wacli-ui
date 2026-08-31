@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export type LogCategory = 'process' | 'send' | 'ws' | 'api' | 'webhook' | 'automation';
+export type LogCategory = 'process' | 'send' | 'ws' | 'api' | 'webhook' | 'automation' | 'media';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
 export class RunLogger {

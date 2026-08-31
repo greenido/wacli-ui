@@ -98,6 +98,8 @@ export function useWebSocket() {
           } else if (payload.type === 'chat.presence') {
             const { chatJid, state, senderJid } = payload.data;
             setPresence(chatJid, state, senderJid);
+          } else if (payload.type === 'scheduled.update') {
+            queryClient.invalidateQueries({ queryKey: ['scheduled'] });
           } else if (payload.type === 'connection.status') {
             queryClient.invalidateQueries({ queryKey: ['health'] });
             if (payload.data.state === 'connected') {

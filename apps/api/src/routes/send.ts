@@ -1,9 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import os from 'node:os';
+import path from 'node:path';
 import fs from 'node:fs';
 import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
+import { scheduler } from '../wacli/scheduler.js';
 import { logger } from '../logger.js';
 
 const upload = multer({
@@ -234,6 +236,183 @@ export function createSendRouter(): Router {
     } catch (err) {
       next(err);
     }
+  });
+
+  // POST /api/send/schedule (Send Later text)
+  router.post('/send/schedule', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const customHeader = req.headers['x-mission-control-request'];
+      if (!customHeader && process.env.NODE_ENV !== 'test') {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Missing required "X-Mission-Control-Request: 1" header.',
+        });
+        return;
+      }
+
+      const { to, recipientName, message, replyTo, scheduledAt, confirm } = req.body as {
+        to?: string;
+        recipientName?: string;
+        message?: string;
+        replyTo?: string;
+        scheduledAt?: string;
+        confirm?: boolean;
+      };
+
+      if (confirm !== true) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Explicit "confirm: true" parameter required in request body.',
+        });
+        return;
+      }
+
+      if (!to || !message || !scheduledAt) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Fields "to", "message", and "scheduledAt" are required.',
+        });
+        return;
+      }
+
+      const item = scheduler.schedule({
+        to,
+        recipientName,
+        message,
+        replyTo,
+        scheduledAt,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          scheduled: true,
+          item,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // POST /api/send/schedule-file (Send Later file)
+  router.post(
+    '/send/schedule-file',
+    upload.single('file'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      const file = req.file;
+      const { to, recipientName, caption, replyTo, scheduledAt, confirm } = req.body as {
+        to?: string;
+        recipientName?: string;
+        caption?: string;
+        replyTo?: string;
+        scheduledAt?: string;
+        confirm?: string | boolean;
+      };
+
+      if (!file) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'No file attachment provided in "file" field.',
+        });
+        return;
+      }
+
+      if (confirm !== true && confirm !== 'true') {
+        if (file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Explicit "confirm: true" parameter required in request body.',
+        });
+        return;
+      }
+
+      if (!to || !scheduledAt) {
+        if (file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Fields "to" and "scheduledAt" are required.',
+        });
+        return;
+      }
+
+      try {
+        // Move temp file to persistent scheduled directory
+        const schedDir = path.join(os.tmpdir(), 'wacli-scheduled-files');
+        if (!fs.existsSync(schedDir)) {
+          fs.mkdirSync(schedDir, { recursive: true });
+        }
+        const persistentPath = path.join(schedDir, `${Date.now()}-${file.originalname}`);
+        fs.renameSync(file.path, persistentPath);
+
+        const item = scheduler.schedule({
+          to,
+          recipientName,
+          message: caption || '',
+          replyTo,
+          filePath: persistentPath,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          scheduledAt,
+        });
+
+        res.json({
+          success: true,
+          data: {
+            scheduled: true,
+            item,
+          },
+          error: null,
+        });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/send/scheduled & /api/scheduled - list scheduled messages
+  router.get(['/send/scheduled', '/scheduled'], (req: Request, res: Response) => {
+    const chat = req.query.chat as string | undefined;
+    const items = scheduler.getList(chat);
+    res.json({
+      success: true,
+      data: items,
+      error: null,
+    });
+  });
+
+  // DELETE & POST cancel scheduled message
+  router.delete(['/scheduled/:id', '/send/scheduled/:id'], (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    const cancelled = id ? scheduler.cancel(id) : false;
+    res.json({
+      success: true,
+      data: { cancelled },
+      error: cancelled ? null : 'Scheduled message not found or not in pending state.',
+    });
+  });
+
+  router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    const cancelled = id ? scheduler.cancel(id) : false;
+    res.json({
+      success: true,
+      data: { cancelled },
+      error: cancelled ? null : 'Scheduled message not found or not in pending state.',
+    });
   });
 
   return router;
