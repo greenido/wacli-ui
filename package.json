@@ -1,0 +1,34 @@
+{
+  "name": "wacli-mission-control",
+  "version": "0.1.0",
+  "description": "Local WhatsApp operator console powered by wacli",
+  "keywords": ["whatsapp", "wacli", "console", "messaging", "whatsmeow"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @wacli/api\" \"npm run dev -w @wacli/web\"",
+    "build": "npm run build -w @wacli/api && npm run build -w @wacli/web",
+    "test": "npm run test -w @wacli/api",
+    "preview": "npm run preview -w @wacli/web",
+    "typecheck": "npm run typecheck -w @wacli/api && npm run typecheck -w @wacli/web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "verify": "npm run lint && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.9.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0"
+  }
+}
