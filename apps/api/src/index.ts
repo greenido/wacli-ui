@@ -178,6 +178,21 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
     }
   });
 
+  const gracefulShutdown = async (signal: string) => {
+    logger.info('api', `Received ${signal}. Shutting down gracefully...`);
+    try {
+      await pm.stop();
+    } catch {
+      // ignore
+    }
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+
+  process.once('SIGINT', () => void gracefulShutdown('SIGINT'));
+  process.once('SIGTERM', () => void gracefulShutdown('SIGTERM'));
+
   return { server, app, processManager: pm };
 }
 

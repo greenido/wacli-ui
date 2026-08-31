@@ -91,14 +91,16 @@ export const ThreadView: React.FC = () => {
     const visibleMsgs: UnifiedMessage[] = [];
 
     for (const msg of rawMessages) {
-      if (msg.reactionToId && msg.reactionEmoji) {
-        const existing = rxMap.get(msg.reactionToId) || [];
-        existing.push({
-          emoji: msg.reactionEmoji,
-          fromMe: msg.fromMe,
-          sender: msg.senderName || msg.senderJid,
-        });
-        rxMap.set(msg.reactionToId, existing);
+      if (msg.reactionToId) {
+        if (msg.reactionEmoji) {
+          const existing = rxMap.get(msg.reactionToId) || [];
+          existing.push({
+            emoji: msg.reactionEmoji,
+            fromMe: msg.fromMe,
+            sender: msg.senderName || msg.senderJid,
+          });
+          rxMap.set(msg.reactionToId, existing);
+        }
       } else {
         visibleMsgs.push(msg);
       }

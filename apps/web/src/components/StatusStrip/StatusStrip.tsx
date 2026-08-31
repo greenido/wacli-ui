@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Trash2 } from 'lucide-react';
+import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Trash2, RotateCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -30,6 +30,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
     mutationFn: (id: string) => api.cancelScheduled(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
+  });
+
+  const restartDaemonMutation = useMutation({
+    mutationFn: () => api.restartDaemon(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['health'] });
     },
   });
 
@@ -96,6 +103,14 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected }) => {
               <span className={`font-semibold uppercase ${getStatusColor().split(' ')[1]}`}>
                 {processState}
               </span>
+              <button
+                onClick={() => restartDaemonMutation.mutate()}
+                disabled={restartDaemonMutation.isPending}
+                className="ml-1 p-0.5 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
+                title="Restart Daemon"
+              >
+                <RotateCw size={11} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
+              </button>
             </div>
           </div>
 

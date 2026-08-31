@@ -34,4 +34,38 @@ describe('WacliProcessManager', () => {
     expect(actionExecuted).toBe(true);
     expect(result).toBe('done');
   });
+
+  it('captures error event and updates lastError', () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    (pm as unknown as { handleStderrLine: (line: string) => void }).handleStderrLine(
+      JSON.stringify({ event: 'error', data: { message: 'store is locked by pid 1234' } })
+    );
+
+    expect(pm.getLastError()).toBe('store is locked by pid 1234');
+  });
+
+  it('handles connected and logged_out events', () => {
+    const states: string[] = [];
+    const pm = new WacliProcessManager({
+      apiPort: 3002,
+      onStateChange: (state) => states.push(state),
+    });
+
+    (pm as unknown as { handleStderrLine: (line: string) => void }).handleStderrLine(
+      JSON.stringify({ event: 'connected', ts: Date.now() })
+    );
+    expect(pm.getState()).toBe('running');
+
+    (pm as unknown as { handleStderrLine: (line: string) => void }).handleStderrLine(
+      JSON.stringify({ event: 'logged_out', ts: Date.now() })
+    );
+    expect(pm.getState()).toBe('logged_out');
+  });
+
+  it('supports restart method', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const spawnSpy = vi.spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess').mockImplementation(() => {});
+    await pm.restart();
+    expect(spawnSpy).toHaveBeenCalled();
+  });
 });

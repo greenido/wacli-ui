@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { MessageSquare, Search, Pin, VolumeX, Archive, Plus } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
@@ -39,6 +39,24 @@ export const ChatList: React.FC = () => {
       return true;
     });
   }, [chats, chatFilter]);
+
+  // Auto-select chat when opening the app if none selected
+  useEffect(() => {
+    if (!selectedChat && filteredChats.length > 0) {
+      const savedJid = localStorage.getItem('wacli_selected_chat');
+      const found = filteredChats.find((c) => c.jid === savedJid) || filteredChats[0];
+      setSelectedChat(found);
+    }
+  }, [filteredChats, selectedChat, setSelectedChat]);
+
+  const handleSelectChat = (chat: UnifiedChat) => {
+    setSelectedChat(chat);
+    try {
+      localStorage.setItem('wacli_selected_chat', chat.jid);
+    } catch {
+      // ignore
+    }
+  };
 
   const formatTimestamp = (ts: string | null) => {
     if (!ts) return '';
@@ -119,7 +137,7 @@ export const ChatList: React.FC = () => {
             return (
               <button
                 key={chat.jid}
-                onClick={() => setSelectedChat(chat)}
+                onClick={() => handleSelectChat(chat)}
                 className={`w-full text-left p-3 flex items-start justify-between gap-2 transition-colors ${
                   isSelected
                     ? 'bg-mc-surfaceHover border-l-2 border-mc-live'

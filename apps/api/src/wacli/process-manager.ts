@@ -35,6 +35,24 @@ export class WacliProcessManager {
     this.webhookSecret = crypto.randomBytes(32).toString('hex');
     this.onStateChange = options.onStateChange;
     this.onLifecycleEvent = options.onLifecycleEvent;
+
+    // Clean up any child processes on exit/signals
+    this.registerProcessHooks();
+  }
+
+  private registerProcessHooks(): void {
+    const cleanup = () => {
+      if (this.child && !this.child.killed) {
+        try {
+          this.child.kill('SIGINT');
+        } catch {
+          // ignore
+        }
+      }
+    };
+    process.once('exit', cleanup);
+    process.once('SIGINT', cleanup);
+    process.once('SIGTERM', cleanup);
   }
 
   public getWebhookSecret(): string {
@@ -183,6 +201,13 @@ export class WacliProcessManager {
     }
   }
 
+  public async restart(): Promise<void> {
+    await this.stop();
+    this.reconnectAttempts = 0;
+    this.lastError = null;
+    this.start();
+  }
+
   private handleStderrLine(line: string): void {
     const trimmed = line.trim();
     if (!trimmed) return;
@@ -191,8 +216,17 @@ export class WacliProcessManager {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       logger.info('process', `Event from sync: ${JSON.stringify(parsed)}`);
 
-      if (parsed.event === 'logged_out' || parsed.type === 'logged_out') {
+      if (parsed.event === 'connected') {
+        this.setState('running', 'Connected to WhatsApp');
+        this.lastError = null;
+      } else if (parsed.event === 'logged_out' || parsed.type === 'logged_out') {
         this.setState('logged_out', 'WhatsApp session was logged out or revoked');
+      } else if (parsed.event === 'error') {
+        const data = parsed.data as { message?: string } | undefined;
+        this.lastError = data?.message || JSON.stringify(parsed.data || parsed);
+        logger.error('process', `Sync process error event: ${this.lastError}`);
+      } else if (parsed.event === 'disconnected') {
+        logger.warn('process', `Sync process disconnected event: ${JSON.stringify(parsed)}`);
       }
 
       if (this.onLifecycleEvent) {
@@ -200,6 +234,10 @@ export class WacliProcessManager {
       }
     } catch {
       // Non-JSON line from wacli stderr (e.g. human logging)
+      const lower = trimmed.toLowerCase();
+      if (lower.includes('error') || lower.includes('fatal') || lower.includes('panic') || lower.includes('locked')) {
+        this.lastError = trimmed;
+      }
       logger.info('process', `wacli stderr: ${trimmed}`);
     }
   }
@@ -221,7 +259,8 @@ export class WacliProcessManager {
       return;
     }
 
-    const reason = signal ? `killed by ${signal}` : `exited with code ${code}`;
+    const baseReason = signal ? `killed by ${signal}` : `exited with code ${code}`;
+    const reason = this.lastError ? `${baseReason} (${this.lastError})` : baseReason;
     logger.warn('process', `Sync process exited: ${reason}`);
 
     // Schedule backoff restart

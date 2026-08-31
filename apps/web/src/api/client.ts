@@ -220,4 +220,31 @@ export const api = {
       },
       body: JSON.stringify(data),
     }),
+
+  restartDaemon: () =>
+    request<{ state: string; pid: number | null }>('/api/daemon/restart', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+    }),
+
+  startDaemon: () =>
+    request<{ state: string; pid: number | null }>('/api/daemon/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+    }),
+
+  stopDaemon: () =>
+    request<{ state: string; pid: number | null }>('/api/daemon/stop', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+    }),
 };

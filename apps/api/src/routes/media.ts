@@ -1,7 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { execWacli } from '../wacli/commands.js';
+import { modeManager } from '../wacli/mode.js';
 import { logger } from '../logger.js';
 
 interface RawMediaDownloadResponse {
@@ -9,6 +11,21 @@ interface RawMediaDownloadResponse {
   local_path?: string;
   file_path?: string;
   [key: string]: unknown;
+}
+
+function getMediaOutputDir(): string {
+  const settings = modeManager.getSettings();
+  const defaultStore = process.platform === 'linux'
+    ? path.join(os.homedir(), '.local/state/wacli')
+    : path.join(os.homedir(), '.wacli');
+  const storeDir = settings.storeDir ?? process.env.WACLI_STORE_DIR ?? defaultStore;
+  const mediaDir = path.join(storeDir, 'media');
+  try {
+    fs.mkdirSync(mediaDir, { recursive: true });
+  } catch {
+    // ignore
+  }
+  return mediaDir;
 }
 
 const MIME_MAP: Record<string, string> = {
@@ -58,7 +75,8 @@ export function createMediaRouter(): Router {
       }
 
       logger.info('media', `Downloading media for msg ${id} in ${chat}`);
-      const args = ['media', 'download', '--chat', chat, '--id', id];
+      const outputDir = getMediaOutputDir();
+      const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
       const result = await execWacli<RawMediaDownloadResponse>(args, {
         timeoutMs: 60000,
       });
@@ -94,7 +112,8 @@ export function createMediaRouter(): Router {
       // If filePath not given or file doesn't exist, try downloading via wacli if chat & id provided
       if ((!filePath || !fs.existsSync(filePath)) && chat && id) {
         try {
-          const args = ['media', 'download', '--chat', chat, '--id', id];
+          const outputDir = getMediaOutputDir();
+          const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
           const result = await execWacli<RawMediaDownloadResponse>(args, {
             timeoutMs: 60000,
           });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2 } from 'lucide-react';
+import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -28,6 +28,13 @@ export const SettingsModal: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['mode'] });
       queryClient.invalidateQueries({ queryKey: ['health'] });
       queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+
+  const restartDaemonMutation = useMutation({
+    mutationFn: () => api.restartDaemon(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['health'] });
     },
   });
 
@@ -78,6 +85,59 @@ export const SettingsModal: React.FC = () => {
                 ? 'Safe mode prevents all outgoing message sends, replies, and reactions.'
                 : 'Live mode active: outbound commands are allowed with modal confirmation.'}
             </p>
+          </div>
+
+          {/* Sync Daemon Status & Control */}
+          <div className="space-y-2">
+            <div className="text-[11px] text-mc-textMuted tracking-wider uppercase font-semibold flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Activity size={12} className="text-mc-live" />
+                Sync Daemon Control
+              </span>
+              <button
+                onClick={() => restartDaemonMutation.mutate()}
+                disabled={restartDaemonMutation.isPending}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
+                title="Restart wacli sync daemon"
+              >
+                <RotateCw size={10} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
+                <span>Restart Daemon</span>
+              </button>
+            </div>
+            <div className="bg-mc-bg rounded border border-mc-border p-3 space-y-2 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-mc-textMuted">Daemon State:</span>
+                <span className={`font-semibold uppercase ${
+                  health?.processState === 'running'
+                    ? 'text-mc-live'
+                    : health?.processState === 'restarting' || health?.processState === 'starting'
+                    ? 'text-mc-safe'
+                    : 'text-mc-danger'
+                }`}>
+                  {health?.processState ?? 'unknown'}
+                </span>
+              </div>
+              {health?.processPid && (
+                <div className="flex justify-between">
+                  <span className="text-mc-textMuted">Process PID:</span>
+                  <span className="text-mc-text">{health.processPid}</span>
+                </div>
+              )}
+              {health?.heartbeatAgeSeconds !== null && health?.heartbeatAgeSeconds !== undefined && (
+                <div className="flex justify-between">
+                  <span className="text-mc-textMuted">Heartbeat:</span>
+                  <span className={health.heartbeatAgeSeconds < 120 ? 'text-mc-text' : 'text-mc-safe'}>
+                    {health.heartbeatAgeSeconds}s ago
+                  </span>
+                </div>
+              )}
+              {health?.lastError && (
+                <div className="bg-mc-danger/10 border border-mc-danger/30 p-2 rounded text-[10px] text-mc-danger flex items-start gap-1.5 mt-1">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                  <span className="break-all">{health.lastError}</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Doctor Status */}
