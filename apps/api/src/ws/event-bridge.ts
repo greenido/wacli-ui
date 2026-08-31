@@ -26,11 +26,17 @@ export class EventBridge {
       });
 
       // Send initial heartbeat acknowledgment
-      ws.send(JSON.stringify({
-        type: 'connection.status',
-        data: { state: 'connected', reason: 'Initial connection established' },
-        ts: new Date().toISOString(),
-      }));
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({
+            type: 'connection.status',
+            data: { state: 'connected', reason: 'Initial connection established' },
+            ts: new Date().toISOString(),
+          }));
+        } catch {
+          // ignore if socket disconnected during handshake
+        }
+      }
     });
   }
 

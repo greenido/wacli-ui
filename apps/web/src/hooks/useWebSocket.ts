@@ -5,8 +5,6 @@ import type { MissionControlEvent, UnifiedChat, UnifiedMessage } from '../types.
 
 export function useWebSocket() {
   const queryClient = useQueryClient();
-  const setPresence = useAppStore((s) => s.setPresence);
-  const selectedChat = useAppStore((s) => s.selectedChat);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -38,7 +36,9 @@ export function useWebSocket() {
       };
 
       ws.onerror = () => {
-        ws.close();
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
       };
 
       ws.onmessage = (event) => {
@@ -101,15 +101,16 @@ export function useWebSocket() {
             );
           } else if (payload.type === 'chat.presence') {
             const { chatJid, state, senderJid } = payload.data;
-            setPresence(chatJid, state, senderJid);
+            useAppStore.getState().setPresence(chatJid, state, senderJid);
           } else if (payload.type === 'scheduled.update') {
             queryClient.invalidateQueries({ queryKey: ['scheduled'] });
           } else if (payload.type === 'connection.status') {
             queryClient.invalidateQueries({ queryKey: ['health'] });
             if (payload.data.state === 'connected') {
               queryClient.invalidateQueries({ queryKey: ['chats'] });
-              if (selectedChat) {
-                queryClient.invalidateQueries({ queryKey: ['messages', selectedChat.jid] });
+              const currentSelectedChat = useAppStore.getState().selectedChat;
+              if (currentSelectedChat) {
+                queryClient.invalidateQueries({ queryKey: ['messages', currentSelectedChat.jid] });
               }
             }
           }
@@ -125,10 +126,12 @@ export function useWebSocket() {
       shouldReconnect = false;
       clearTimeout(reconnectTimer);
       if (wsRef.current) {
-        wsRef.current.close();
+        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
+          wsRef.current.close();
+        }
       }
     };
-  }, [queryClient, selectedChat, setPresence]);
+  }, [queryClient]);
 
   return { isConnected };
 }
