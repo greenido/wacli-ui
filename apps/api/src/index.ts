@@ -2,6 +2,9 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
 import http from 'node:http';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
@@ -18,11 +21,18 @@ import { scheduler } from './wacli/scheduler.js';
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
 
-const ALLOWED_HOSTS = new Set([
-  `localhost:${PORT}`,
-  `127.0.0.1:${PORT}`,
-  `[::1]:${PORT}`,
-]);
+export function isLoopbackHost(hostHeader?: string): boolean {
+  if (!hostHeader) return false;
+  try {
+    const rawHost = hostHeader.startsWith('[')
+      ? hostHeader.slice(1, hostHeader.indexOf(']'))
+      : hostHeader.split(':')[0];
+    const h = (rawHost ?? '').toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+  } catch {
+    return false;
+  }
+}
 
 export function isLoopbackOrigin(origin: string): boolean {
   try {
@@ -37,6 +47,25 @@ export function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
+export function findWebDistDir(): string | null {
+  if (process.env.STATIC_WEB_DIR && fs.existsSync(process.env.STATIC_WEB_DIR)) {
+    return process.env.STATIC_WEB_DIR;
+  }
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.resolve(__dirname, '../../web/dist'),
+    path.resolve(__dirname, '../web/dist'),
+    path.resolve(__dirname, '../../apps/web/dist'),
+    path.resolve(process.cwd(), 'apps/web/dist'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'index.html'))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 export function createApp(
   processManager: WacliProcessManager,
   bridge: EventBridge = eventBridge
@@ -47,7 +76,7 @@ export function createApp(
   // Loopback host header validation
   app.use((req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host;
-    if (host && !ALLOWED_HOSTS.has(host) && process.env.NODE_ENV !== 'test') {
+    if (host && !isLoopbackHost(host) && process.env.NODE_ENV !== 'test') {
       res.status(403).json({ error: { code: 'FORBIDDEN_HOST', message: 'Requests must target localhost.' } });
       return;
     }
@@ -86,6 +115,19 @@ export function createApp(
   app.use('/api', createSendRouter());
   app.use('/api', createMediaRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
+
+  // Serve static UI assets if built
+  const staticWebDir = findWebDistDir();
+  if (staticWebDir) {
+    app.use(express.static(staticWebDir));
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/internal')) {
+        res.sendFile(path.join(staticWebDir, 'index.html'));
+        return;
+      }
+      next();
+    });
+  }
 
   // Global Error Handler
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

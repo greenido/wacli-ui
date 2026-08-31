@@ -90,7 +90,30 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 
 ---
 
-## Getting Started
+## Quick Start
+
+### Run with `npx` (No installation needed)
+
+```bash
+npx wacli-mission-control
+```
+
+### Global Install with `npm`
+
+```bash
+# Install globally
+npm install -g wacli-mission-control
+
+# Start Mission Control (opens http://127.0.0.1:3002)
+wacli-mission-control
+
+# Launch with options
+wacli-mission-control --port 8080 --open
+```
+
+---
+
+## Getting Started (From Source)
 
 ### Prerequisites
 
@@ -104,12 +127,12 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
    wacli auth
    ```
 
-### Installation
+### Local Development Setup
 
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/your-username/wacli-ui.git
+git clone https://github.com/greenido/wacli-ui.git
 cd wacli-ui
 npm install
 ```

@@ -1,0 +1,91 @@
+name: Release & Publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validate build and package without publishing to npm)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Build, Release & Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint and typecheck
+        run: |
+          npm run lint
+          npm run typecheck
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Build packages (API & Web UI)
+        run: npm run build
+
+      - name: Extract and sync version from tag
+        id: get_version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+            VERSION="${TAG_NAME#v}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            # Update root package.json version to match git tag
+            npm version "$VERSION" --no-git-tag-version --allow-same-version
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create npm tarball
+        run: |
+          TARBALL_NAME=$(npm pack)
+          echo "TARBALL_PATH=$TARBALL_NAME" >> $GITHUB_ENV
+          echo "Created tarball: $TARBALL_NAME"
+
+      - name: Publish to npm registry
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: ${{ github.event.inputs.dry_run != 'true' && github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.tag_name }}
+          name: ${{ steps.get_version.outputs.tag_name }}
+          generate_release_notes: true
+          files: |
+            ${{ env.TARBALL_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

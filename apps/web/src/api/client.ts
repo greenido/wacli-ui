@@ -5,7 +5,9 @@ import type {
   ScheduledMessage,
 } from '../types.ts';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3002';
+const API_BASE =
+  import.meta.env.VITE_API_URL ??
+  (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3002');
 
 export class ApiClientError extends Error {
   constructor(message: string, public status?: number) {

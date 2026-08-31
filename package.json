@@ -2,8 +2,41 @@
   "name": "wacli-mission-control",
   "version": "0.1.0",
   "description": "Local WhatsApp operator console powered by wacli",
-  "keywords": ["whatsapp", "wacli", "console", "messaging", "whatsmeow"],
+  "keywords": [
+    "whatsapp",
+    "wacli",
+    "console",
+    "messaging",
+    "whatsmeow",
+    "chat",
+    "operator"
+  ],
   "license": "MIT",
+  "author": "Ido Green",
+  "type": "module",
+  "main": "apps/api/dist/index.js",
+  "bin": {
+    "wacli-mission-control": "./bin/cli.js",
+    "wacli-ui": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "apps/api/dist",
+    "apps/web/dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/greenido/wacli-ui.git"
+  },
+  "homepage": "https://github.com/greenido/wacli-ui#readme",
+  "bugs": {
+    "url": "https://github.com/greenido/wacli-ui/issues"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -20,6 +53,13 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "verify": "npm run lint && npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "multer": "^1.4.5-lts.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

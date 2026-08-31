@@ -31,11 +31,17 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/api/**/*.ts'],
+    files: ['apps/api/**/*.ts', 'bin/**/*.js'],
     languageOptions: {
       globals: {
         ...globals.node,
       },
+    },
+  },
+  {
+    files: ['bin/**/*.js'],
+    rules: {
+      'no-console': 'off',
     },
   },
   {

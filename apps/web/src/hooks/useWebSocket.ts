@@ -15,7 +15,11 @@ export function useWebSocket() {
     let shouldReconnect = true;
 
     function connect() {
-      const wsUrl = import.meta.env.VITE_WS_URL ?? 'ws://127.0.0.1:3002/ws';
+      const defaultWsUrl =
+        typeof window !== 'undefined'
+          ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+          : 'ws://127.0.0.1:3002/ws';
+      const wsUrl = import.meta.env.VITE_WS_URL ?? defaultWsUrl;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
