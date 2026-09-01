@@ -27,6 +27,11 @@ export class Scheduler {
   private items: Map<string, ScheduledMessage> = new Map();
   private timer: NodeJS.Timeout | null = null;
   private eventBridge: EventBridge | null = null;
+  /** Ids currently being dispatched, to prevent overlapping ticks double-sending. */
+  private inFlight: Set<string> = new Set();
+  private isChecking = false;
+  /** Ids we have already logged a "held by safe mode" warning for. */
+  private heldWarned: Set<string> = new Set();
 
   constructor(customPath?: string, bridge?: EventBridge) {
     this.eventBridge = bridge ?? null;
@@ -121,13 +126,7 @@ export class Scheduler {
     this.save();
     logger.info('send', `Scheduled message ${id} to ${item.to} for ${item.scheduledAt}`);
 
-    if (this.eventBridge) {
-      this.eventBridge.broadcast({
-        type: 'scheduled.update',
-        data: item,
-        ts: new Date().toISOString(),
-      });
-    }
+    this.broadcastUpdate(item);
 
     return item;
   }
@@ -141,14 +140,9 @@ export class Scheduler {
     item.status = 'cancelled';
     this.save();
     logger.info('send', `Cancelled scheduled message ${id}`);
+    this.heldWarned.delete(id);
 
-    if (this.eventBridge) {
-      this.eventBridge.broadcast({
-        type: 'scheduled.update',
-        data: item,
-        ts: new Date().toISOString(),
-      });
-    }
+    this.broadcastUpdate(item);
 
     return true;
   }
@@ -176,26 +170,71 @@ export class Scheduler {
   }
 
   public async checkDueMessages(): Promise<void> {
-    const now = Date.now();
-    for (const item of this.items.values()) {
-      if (item.status !== 'pending') continue;
+    // A send can take up to two minutes while the 3s timer keeps firing. Without
+    // this guard a slow dispatch is re-entered and the message goes out twice.
+    if (this.isChecking) return;
+    this.isChecking = true;
 
-      const dueTime = new Date(item.scheduledAt).getTime();
-      if (dueTime <= now) {
-        await this.dispatch(item);
+    try {
+      const now = Date.now();
+      for (const item of this.items.values()) {
+        if (item.status !== 'pending') continue;
+        if (this.inFlight.has(item.id)) continue;
+
+        const dueTime = new Date(item.scheduledAt).getTime();
+        if (Number.isNaN(dueTime)) {
+          item.status = 'failed';
+          item.error = `Invalid scheduledAt value: ${item.scheduledAt}`;
+          this.save();
+          this.broadcastUpdate(item);
+          continue;
+        }
+
+        if (dueTime <= now) {
+          if (modeManager.isReadOnly()) {
+            this.warnHeld(item);
+            continue;
+          }
+          this.inFlight.add(item.id);
+          try {
+            await this.dispatch(item);
+          } finally {
+            this.inFlight.delete(item.id);
+          }
+        }
       }
+    } finally {
+      this.isChecking = false;
     }
+  }
+
+  /**
+   * Due messages are held rather than failed while safe mode is engaged, so the
+   * operator can unlock and still have them go out.
+   */
+  private warnHeld(item: ScheduledMessage): void {
+    if (this.heldWarned.has(item.id)) return;
+    this.heldWarned.add(item.id);
+    logger.warn(
+      'send',
+      `Scheduled message ${item.id} to ${item.to} is due but held: safe read-only mode is active.`
+    );
+  }
+
+  private broadcastUpdate(item: ScheduledMessage): void {
+    if (!this.eventBridge) return;
+    this.eventBridge.broadcast({
+      type: 'scheduled.update',
+      data: item,
+      ts: new Date().toISOString(),
+    });
   }
 
   private async dispatch(item: ScheduledMessage): Promise<void> {
     logger.info('send', `Executing due scheduled dispatch ${item.id} to ${item.to}`);
+    this.heldWarned.delete(item.id);
 
     try {
-      // If safe mode is engaged, unlock for scheduled execution
-      if (modeManager.isReadOnly()) {
-        modeManager.setReadOnly(false);
-      }
-
       let result: Record<string, unknown>;
 
       if (item.filePath && fs.existsSync(item.filePath)) {
@@ -238,12 +277,9 @@ export class Scheduler {
       this.save();
       logger.info('send', `Scheduled message ${item.id} sent successfully`);
 
+      this.broadcastUpdate(item);
+
       if (this.eventBridge) {
-        this.eventBridge.broadcast({
-          type: 'scheduled.update',
-          data: item,
-          ts: new Date().toISOString(),
-        });
         this.eventBridge.broadcast({
           type: 'message.new',
           data: {
@@ -278,13 +314,7 @@ export class Scheduler {
       this.save();
       logger.error('send', `Scheduled message ${item.id} failed: ${item.error}`);
 
-      if (this.eventBridge) {
-        this.eventBridge.broadcast({
-          type: 'scheduled.update',
-          data: item,
-          ts: new Date().toISOString(),
-        });
-      }
+      this.broadcastUpdate(item);
     }
   }
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
+import { modeManager } from '../wacli/mode.js';
 
 vi.mock('../wacli/commands.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../wacli/commands.js')>();
@@ -72,6 +73,8 @@ describe('API Read Endpoints', () => {
   });
 
   it('POST /api/chats/mark-read marks a chat as read', async () => {
+    modeManager.setReadOnly(false);
+
     const res = await request(app)
       .post('/api/chats/mark-read')
       .send({ chat: '15551234567@s.whatsapp.net' });

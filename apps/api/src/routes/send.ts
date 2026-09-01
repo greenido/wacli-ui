@@ -33,7 +33,7 @@ function requireMutationPermission(req: Request, res: Response, next: NextFuncti
     res.status(403).json({
       success: false,
       data: null,
-      error: 'Safe read-only mode is active. Outgoing sends and reactions are disabled.',
+      error: 'Safe read-only mode is active. Outgoing sends, reactions, and scheduled jobs are disabled.',
     });
     return;
   }
@@ -98,10 +98,12 @@ export function createSendRouter(): Router {
   });
 
   // POST /api/send/file
+  // The permission gate runs before multer so a blocked request never writes a
+  // temp file that nothing would clean up.
   router.post(
     '/send/file',
-    upload.single('file'),
     requireMutationPermission,
+    upload.single('file'),
     async (req: Request, res: Response, next: NextFunction) => {
       const file = req.file;
       const { to, caption, replyTo, confirm } = req.body as {
@@ -239,18 +241,8 @@ export function createSendRouter(): Router {
   });
 
   // POST /api/send/schedule (Send Later text)
-  router.post('/send/schedule', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/send/schedule', requireMutationPermission, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const customHeader = req.headers['x-mission-control-request'];
-      if (!customHeader && process.env.NODE_ENV !== 'test') {
-        res.status(400).json({
-          success: false,
-          data: null,
-          error: 'Missing required "X-Mission-Control-Request: 1" header.',
-        });
-        return;
-      }
-
       const { to, recipientName, message, replyTo, scheduledAt, confirm } = req.body as {
         to?: string;
         recipientName?: string;
@@ -302,6 +294,7 @@ export function createSendRouter(): Router {
   // POST /api/send/schedule-file (Send Later file)
   router.post(
     '/send/schedule-file',
+    requireMutationPermission,
     upload.single('file'),
     async (req: Request, res: Response, next: NextFunction) => {
       const file = req.file;

@@ -57,7 +57,25 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.body.error).toContain('No file attachment provided');
   });
 
+  it('POST /api/send/schedule is blocked while read-only mode is active (403)', async () => {
+    modeManager.setReadOnly(true);
+
+    const res = await request(app)
+      .post('/api/send/schedule')
+      .set('X-Mission-Control-Request', '1')
+      .send({
+        to: '15559876543@s.whatsapp.net',
+        message: 'Should not be queued',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(),
+        confirm: true,
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Safe read-only mode is active');
+  });
+
   it('POST /api/send/schedule schedules a message and lists it', async () => {
+    modeManager.setReadOnly(false);
     const scheduledAt = new Date(Date.now() + 3600000).toISOString();
 
     const res = await request(app)
