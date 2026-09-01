@@ -30,8 +30,6 @@ export class Scheduler {
   /** Ids currently being dispatched, to prevent overlapping ticks double-sending. */
   private inFlight: Set<string> = new Set();
   private isChecking = false;
-  /** Ids we have already logged a "held by safe mode" warning for. */
-  private heldWarned: Set<string> = new Set();
 
   constructor(customPath?: string, bridge?: EventBridge) {
     this.eventBridge = bridge ?? null;
@@ -140,7 +138,6 @@ export class Scheduler {
     item.status = 'cancelled';
     this.save();
     logger.info('send', `Cancelled scheduled message ${id}`);
-    this.heldWarned.delete(id);
 
     this.broadcastUpdate(item);
 
@@ -183,16 +180,16 @@ export class Scheduler {
 
         const dueTime = new Date(item.scheduledAt).getTime();
         if (Number.isNaN(dueTime)) {
-          item.status = 'failed';
-          item.error = `Invalid scheduledAt value: ${item.scheduledAt}`;
-          this.save();
-          this.broadcastUpdate(item);
+          this.fail(item, `Invalid scheduledAt value: ${item.scheduledAt}`);
           continue;
         }
 
         if (dueTime <= now) {
           if (modeManager.isReadOnly()) {
-            this.warnHeld(item);
+            this.fail(
+              item,
+              'Not sent: safe read-only mode was active when this message came due. Unlock live sends and reschedule.'
+            );
             continue;
           }
           this.inFlight.add(item.id);
@@ -209,16 +206,16 @@ export class Scheduler {
   }
 
   /**
-   * Due messages are held rather than failed while safe mode is engaged, so the
-   * operator can unlock and still have them go out.
+   * Marks a due message failed and says so everywhere the operator might be
+   * looking: the log, the persisted record, and the live scheduled list. A
+   * message that silently does not go out is worse than one that visibly fails.
    */
-  private warnHeld(item: ScheduledMessage): void {
-    if (this.heldWarned.has(item.id)) return;
-    this.heldWarned.add(item.id);
-    logger.warn(
-      'send',
-      `Scheduled message ${item.id} to ${item.to} is due but held: safe read-only mode is active.`
-    );
+  private fail(item: ScheduledMessage, error: string): void {
+    item.status = 'failed';
+    item.error = error;
+    this.save();
+    logger.error('send', `Scheduled message ${item.id} to ${item.to} failed: ${error}`);
+    this.broadcastUpdate(item);
   }
 
   private broadcastUpdate(item: ScheduledMessage): void {
@@ -232,7 +229,6 @@ export class Scheduler {
 
   private async dispatch(item: ScheduledMessage): Promise<void> {
     logger.info('send', `Executing due scheduled dispatch ${item.id} to ${item.to}`);
-    this.heldWarned.delete(item.id);
 
     try {
       let result: Record<string, unknown>;
@@ -309,12 +305,7 @@ export class Scheduler {
         });
       }
     } catch (err: unknown) {
-      item.status = 'failed';
-      item.error = err instanceof Error ? err.message : String(err);
-      this.save();
-      logger.error('send', `Scheduled message ${item.id} failed: ${item.error}`);
-
-      this.broadcastUpdate(item);
+      this.fail(item, err instanceof Error ? err.message : String(err));
     }
   }
 }

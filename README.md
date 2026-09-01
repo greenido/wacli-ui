@@ -30,7 +30,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 
 ### 🛡️ Safe-by-Default Architecture
 - **Read-Only on First Run**: A fresh install starts locked — outgoing actions (sends, replies, emoji reactions, scheduled jobs) are all blocked until you explicitly unlock live sends.
-- **Your Choice Sticks**: Safe mode is a first-run default, not a recurring nag. Once you unlock live sends, that choice persists across restarts and is never silently re-imposed — and nothing but you can change it. Scheduled dispatches respect the lock rather than lifting it: a due message is held while safe mode is on and goes out once you unlock.
+- **Your Choice Sticks**: Safe mode is a first-run default, not a recurring nag. Once you unlock live sends, that choice persists across restarts and is never silently re-imposed — and nothing but you can change it. Scheduled dispatches respect the lock rather than lifting it: a message that comes due while safe mode is on **fails loudly** — marked failed with the reason, logged as an error, and shown in red in the scheduled list — rather than going out behind your back or sitting silently. Unlock live sends and reschedule it.
 - **Two-Step Mutation Guardrails**: Every send, media dispatch, or reaction prompt passes through a `SendConfirmModal` confirmation step with target JID, payload preview, and explicit confirmation.
 - **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
 

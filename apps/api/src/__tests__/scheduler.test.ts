@@ -143,7 +143,7 @@ describe('Scheduler dispatch', () => {
     expect(scheduler.getList()[0].status).toBe('sent');
   });
 
-  it('holds a due message while safe read-only mode is active', async () => {
+  it('fails a due message loudly while safe read-only mode is active', async () => {
     execWacliMock.mockResolvedValue({ messageId: 'wamid.NOPE' });
     modeManager.setReadOnly(true);
 
@@ -153,8 +153,23 @@ describe('Scheduler dispatch', () => {
     await scheduler.checkDueMessages();
 
     expect(execWacliMock).not.toHaveBeenCalled();
-    // Held, not failed — it still goes out once the operator unlocks.
-    expect(scheduler.getList()[0].status).toBe('pending');
+
+    // Visibly failed with a reason, not silently stuck pending.
+    const item = scheduler.getList()[0];
+    expect(item.status).toBe('failed');
+    expect(item.error).toContain('safe read-only mode');
+  });
+
+  it('persists the safe-mode failure so it survives a restart', async () => {
+    modeManager.setReadOnly(true);
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    scheduler.schedule(dueMessage);
+    await scheduler.checkDueMessages();
+
+    const reloaded = new Scheduler(tmpSchedFile).getList()[0];
+    expect(reloaded.status).toBe('failed');
+    expect(reloaded.error).toContain('safe read-only mode');
   });
 
   it('never turns safe mode off as a side effect of dispatching', async () => {
@@ -168,20 +183,21 @@ describe('Scheduler dispatch', () => {
     expect(modeManager.isReadOnly()).toBe(true);
   });
 
-  it('sends a held message once safe mode is lifted', async () => {
+  it('does not resurrect a safe-mode failure after the operator unlocks', async () => {
     execWacliMock.mockResolvedValue({ messageId: 'wamid.LATER' });
     modeManager.setReadOnly(true);
 
     const scheduler = new Scheduler(tmpSchedFile);
     scheduler.schedule(dueMessage);
     await scheduler.checkDueMessages();
-    expect(execWacliMock).not.toHaveBeenCalled();
+    expect(scheduler.getList()[0].status).toBe('failed');
 
+    // Unlocking must not quietly send a message the operator was told failed.
     modeManager.setReadOnly(false);
     await scheduler.checkDueMessages();
 
-    expect(execWacliMock).toHaveBeenCalledTimes(1);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(execWacliMock).not.toHaveBeenCalled();
+    expect(scheduler.getList()[0].status).toBe('failed');
   });
 
   it('marks a message failed when the send errors, without retrying it', async () => {
