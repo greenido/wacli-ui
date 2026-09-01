@@ -30,7 +30,11 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const mediaType = msg.mediaType || 'document';
-  const filename = msg.filename || `${mediaType}_attachment`;
+  // Stickers carry no filename of their own, and the generic
+  // `sticker_attachment` fallback has no extension — so a saved sticker lands as
+  // a file the OS cannot open. They are always WebP, so name it as such.
+  const filename =
+    msg.filename || (mediaType === 'sticker' ? 'sticker.webp' : `${mediaType}_attachment`);
 
   const mediaSrc = api.getMediaUrl({
     chat: chatJid,
@@ -171,7 +175,32 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
     );
   }
 
-  // 2. AUDIO PREVIEW (Voice notes & audio recordings)
+  // 2. STICKER PREVIEW
+  // Deliberately bare compared to the image branch: stickers are 512x512 WebP
+  // with a transparent background (often animated), so a card background would
+  // show through the transparency and `object-cover` would crop the art.
+  if (mediaType === 'sticker') {
+    return (
+      <div className="mb-2 relative inline-block group/sticker">
+        <img
+          src={mediaSrc}
+          alt={msg.mediaCaption || 'Sticker'}
+          className="w-32 h-32 object-contain"
+          loading="lazy"
+        />
+        <a
+          href={downloadSrc}
+          download={filename}
+          className="absolute top-1 right-1 p-1 rounded bg-black/70 backdrop-blur-sm text-mc-text hover:text-mc-live opacity-0 group-hover/sticker:opacity-100 focus:opacity-100 transition-opacity"
+          title="Download sticker"
+        >
+          <Download size={12} />
+        </a>
+      </div>
+    );
+  }
+
+  // 3. AUDIO PREVIEW (Voice notes & audio recordings)
   if (mediaType === 'audio') {
     return (
       <div className="mb-2 p-2.5 rounded-md bg-mc-bg/70 border border-mc-border flex flex-col gap-2 min-w-[240px] max-w-xs font-mono">
@@ -264,7 +293,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
     );
   }
 
-  // 3. VIDEO PREVIEW
+  // 4. VIDEO PREVIEW
   if (mediaType === 'video') {
     return (
       <div className="mb-2 space-y-1.5 max-w-sm">
@@ -291,7 +320,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
     );
   }
 
-  // 4. DOCUMENT & FILE DOWNLOADER
+  // 5. DOCUMENT & FILE DOWNLOADER
   return (
     <div className="mb-2 p-2.5 rounded-md bg-mc-bg/80 border border-mc-border flex items-center justify-between gap-3 font-mono text-xs max-w-sm">
       <div className="flex items-center gap-2.5 min-w-0">
