@@ -239,7 +239,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </div>
           )}
 
-          {health?.processPid != null && (
+          {typeof health?.processPid === 'number' && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>PID</span>
               <span className="text-mc-text font-mono">{health.processPid}</span>

@@ -3,11 +3,16 @@ import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useModalDialog } from '../../hooks/useModalDialog.ts';
 
 export const SettingsModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const queryClient = useQueryClient();
+
+  const dialogRef = useModalDialog<HTMLDivElement>(activeModal === 'settings', () =>
+    setActiveModal(null)
+  );
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -45,14 +50,24 @@ export const SettingsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-xl flex flex-col max-h-[85vh] font-sans text-xs">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-xl flex flex-col max-h-[85vh] font-sans text-xs"
+      >
         {/* Header */}
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
-          <div className="flex items-center gap-2 font-mono font-semibold text-sm text-mc-text">
-            <span>SETTINGS & DIAGNOSTICS</span>
-          </div>
+          <h2
+            id="settings-title"
+            className="flex items-center gap-2 font-mono font-semibold text-sm text-mc-text"
+          >
+            <span>SETTINGS &amp; DIAGNOSTICS</span>
+          </h2>
           <button
             onClick={() => setActiveModal(null)}
+            aria-label="Close settings"
             className="p-1 text-mc-textMuted hover:text-mc-text rounded"
           >
             <X size={16} />

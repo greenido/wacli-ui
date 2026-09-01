@@ -6,6 +6,7 @@ import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 interface SearchBarProps {
@@ -15,6 +16,8 @@ interface SearchBarProps {
 export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // SearchBar is only mounted while open, so it is always open here.
+  const dialogRef = useModalDialog<HTMLDivElement>(true, onClose);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
   const queryClient = useQueryClient();
@@ -90,6 +93,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search all messages"
         className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-2xl flex flex-col max-h-[70vh]"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
@@ -100,6 +107,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
           <input
             type="text"
             autoFocus
+            data-autofocus
+            aria-label="Search query"
             value={query}
             onChange={handleQueryChange}
             placeholder="Full-text search across all messages (FTS5)..."
