@@ -3,6 +3,8 @@ import { X, UserPlus, Search, ArrowRight, Phone } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
+import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -15,6 +17,16 @@ export const NewChatModal: React.FC = () => {
 
   const [inputQuery, setInputQuery] = useState('');
 
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.getHealth(),
+  });
+
+  const readsReady = isWacliReadyForReads(health);
+  const readQueryOpts = wacliReadQueryOptions<UnifiedChat[]>(
+    activeModal === 'new-chat' && readsReady
+  );
+
   // Fetch either matching chats or recent chats if no search query
   const { data: searchResults = [], isLoading } = useQuery({
     queryKey: ['newChatList', inputQuery.trim()],
@@ -23,7 +35,7 @@ export const NewChatModal: React.FC = () => {
         query: inputQuery.trim() || undefined,
         limit: inputQuery.trim() ? 25 : 50,
       }),
-    enabled: activeModal === 'new-chat',
+    ...readQueryOpts,
   });
 
   if (activeModal !== 'new-chat') return null;

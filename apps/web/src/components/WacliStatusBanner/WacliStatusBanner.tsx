@@ -74,10 +74,16 @@ export const WacliStatusBanner: React.FC = () => {
   }
 
   // If wacli is installed and working normally, no banner needed
-  if (health?.wacliInstalled && health?.wacliWorking && health.statusSummary === 'ok') {
+  if (
+    health?.wacliInstalled &&
+    health?.wacliWorking &&
+    health.statusSummary === 'ok'
+  ) {
     return null;
   }
 
+  const isSyncStarting = health?.statusSummary === 'sync_starting';
+  const isExternalLock = health?.statusSummary === 'store_locked_external';
   const isNotInstalled = health?.wacliInstalled === false || health?.statusSummary === 'not_installed';
   const isNotAuth = health?.statusSummary === 'not_authenticated' || health?.doctor?.authenticated === false;
 
@@ -85,7 +91,7 @@ export const WacliStatusBanner: React.FC = () => {
     <div
       aria-label="System diagnostic warning"
       className={`border-b text-xs font-mono select-none transition-all shadow-md ${
-        isNotInstalled
+        isNotInstalled || isExternalLock
           ? 'bg-[#2A1515] border-mc-danger/60 text-mc-danger'
           : 'bg-[#2A2315] border-mc-safe/60 text-mc-safe'
       }`}
@@ -105,6 +111,10 @@ export const WacliStatusBanner: React.FC = () => {
                 ? 'wacli CLI Not Installed'
                 : isNotAuth
                 ? 'WhatsApp Session Not Paired'
+                : isSyncStarting
+                ? 'Sync Daemon Starting'
+                : isExternalLock
+                ? 'Store Lock Conflict'
                 : 'wacli CLI Issue Detected'}
             </span>
             <span className="text-[11px] text-mc-text truncate">
@@ -250,6 +260,20 @@ export const WacliStatusBanner: React.FC = () => {
                   Scan the QR code printed in your terminal with WhatsApp on your phone (Linked Devices &gt; Link a Device).
                 </p>
               </div>
+            </div>
+          ) : isSyncStarting ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-mc-text">
+                The background sync daemon is starting up. Chat and message queries will resume automatically in a few seconds.
+              </p>
+            </div>
+          ) : isExternalLock ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-mc-text">
+                Another <span className="font-mono text-mc-danger font-semibold">wacli</span> process holds the store lock
+                {health?.storeLockHolderPid ? ` (pid ${health.storeLockHolderPid})` : ''}.
+                Stop the other process or restart the sync daemon from Settings.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">

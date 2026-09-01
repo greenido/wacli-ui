@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { execWacli, checkWacliInstalled } from '../wacli/commands.js';
 import { normalizeDoctor } from '../wacli/normalize.js';
 import { modeManager } from '../wacli/mode.js';
+import { isStoreLockMessage, parseLockHolderPid } from '../wacli/store-lock.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { MissionControlStatus, UnifiedDoctor } from '../types.js';
 
@@ -35,9 +36,38 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
           statusSummary = processManager.getState() === 'logged_out' ? 'not_authenticated' : 'daemon_error';
           statusMessage = processManager.getLastError() || `Sync daemon is in ${processManager.getState()} state.`;
         } else {
-          wacliWorking = true;
-          statusSummary = 'ok';
-          statusMessage = 'wacli is installed and working normally.';
+          const processState = processManager.getState();
+          const daemonPid = processManager.getPid();
+          const lastError = processManager.getLastError();
+          const lockPidFromError = lastError && isStoreLockMessage(lastError)
+            ? parseLockHolderPid(lastError)
+            : null;
+
+          if (
+            lockPidFromError &&
+            daemonPid &&
+            lockPidFromError !== daemonPid
+          ) {
+            wacliWorking = false;
+            statusSummary = 'store_locked_external';
+            statusMessage = `Another wacli process (pid ${lockPidFromError}) holds the store lock. Stop it or restart the sync daemon.`;
+          } else if (
+            doctor.lockHeld &&
+            (processState === 'stopped' || processState === 'failed') &&
+            doctor.connectionState === 'locked_by_other_process'
+          ) {
+            wacliWorking = false;
+            statusSummary = 'store_locked_external';
+            statusMessage = 'Another wacli process holds the store lock. Stop other wacli instances or restart the sync daemon.';
+          } else if (processState === 'starting' || processState === 'restarting') {
+            wacliWorking = false;
+            statusSummary = 'sync_starting';
+            statusMessage = 'Sync daemon is starting. Read queries will be available shortly.';
+          } else {
+            wacliWorking = true;
+            statusSummary = 'ok';
+            statusMessage = 'wacli is installed and working normally.';
+          }
         }
       } catch (err: unknown) {
         doctorError = err instanceof Error ? err.message : String(err);
@@ -47,12 +77,16 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
       }
     }
 
+    const lastError = doctorError || processManager.getLastError() || installStatus.error;
+    const storeLockHolderPid =
+      lastError && isStoreLockMessage(lastError) ? parseLockHolderPid(lastError) : null;
+
     const status: MissionControlStatus = {
       readOnly: modeManager.isReadOnly(),
       processState: processManager.getState(),
       processPid: processManager.getPid(),
       heartbeatAgeSeconds: processManager.getHeartbeatAgeSeconds(),
-      lastError: doctorError || processManager.getLastError() || installStatus.error,
+      lastError,
       reconnectAttempts: processManager.getReconnectAttempts(),
       doctor,
       wacliInstalled: installStatus.installed,
@@ -61,6 +95,8 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
       wacliBinaryPath: installStatus.binPath,
       statusSummary,
       statusMessage,
+      storeLockHeld: doctor?.lockHeld ?? false,
+      storeLockHolderPid,
     };
 
     res.json({ success: true, data: status, error: null });

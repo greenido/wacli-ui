@@ -3,6 +3,8 @@ import { Search, X, MessageSquare } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
+import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -18,10 +20,20 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const queryClient = useQueryClient();
   const resultsContainerRef = useRef<HTMLDivElement>(null);
 
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.getHealth(),
+  });
+
+  const readsReady = isWacliReadyForReads(health);
+  const readQueryOpts = wacliReadQueryOptions<{ query: string; fts: boolean; results: UnifiedMessage[] } | null>(
+    readsReady && Boolean(query.trim())
+  );
+
   const { data: searchResults, isFetching } = useQuery({
     queryKey: ['search', query],
     queryFn: () => (query.trim() ? api.searchMessages({ q: query.trim(), limit: 50 }) : null),
-    enabled: Boolean(query.trim()),
+    ...readQueryOpts,
   });
 
   const results = searchResults?.results ?? [];

@@ -17,6 +17,7 @@ import { createSearchRouter } from './routes/search.js';
 import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
 import { scheduler } from './wacli/scheduler.js';
+import { StoreLockedError } from './wacli/store-lock.js';
 
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
@@ -131,6 +132,18 @@ export function createApp(
 
   // Global Error Handler
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof StoreLockedError) {
+      logger.warn('api', `Store locked: ${err.message}`);
+      res.status(503).json({
+        success: false,
+        data: null,
+        error: err.message,
+        code: err.code,
+        lockHolderPid: err.lockHolderPid,
+      });
+      return;
+    }
+
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error('api', `Unhandled API error: ${errorMsg}`);
     res.status(500).json({ success: false, data: null, error: errorMsg });

@@ -1,8 +1,10 @@
 import React, { useMemo, useEffect, useCallback } from 'react';
 import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client.ts';
+import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
+import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -26,7 +28,10 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     queryFn: () => api.getHealth(),
   });
 
-  const { data: chats = [], isLoading, isError } = useQuery({
+  const readsReady = isWacliReadyForReads(health);
+  const readQueryOpts = wacliReadQueryOptions<UnifiedChat[]>(readsReady);
+
+  const { data: chats = [], isLoading, isError, error, isFetching } = useQuery({
     queryKey: ['chats', searchQuery, chatFilter],
     queryFn: () =>
       api.getChats({
@@ -38,6 +43,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
         muted: chatFilter === 'muted' ? true : undefined,
       }),
     refetchInterval: 10000,
+    ...readQueryOpts,
   });
 
   const filteredChats = useMemo(() => {
@@ -139,9 +145,9 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto divide-y divide-mc-border/40">
-        {isLoading ? (
+        {isLoading || (isFetching && chats.length === 0 && !readsReady) ? (
           <div className="p-6 text-center text-xs font-mono text-mc-textMuted">
-            Loading chats...
+            {readsReady ? 'Loading chats...' : 'Waiting for sync daemon...'}
           </div>
         ) : health?.wacliInstalled === false ? (
           <div className="p-6 text-center space-y-3 font-mono">
@@ -169,7 +175,11 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
           </div>
         ) : filteredChats.length === 0 ? (
           <div className="p-6 text-center text-xs text-mc-textMuted font-sans">
-            {isError ? 'Unable to load chats. Check CLI connection.' : 'No chats found.'}
+            {isError
+              ? error instanceof ApiClientError && error.code === 'STORE_LOCKED'
+                ? 'Store is temporarily locked. Retrying...'
+                : 'Unable to load chats. Check CLI connection.'
+              : 'No chats found.'}
           </div>
         ) : (
           filteredChats.map((chat: UnifiedChat) => {

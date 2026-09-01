@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
@@ -36,6 +38,11 @@ export const ThreadView: React.FC = () => {
     queryFn: () => api.getHealth(),
   });
 
+  const readsReady = isWacliReadyForReads(health);
+  const readQueryOpts = wacliReadQueryOptions<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+    readsReady && Boolean(selectedChat?.jid)
+  );
+
   const {
     data: messagesData,
     isLoading,
@@ -45,8 +52,8 @@ export const ThreadView: React.FC = () => {
       selectedChat
         ? api.getMessages({ chat: selectedChat.jid, limit: 200 })
         : Promise.resolve({ messages: [], hasMore: false }),
-    enabled: Boolean(selectedChat?.jid),
     refetchInterval: 5000,
+    ...readQueryOpts,
   });
 
   // Scheduled messages for current chat

@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
 import type { RawWacliResponse } from '../types.js';
+import { isStoreLockMessage, sleep, toStoreLockedError } from './store-lock.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +24,10 @@ export interface ExecWacliOptions {
   timeoutMs?: number;
   storeDir?: string;
   account?: string;
+  /** Internal retries for transient store lock contention (default 3). */
+  lockRetryAttempts?: number;
+  /** Delay between lock retries in ms (default 400). */
+  lockRetryDelayMs?: number;
 }
 
 export interface WacliInstallStatus {
@@ -63,7 +68,35 @@ export async function checkWacliInstalled(): Promise<WacliInstallStatus> {
   }
 }
 
-export async function execWacli<T>(
+function classifyCommandError(err: unknown, commandLabel: string): WacliCommandError {
+  if (err instanceof WacliCommandError) {
+    return err;
+  }
+  const execErr = err as { code?: number; message?: string; stdout?: string; stderr?: string };
+  const rawOut = (execErr.stdout || '') + (execErr.stderr || '');
+
+  if (rawOut) {
+    try {
+      const parsed = JSON.parse(rawOut.trim()) as RawWacliResponse<unknown>;
+      if (parsed.error) {
+        return new WacliCommandError(parsed.error, execErr.code, rawOut, commandLabel);
+      }
+    } catch (pErr) {
+      if (pErr instanceof WacliCommandError) {
+        return pErr;
+      }
+    }
+  }
+
+  return new WacliCommandError(
+    execErr.message || 'Unknown execution error',
+    execErr.code,
+    rawOut,
+    commandLabel
+  );
+}
+
+async function execWacliOnce<T>(
   args: string[],
   options: ExecWacliOptions = {}
 ): Promise<T> {
@@ -97,6 +130,7 @@ export async function execWacli<T>(
   }
 
   const timeout = options.timeoutMs ?? 30000;
+  const commandLabel = `${bin} ${args.join(' ')}`;
 
   try {
     const { stdout, stderr } = await execFileAsync(bin, fullArgs, {
@@ -107,7 +141,7 @@ export async function execWacli<T>(
 
     const output = stdout.trim() || stderr.trim();
     if (!output) {
-      throw new WacliCommandError('Empty output from wacli command', undefined, undefined, `${bin} ${args.join(' ')}`);
+      throw new WacliCommandError('Empty output from wacli command', undefined, undefined, commandLabel);
     }
 
     try {
@@ -117,7 +151,7 @@ export async function execWacli<T>(
           parsed.error || 'wacli returned unsuccessful response',
           undefined,
           output,
-          `${bin} ${args.join(' ')}`
+          commandLabel
         );
       }
       return parsed.data as T;
@@ -129,37 +163,50 @@ export async function execWacli<T>(
         `Failed to parse wacli JSON output: ${output.slice(0, 200)}`,
         undefined,
         output,
-        `${bin} ${args.join(' ')}`
+        commandLabel
       );
     }
   } catch (err: unknown) {
-    const execErr = err as { code?: number; message?: string; stdout?: string; stderr?: string };
-    const rawOut = (execErr.stdout || '') + (execErr.stderr || '');
-
-    // Attempt to extract structured error from json output
-    if (rawOut) {
-      try {
-        const parsed = JSON.parse(rawOut.trim()) as RawWacliResponse<unknown>;
-        if (parsed.error) {
-          throw new WacliCommandError(parsed.error, execErr.code, rawOut, `${bin} ${args.join(' ')}`);
-        }
-      } catch (pErr) {
-        if (pErr instanceof WacliCommandError) {
-          throw pErr;
-        }
-      }
+    const cmdErr = classifyCommandError(err, commandLabel);
+    if (!isStoreLockMessage(cmdErr.message)) {
+      logger.error('api', `Command failed [${commandLabel}]: ${cmdErr.message}`);
     }
-
-    if (err instanceof WacliCommandError) {
-      throw err;
-    }
-
-    logger.error('api', `Command failed [${bin} ${args.join(' ')}]: ${execErr.message || String(err)}`);
-    throw new WacliCommandError(
-      execErr.message || 'Unknown execution error',
-      execErr.code,
-      rawOut,
-      `${bin} ${args.join(' ')}`
-    );
+    throw cmdErr;
   }
+}
+
+export async function execWacli<T>(
+  args: string[],
+  options: ExecWacliOptions = {}
+): Promise<T> {
+  const maxAttempts = options.lockRetryAttempts ?? 3;
+  const retryDelayMs = options.lockRetryDelayMs ?? 400;
+  const commandLabel = `${process.env.WACLI_BIN ?? 'wacli'} ${args.join(' ')}`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await execWacliOnce<T>(args, options);
+    } catch (err: unknown) {
+      const cmdErr = classifyCommandError(err, commandLabel);
+      const isLock = isStoreLockMessage(cmdErr.message);
+      const isLastAttempt = attempt >= maxAttempts;
+
+      if (isLock && !isLastAttempt) {
+        logger.warn(
+          'api',
+          `Store lock on [${commandLabel}] (attempt ${attempt}/${maxAttempts}); retrying in ${retryDelayMs}ms`
+        );
+        await sleep(retryDelayMs);
+        continue;
+      }
+
+      if (isLock) {
+        throw toStoreLockedError(cmdErr.message, commandLabel);
+      }
+
+      throw cmdErr;
+    }
+  }
+
+  throw new WacliCommandError('Unexpected execWacli retry exhaustion', undefined, undefined, commandLabel);
 }

@@ -238,6 +238,34 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               </span>
             </div>
           )}
+
+          {health?.processPid != null && (
+            <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
+              <span>PID</span>
+              <span className="text-mc-text font-mono">{health.processPid}</span>
+            </div>
+          )}
+
+          {health?.storeLockHeld && (
+            <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
+              <span>STORE LOCK</span>
+              <span
+                className={
+                  health.storeLockHolderPid &&
+                  health.processPid &&
+                  health.storeLockHolderPid !== health.processPid
+                    ? 'text-mc-danger font-semibold'
+                    : 'text-mc-live font-semibold'
+                }
+              >
+                {health.storeLockHolderPid &&
+                health.processPid &&
+                health.storeLockHolderPid !== health.processPid
+                  ? `EXTERNAL (pid ${health.storeLockHolderPid})`
+                  : 'HELD BY DAEMON'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Linked Identity */}

@@ -65,8 +65,17 @@ export interface MissionControlStatus {
   wacliWorking: boolean;
   wacliVersion: string | null;
   wacliBinaryPath: string | null;
-  statusSummary: 'ok' | 'not_installed' | 'not_authenticated' | 'error' | 'daemon_error';
+  statusSummary:
+    | 'ok'
+    | 'not_installed'
+    | 'not_authenticated'
+    | 'error'
+    | 'daemon_error'
+    | 'sync_starting'
+    | 'store_locked_external';
   statusMessage: string | null;
+  storeLockHeld: boolean;
+  storeLockHolderPid: number | null;
 }
 
 export interface ScheduledMessage {

@@ -10,7 +10,12 @@ const API_BASE =
   (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3002');
 
 export class ApiClientError extends Error {
-  constructor(message: string, public status?: number) {
+  constructor(
+    message: string,
+    public status?: number,
+    public code?: string,
+    public lockHolderPid?: number | null
+  ) {
     super(message);
     this.name = 'ApiClientError';
   }
@@ -20,6 +25,8 @@ interface ApiResponse<T> {
   success: boolean;
   data: T;
   error: string | null;
+  code?: string;
+  lockHolderPid?: number | null;
 }
 
 async function request<T>(
@@ -48,15 +55,19 @@ async function request<T>(
 
   if (!response.ok) {
     let errorMsg = `HTTP Error ${response.status}: ${response.statusText}`;
+    let errorCode: string | undefined;
+    let lockHolderPid: number | null | undefined;
     try {
       const errorJson = (await response.json()) as ApiResponse<unknown>;
       if (errorJson.error) {
         errorMsg = errorJson.error;
       }
+      errorCode = errorJson.code;
+      lockHolderPid = errorJson.lockHolderPid;
     } catch {
       // ignore
     }
-    throw new ApiClientError(errorMsg, response.status);
+    throw new ApiClientError(errorMsg, response.status, errorCode, lockHolderPid);
   }
 
   const body = (await response.json()) as ApiResponse<T>;
