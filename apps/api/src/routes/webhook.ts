@@ -6,6 +6,13 @@ import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 import type { RawWebhookChatPresence, RawWebhookMessage, RawWebhookReceipt } from '../types.js';
 
+function normalizePresenceState(state: string | undefined): 'composing' | 'paused' | null {
+  const normalized = (state ?? '').toLowerCase();
+  if (normalized === 'paused') return 'paused';
+  if (normalized === 'composing') return 'composing';
+  return null;
+}
+
 export function createWebhookRouter(
   processManager: WacliProcessManager,
   eventBridge: EventBridge
@@ -65,12 +72,17 @@ export function createWebhookRouter(
       });
     } else if (payload.EventType === 'chat_presence') {
       const presence = payload as unknown as RawWebhookChatPresence;
+      const state = normalizePresenceState(presence.State);
+      if (!state) {
+        res.status(200).json({ status: 'ok' });
+        return;
+      }
       eventBridge.broadcast({
         type: 'chat.presence',
         data: {
           chatJid: presence.Chat,
           senderJid: presence.Sender,
-          state: presence.State === 'paused' ? 'paused' : 'composing',
+          state,
           media: presence.Media === 'audio' ? 'audio' : '',
         },
         ts,

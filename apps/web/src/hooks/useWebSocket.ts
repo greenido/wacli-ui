@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/appStore.ts';
-import type { MissionControlEvent, UnifiedChat, UnifiedMessage } from '../types.ts';
+import { sameWhatsAppUser } from '../lib/presence.ts';
+import type { MissionControlEvent, MissionControlStatus, UnifiedChat, UnifiedMessage } from '../types.ts';
 
 export function useWebSocket() {
   const queryClient = useQueryClient();
@@ -82,6 +83,10 @@ export function useWebSocket() {
                 return tsB - tsA;
               });
             });
+
+            if (!newMsg.fromMe) {
+              useAppStore.getState().clearPresence(newMsg.chatJid);
+            }
           } else if (payload.type === 'message.receipt') {
             const { chatJid, messageIds, status } = payload.data;
             queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
@@ -101,6 +106,11 @@ export function useWebSocket() {
             );
           } else if (payload.type === 'chat.presence') {
             const { chatJid, state, senderJid } = payload.data;
+            const health = queryClient.getQueryData<MissionControlStatus>(['health']);
+            const linkedJid = health?.doctor?.linkedJid;
+            if (linkedJid && senderJid && sameWhatsAppUser(senderJid, linkedJid)) {
+              return;
+            }
             useAppStore.getState().setPresence(chatJid, state, senderJid);
           } else if (payload.type === 'scheduled.update') {
             queryClient.invalidateQueries({ queryKey: ['scheduled'] });

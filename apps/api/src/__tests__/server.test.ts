@@ -3,6 +3,8 @@ import request from 'supertest';
 import crypto from 'node:crypto';
 import { createApp, isLoopbackOrigin } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
+import { EventBridge } from '../ws/event-bridge.js';
+import type { MissionControlEvent } from '../types.js';
 
 vi.mock('../wacli/commands.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../wacli/commands.js')>();
@@ -159,5 +161,53 @@ describe('Express Server Foundation', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+  });
+
+  it('POST /internal/wacli/webhook maps chat_presence states strictly', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const bridge = new EventBridge();
+    const app = createApp(pm, bridge);
+    const receivedEvents: MissionControlEvent[] = [];
+    const broadcastSpy = vi.spyOn(bridge, 'broadcast').mockImplementation((event) => {
+      receivedEvents.push(event);
+    });
+
+    const secret = pm.getWebhookSecret();
+
+    async function postPresence(state: string) {
+      const payload = JSON.stringify({
+        EventType: 'chat_presence',
+        Chat: '15551234567@s.whatsapp.net',
+        Sender: '15559876543@s.whatsapp.net',
+        State: state,
+      });
+      const hmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+      return request(app)
+        .post('/internal/wacli/webhook')
+        .set('Content-Type', 'application/json')
+        .set('X-Wacli-Signature', `sha256=${hmac}`)
+        .send(payload);
+    }
+
+    const composingRes = await postPresence('composing');
+    expect(composingRes.status).toBe(200);
+    expect(receivedEvents.at(-1)).toMatchObject({
+      type: 'chat.presence',
+      data: { state: 'composing' },
+    });
+
+    const pausedRes = await postPresence('paused');
+    expect(pausedRes.status).toBe(200);
+    expect(receivedEvents.at(-1)).toMatchObject({
+      type: 'chat.presence',
+      data: { state: 'paused' },
+    });
+
+    const beforeUnknownCount = receivedEvents.length;
+    const unknownRes = await postPresence('recording');
+    expect(unknownRes.status).toBe(200);
+    expect(receivedEvents.length).toBe(beforeUnknownCount);
+
+    broadcastSpy.mockRestore();
   });
 });

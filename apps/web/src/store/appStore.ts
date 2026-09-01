@@ -1,5 +1,27 @@
 import { create } from 'zustand';
+import { TYPING_TTL_MS } from '../lib/presence.ts';
 import type { UnifiedChat, UnifiedMessage, SendLogEntry } from '../types.ts';
+
+const presenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearPresenceTimer(chatJid: string) {
+  const timer = presenceTimers.get(chatJid);
+  if (timer) {
+    clearTimeout(timer);
+    presenceTimers.delete(chatJid);
+  }
+}
+
+function schedulePresenceExpiry(chatJid: string, clear: () => void) {
+  clearPresenceTimer(chatJid);
+  presenceTimers.set(
+    chatJid,
+    setTimeout(() => {
+      presenceTimers.delete(chatJid);
+      clear();
+    }, TYPING_TTL_MS)
+  );
+}
 
 interface AppState {
   selectedChat: UnifiedChat | null;
@@ -28,6 +50,7 @@ interface AppState {
   setChatFilter: (filter: 'all' | 'unread' | 'pinned' | 'archived' | 'muted') => void;
   setReplyingTo: (msg: UnifiedMessage | null) => void;
   setPresence: (chatJid: string, state: 'composing' | 'paused', sender: string) => void;
+  clearPresence: (chatJid: string) => void;
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
   setHighlightedMessageId: (id: string | null) => void;
@@ -57,13 +80,42 @@ export const useAppStore = create<AppState>((set) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setChatFilter: (filter) => set({ chatFilter: filter }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),
-  setPresence: (chatJid, state, sender) =>
+  setPresence: (chatJid, state, sender) => {
+    if (state === 'paused') {
+      clearPresenceTimer(chatJid);
+      set((s) => {
+        const { [chatJid]: _, ...rest } = s.presenceMap;
+        return { presenceMap: rest };
+      });
+      return;
+    }
+
     set((s) => ({
       presenceMap: {
         ...s.presenceMap,
-        [chatJid]: { state, sender },
+        [chatJid]: { state: 'composing', sender },
       },
-    })),
+    }));
+    schedulePresenceExpiry(chatJid, () => {
+      set((s) => {
+        if (s.presenceMap[chatJid]?.state !== 'composing') {
+          return s;
+        }
+        const { [chatJid]: _, ...rest } = s.presenceMap;
+        return { presenceMap: rest };
+      });
+    });
+  },
+  clearPresence: (chatJid) => {
+    clearPresenceTimer(chatJid);
+    set((s) => {
+      if (!s.presenceMap[chatJid]) {
+        return s;
+      }
+      const { [chatJid]: _, ...rest } = s.presenceMap;
+      return { presenceMap: rest };
+    });
+  },
   addSendLog: (entry) => {
     const id = `send-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const newEntry: SendLogEntry = {
