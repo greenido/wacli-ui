@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Trash2, RotateCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
+
+const LIST_PAGE_SIZE = 100;
 
 interface StatusStripProps {
   wsConnected: boolean;
@@ -20,6 +22,16 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const chatFilter = useAppStore((s) => s.chatFilter);
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'activity' | 'scheduled'>('activity');
+  const [activityVisibleCount, setActivityVisibleCount] = useState(LIST_PAGE_SIZE);
+  const [scheduledVisibleCount, setScheduledVisibleCount] = useState(LIST_PAGE_SIZE);
+
+  const sortedSendLogs = useMemo(
+    () =>
+      [...sendLogs].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      ),
+    [sendLogs]
+  );
 
   const handleSelectMessageChat = (toJid: string, name?: string, msgId?: string) => {
     if (!toJid) return;
@@ -64,6 +76,19 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     queryFn: () => api.getScheduled(),
     refetchInterval: 5000,
   });
+
+  const sortedScheduledItems = useMemo(
+    () =>
+      [...scheduledItems].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ),
+    [scheduledItems]
+  );
+
+  const visibleSendLogs = sortedSendLogs.slice(0, activityVisibleCount);
+  const visibleScheduledItems = sortedScheduledItems.slice(0, scheduledVisibleCount);
+  const hasMoreActivity = sortedSendLogs.length > activityVisibleCount;
+  const hasMoreScheduled = sortedScheduledItems.length > scheduledVisibleCount;
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.cancelScheduled(id),
@@ -272,7 +297,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                 No outbound sends in this session.
               </div>
             ) : (
-              sendLogs.map((log) => {
+              <>
+              {visibleSendLogs.map((log) => {
                 const isSelected = selectedChat?.jid === log.to;
                 return (
                   <div
@@ -323,7 +349,16 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     )}
                   </div>
                 );
-              })
+              })}
+              {hasMoreActivity && (
+                <button
+                  onClick={() => setActivityVisibleCount((count) => count + LIST_PAGE_SIZE)}
+                  className="w-full py-2 text-[11px] font-mono text-mc-live hover:text-mc-text border border-mc-border hover:border-mc-live/50 rounded bg-mc-bg hover:bg-mc-surfaceHover transition-colors"
+                >
+                  fetch more
+                </button>
+              )}
+              </>
             )}
           </div>
         ) : (
@@ -333,7 +368,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                 No scheduled messages queued.
               </div>
             ) : (
-              scheduledItems.map((item) => {
+              <>
+              {visibleScheduledItems.map((item) => {
                 const isSelected = selectedChat?.jid === item.to;
                 return (
                   <div
@@ -403,7 +439,16 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     )}
                   </div>
                 );
-              })
+              })}
+              {hasMoreScheduled && (
+                <button
+                  onClick={() => setScheduledVisibleCount((count) => count + LIST_PAGE_SIZE)}
+                  className="w-full py-2 text-[11px] font-mono text-mc-live hover:text-mc-text border border-mc-border hover:border-mc-live/50 rounded bg-mc-bg hover:bg-mc-surfaceHover transition-colors"
+                >
+                  fetch more
+                </button>
+              )}
+              </>
             )}
           </div>
         )}

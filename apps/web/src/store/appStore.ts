@@ -71,7 +71,7 @@ export const useAppStore = create<AppState>((set) => ({
       timestamp: new Date().toISOString(),
       ...entry,
     };
-    set((s) => ({ sendLogs: [newEntry, ...s.sendLogs].slice(0, 50) }));
+    set((s) => ({ sendLogs: [newEntry, ...s.sendLogs].slice(0, 500) }));
     return id;
   },
   updateSendLog: (id, update) =>

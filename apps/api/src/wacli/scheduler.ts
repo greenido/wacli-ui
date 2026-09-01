@@ -158,7 +158,7 @@ export class Scheduler {
     if (chatJid) {
       return list.filter((i) => i.to === chatJid);
     }
-    return list.sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   public start(intervalMs = 3000): void {
