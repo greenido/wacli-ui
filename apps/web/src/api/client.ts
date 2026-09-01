@@ -91,6 +91,16 @@ export const api = {
     unread?: boolean;
   }) => request<UnifiedChat[]>('/api/chats', {}, params),
 
+  markChatRead: (chat: string) =>
+    request<{ chat: string; unread: boolean; unreadCount: number }>('/api/chats/mark-read', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify({ chat }),
+    }),
+
   getMessages: (params: {
     chat: string;
     limit?: number;

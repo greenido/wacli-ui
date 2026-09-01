@@ -49,6 +49,31 @@ export const Composer: React.FC = () => {
     return null;
   }
 
+  if (isReadOnly) {
+    return (
+      <div className="border-t border-[#E8B96A]/30 bg-[#E8B96A]/5 p-3 shrink-0">
+        <div className="flex items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-2 min-w-0 text-mc-safe">
+            <ShieldAlert size={14} className="shrink-0" />
+            <span className="truncate">
+              Safe read-only mode — unlock live sends to compose messages.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => modeMutation.mutate(false)}
+            disabled={modeMutation.isPending}
+            className="shrink-0 flex items-center gap-1.5 bg-[#E8B96A]/20 hover:bg-[#E8B96A]/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2.5 py-1.5 rounded text-[11px] font-semibold transition-all"
+            title="Switch to live write mode to send messages"
+          >
+            <Unlock size={12} />
+            <span>UNLOCK LIVE SENDS</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const handleTriggerSend = (e: React.FormEvent) => {
     e.preventDefault();
     if (!composerDraft.trim() && !composerFile) {
@@ -155,19 +180,6 @@ export const Composer: React.FC = () => {
           />
         </div>
 
-        {/* Quick Mode Unlock / Lock Indicator Button */}
-        {isReadOnly ? (
-          <button
-            type="button"
-            onClick={() => modeMutation.mutate(false)}
-            className="p-2 rounded font-mono text-[11px] bg-[#E8B96A]/15 hover:bg-[#E8B96A]/25 text-mc-safe border border-mc-safe/40 flex items-center gap-1 transition-colors"
-            title="Safe read-only mode is active. Click to unlock live sends."
-          >
-            <Unlock size={14} />
-            <span className="hidden sm:inline font-semibold">SAFE</span>
-          </button>
-        ) : null}
-
         {/* Send Later Button */}
         <button
           type="button"
@@ -190,19 +202,15 @@ export const Composer: React.FC = () => {
           className={`p-2 rounded font-mono text-xs flex items-center justify-center gap-1.5 transition-all ${
             !hasContent
               ? 'bg-mc-surfaceHover text-mc-textMuted/50 cursor-not-allowed'
-              : isReadOnly
-              ? 'bg-[#E8B96A] text-[#12151B] font-bold hover:bg-[#E8B96A]/90 shadow-sm'
               : 'bg-mc-live text-[#12151B] font-bold hover:bg-mc-live/90 shadow-sm'
           }`}
           title={
             !hasContent
               ? 'Type a message or select an attachment to send'
-              : isReadOnly
-              ? 'Send message (will prompt to confirm & unlock)'
               : 'Send message (opens confirmation)'
           }
         >
-          {isReadOnly && hasContent ? <ShieldAlert size={14} /> : <Send size={14} />}
+          <Send size={14} />
           <span className="font-bold hidden md:inline">SEND</span>
         </button>
       </form>

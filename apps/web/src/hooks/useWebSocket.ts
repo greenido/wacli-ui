@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/appStore.ts';
+import { markChatAsRead } from '../lib/chatRead.ts';
 import { sameWhatsAppUser } from '../lib/presence.ts';
 import type { MissionControlEvent, MissionControlStatus, UnifiedChat, UnifiedMessage } from '../types.ts';
 
@@ -65,24 +66,38 @@ export function useWebSocket() {
             );
 
             // 2. Reconcile into chats list cache
-            queryClient.setQueryData<UnifiedChat[]>(['chats'], (old) => {
+            const selectedJid = useAppStore.getState().selectedChat?.jid;
+            const isViewingChat = selectedJid === newMsg.chatJid;
+
+            queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
               if (!old) return old;
               return old.map((c) => {
-                if (c.jid === newMsg.chatJid) {
+                if (c.jid !== newMsg.chatJid) return c;
+
+                if (isViewingChat) {
+                  if (!newMsg.fromMe) {
+                    void markChatAsRead(queryClient, newMsg.chatJid);
+                  }
                   return {
                     ...c,
                     lastMessageTs: newMsg.ts,
-                    unread: !newMsg.fromMe,
-                    unreadCount: newMsg.fromMe ? c.unreadCount : c.unreadCount + 1,
+                    unread: false,
+                    unreadCount: 0,
                   };
                 }
-                return c;
+
+                // wacli sync already updates unread_count in the store; only bump timestamp here.
+                return { ...c, lastMessageTs: newMsg.ts };
               }).sort((a, b) => {
                 const tsA = a.lastMessageTs ? new Date(a.lastMessageTs).getTime() : 0;
                 const tsB = b.lastMessageTs ? new Date(b.lastMessageTs).getTime() : 0;
                 return tsB - tsA;
               });
             });
+
+            if (!isViewingChat && !newMsg.fromMe) {
+              queryClient.invalidateQueries({ queryKey: ['chats'] });
+            }
 
             if (!newMsg.fromMe) {
               useAppStore.getState().clearPresence(newMsg.chatJid);

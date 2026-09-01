@@ -112,7 +112,7 @@ export const App: React.FC = () => {
         />
 
         {/* Dominant Center: Thread View + Fixed Composer */}
-        <div className="flex-1 flex flex-col min-w-0 h-full relative z-10">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 relative z-10 overflow-hidden">
           <ThreadView />
           <Composer />
         </div>

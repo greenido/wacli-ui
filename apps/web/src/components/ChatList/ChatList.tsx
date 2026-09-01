@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useCallback } from 'react';
 import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -18,6 +19,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const setChatFilter = useAppStore((s) => s.setChatFilter);
   const presenceMap = useAppStore((s) => s.presenceMap);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
+  const queryClient = useQueryClient();
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -49,23 +51,27 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     });
   }, [chats, chatFilter]);
 
-  // Auto-select chat when opening the app if none selected
-  useEffect(() => {
-    if (!selectedChat && filteredChats.length > 0) {
-      const savedJid = localStorage.getItem('wacli_selected_chat');
-      const found = filteredChats.find((c) => c.jid === savedJid) || filteredChats[0];
-      setSelectedChat(found);
+  const handleSelectChat = useCallback((chat: UnifiedChat) => {
+    const chatToSelect = chatWithUnreadCleared(chat);
+    setSelectedChat(chatToSelect);
+    if (chat.unread || chat.unreadCount > 0) {
+      void markChatAsRead(queryClient, chat.jid);
     }
-  }, [filteredChats, selectedChat, setSelectedChat]);
-
-  const handleSelectChat = (chat: UnifiedChat) => {
-    setSelectedChat(chat);
     try {
       localStorage.setItem('wacli_selected_chat', chat.jid);
     } catch {
       // ignore
     }
-  };
+  }, [queryClient, setSelectedChat]);
+
+  // Auto-select chat when opening the app if none selected
+  useEffect(() => {
+    if (!selectedChat && filteredChats.length > 0) {
+      const savedJid = localStorage.getItem('wacli_selected_chat');
+      const found = filteredChats.find((c) => c.jid === savedJid) || filteredChats[0];
+      handleSelectChat(found);
+    }
+  }, [filteredChats, selectedChat, handleSelectChat]);
 
   const formatTimestamp = (ts: string | null) => {
     if (!ts) return '';

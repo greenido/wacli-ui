@@ -21,6 +21,9 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
           },
         ];
       }
+      if (cmd.startsWith('chats mark-read')) {
+        return null;
+      }
       if (cmd.startsWith('messages list')) {
         return {
           fts: false,
@@ -66,6 +69,17 @@ describe('API Read Endpoints', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
     expect(res.body.data.length).toBe(1);
     expect(res.body.data[0].name).toBe('Alice');
+  });
+
+  it('POST /api/chats/mark-read marks a chat as read', async () => {
+    const res = await request(app)
+      .post('/api/chats/mark-read')
+      .send({ chat: '15551234567@s.whatsapp.net' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.unread).toBe(false);
+    expect(res.body.data.unreadCount).toBe(0);
   });
 
   it('GET /api/search with empty query returns empty results', async () => {

@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { Search, X, MessageSquare } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -14,6 +15,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
+  const queryClient = useQueryClient();
   const resultsContainerRef = useRef<HTMLDivElement>(null);
 
   const { data: searchResults, isFetching } = useQuery({
@@ -30,7 +32,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   };
 
   const handleSelectResult = (msg: UnifiedMessage) => {
-    setSelectedChat({
+    const chat = chatWithUnreadCleared({
       jid: msg.chatJid,
       name: msg.chatName || msg.chatJid.split('@')[0],
       kind: msg.chatJid.endsWith('@g.us') ? 'group' : 'dm',
@@ -41,6 +43,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
       unread: false,
       unreadCount: 0,
     });
+    setSelectedChat(chat);
+    void markChatAsRead(queryClient, msg.chatJid);
     setHighlightedMessageId(msg.msgId);
     try {
       localStorage.setItem('wacli_selected_chat', msg.chatJid);

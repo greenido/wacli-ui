@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Search, ArrowRight, Phone } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -10,6 +11,7 @@ export const NewChatModal: React.FC = () => {
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
   const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
+  const queryClient = useQueryClient();
 
   const [inputQuery, setInputQuery] = useState('');
 
@@ -27,7 +29,10 @@ export const NewChatModal: React.FC = () => {
   if (activeModal !== 'new-chat') return null;
 
   const handleSelectChat = (chat: UnifiedChat) => {
-    setSelectedChat(chat);
+    setSelectedChat(chatWithUnreadCleared(chat));
+    if (chat.unread || chat.unreadCount > 0) {
+      void markChatAsRead(queryClient, chat.jid);
+    }
     setActiveModal(null);
     setInputQuery('');
     setTimeout(() => {

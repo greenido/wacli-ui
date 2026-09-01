@@ -109,7 +109,7 @@ export function createApp(
   // Mount routers
   app.use('/api', createHealthRouter(processManager));
   app.use('/api', createSettingsRouter(bridge));
-  app.use('/api', createChatsRouter());
+  app.use('/api', createChatsRouter(processManager));
   app.use('/api', createMessagesRouter());
   app.use('/api', createSearchRouter());
   app.use('/api', createSendRouter());

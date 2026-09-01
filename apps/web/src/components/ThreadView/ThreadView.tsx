@@ -265,7 +265,7 @@ export const ThreadView: React.FC = () => {
   const isTyping = presence && presence.state === 'composing';
 
   return (
-    <section aria-label="Conversation Thread" className="flex-1 flex flex-col bg-mc-bg h-full min-w-0 relative">
+    <section aria-label="Conversation Thread" className="flex-1 flex flex-col bg-mc-bg min-h-0 min-w-0 relative overflow-hidden">
       {/* Header */}
       <div className="h-14 border-b border-mc-border bg-mc-surface/80 backdrop-blur px-4 flex items-center justify-between shrink-0">
         <div className="min-w-0">
