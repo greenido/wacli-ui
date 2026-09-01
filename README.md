@@ -29,9 +29,10 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 ## Core Features
 
 ### 🛡️ Safe-by-Default Architecture
-- **Read-Only Mode by Default**: Outgoing actions (sends, replies, emoji reactions, scheduled jobs) are blocked until explicitly unlocked.
+- **Read-Only on First Run**: A fresh install starts locked — outgoing actions (sends, replies, emoji reactions, scheduled jobs) are all blocked until you explicitly unlock live sends.
+- **Your Choice Sticks**: Safe mode is a first-run default, not a recurring nag. Once you unlock live sends, that choice persists across restarts and is never silently re-imposed — and nothing but you can change it. Scheduled dispatches respect the lock rather than lifting it: a message that comes due while safe mode is on **fails loudly** — marked failed with the reason, logged as an error, and shown in red in the scheduled list — rather than going out behind your back or sitting silently. Unlock live sends and reschedule it.
 - **Two-Step Mutation Guardrails**: Every send, media dispatch, or reaction prompt passes through a `SendConfirmModal` confirmation step with target JID, payload preview, and explicit confirmation.
-- **Sticky Safety Controls**: Toggle safety mode anytime via the top banner or settings dialog; preference persists across server restarts.
+- **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
 
 ### ⚡ Real-Time Ingestion & Process Supervision
 - **Supervised `wacli sync --follow` Daemon**: The Node.js API manages the sync process lifecycle with automatic exponential backoff restarts and heartbeat liveness checks.
@@ -184,6 +185,9 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 | `WACLI_BIN` | `wacli` | Path or command name for the `wacli` binary |
 | `WACLI_DISABLE_SYNC` | `0` | Set to `1` to run API without spawning `wacli sync --follow` |
 | `WACLI_WEBHOOK_SECRET`| Auto-generated per session | HMAC secret used for internal webhook validation |
+| `WACLI_SETTINGS_FILE` | `~/.wacli-mission-control/settings.json` | Where operator mode and store settings persist |
+| `WACLI_SCHEDULED_FILE`| `~/.wacli-mission-control/scheduled.json` | Where scheduled messages persist |
+| `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | Set to `1` to log full inbound webhook payloads. Off by default so message bodies and contact details stay out of log files |
 | `VITE_API_URL` | `http://127.0.0.1:3002` | API base URL configured in `apps/web` |
 
 ---
@@ -198,7 +202,7 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health, daemon state, uptime, and lock status |
 | `GET` | `/api/settings` | Current read-only mode state and session metadata |
-| `POST`| `/api/settings/mode` | Update read-only / write mode (`{ readOnly: boolean }`) |
+| `POST`| `/api/mode` | Update read-only / write mode (`{ readOnly: boolean }`) |
 | `GET` | `/api/chats` | List chats with unread counts, filters (`unread`, `pinned`, `archived`) |
 | `GET` | `/api/messages` | Fetch messages for a chat (`?chat=<jid>&limit=100`) |
 | `POST`| `/api/messages/star` | Star or unstar a message (`{ chat, id, starred }`) |
@@ -249,8 +253,12 @@ Supported event types: `message.created`, `receipt.updated`, `presence.updated`,
 Run the full linting, type-checking, and test suite:
 
 ```bash
-# Run tests across API workspace
+# Run tests across both the API and web workspaces
 npm test
+
+# Run only one workspace's tests
+npm run test -w @wacli/api
+npm run test -w @wacli/web
 
 # Run TypeScript compilation checks
 npm run typecheck

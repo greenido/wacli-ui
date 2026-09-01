@@ -367,9 +367,9 @@ export const ThreadView: React.FC = () => {
                     <MediaViewer msg={msg} chatJid={selectedChat.jid} />
                   )}
 
-                  {/* Body Text */}
+                  {/* Body Text — selectable so operators can copy codes, addresses, numbers */}
                   {(msg.displayText || msg.text) && (
-                    <div className="whitespace-pre-wrap break-words leading-relaxed">
+                    <div className="whitespace-pre-wrap break-words leading-relaxed select-text cursor-text">
                       {msg.revoked ? (
                         <span className="italic text-mc-textMuted">This message was deleted.</span>
                       ) : (

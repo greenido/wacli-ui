@@ -239,7 +239,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </div>
           )}
 
-          {health?.processPid != null && (
+          {typeof health?.processPid === 'number' && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>PID</span>
               <span className="text-mc-text font-mono">{health.processPid}</span>
@@ -430,6 +430,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                             ? 'text-mc-live'
                             : item.status === 'pending'
                             ? 'text-mc-safe'
+                            : item.status === 'failed'
+                            ? 'text-mc-danger'
                             : 'text-mc-textMuted'
                         }`}
                       >
@@ -463,7 +465,9 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                       </div>
                     )}
                     {item.error && (
-                      <div className="text-[10px] text-mc-danger truncate">{item.error}</div>
+                      <div className="text-[10px] text-mc-danger leading-snug break-words pt-0.5">
+                        {item.error}
+                      </div>
                     )}
                   </div>
                 );

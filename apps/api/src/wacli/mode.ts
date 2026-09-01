@@ -8,6 +8,12 @@ export interface AppSettings {
   account?: string;
 }
 
+/**
+ * Safe mode is only imposed before the operator has made a choice. Once they
+ * unlock live sends we persist that and never re-impose the lock on them.
+ */
+export const FIRST_RUN_READ_ONLY = true;
+
 export class ModeManager {
   private settingsFilePath: string;
   private settings: AppSettings;
@@ -45,7 +51,8 @@ export class ModeManager {
         const raw = fs.readFileSync(this.settingsFilePath, 'utf8');
         const parsed = JSON.parse(raw) as Partial<AppSettings>;
         return {
-          readOnly: parsed.readOnly !== undefined ? Boolean(parsed.readOnly) : false,
+          // A stored choice always wins, so the operator's decision survives restarts.
+          readOnly: parsed.readOnly !== undefined ? Boolean(parsed.readOnly) : FIRST_RUN_READ_ONLY,
           storeDir: parsed.storeDir,
           account: parsed.account,
         };
@@ -54,7 +61,8 @@ export class ModeManager {
       // fallback to default
     }
 
-    return { readOnly: false };
+    // No settings file yet: this is a first run, so start locked.
+    return { readOnly: FIRST_RUN_READ_ONLY };
   }
 
   private saveSettings(): void {
@@ -86,7 +94,16 @@ export class ModeManager {
   }
 
   public updateSettings(partial: Partial<AppSettings>): AppSettings {
-    this.settings = { ...this.settings, ...partial };
+    // Spreading the raw partial would let an explicit `undefined` (a field the
+    // caller simply did not set) erase a stored value — which previously wiped
+    // `readOnly` off disk whenever settings were saved without it.
+    const next = { ...this.settings };
+    for (const [key, value] of Object.entries(partial)) {
+      if (value !== undefined) {
+        (next as Record<string, unknown>)[key] = value;
+      }
+    }
+    this.settings = next;
     this.saveSettings();
     return { ...this.settings };
   }

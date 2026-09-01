@@ -3,6 +3,7 @@ import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calen
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
 
 // Preset time helper
@@ -33,6 +34,9 @@ export const SendConfirmModal: React.FC = () => {
 
   const [isCommitted, setIsCommitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const isOpen = activeModal === 'send-confirm' && Boolean(sendConfirmData);
+  const dialogRef = useModalDialog<HTMLDivElement>(isOpen, () => setActiveModal(null));
 
   const [isScheduled, setIsScheduled] = useState(() => Boolean(sendConfirmData?.scheduleMode));
   const [scheduleTime, setScheduleTime] = useState(() => getPresetTime(30));
@@ -231,18 +235,23 @@ export const SendConfirmModal: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-confirm-title"
         className={`bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-lg flex flex-col font-mono text-xs transition-all duration-300 ${
           isCommitted ? 'scale-[0.98] border-mc-live' : 'scale-100'
         }`}
       >
         {/* Modal Header */}
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
-          <div className="flex items-center gap-2 text-mc-live font-semibold">
+          <h2 id="send-confirm-title" className="flex items-center gap-2 text-mc-live font-semibold">
             {isScheduled ? <Clock size={15} /> : <Send size={15} />}
             <span>{isScheduled ? 'SCHEDULE OUTBOUND DISPATCH' : 'CONFIRM OUTBOUND DISPATCH'}</span>
-          </div>
+          </h2>
           <button
             onClick={() => setActiveModal(null)}
+            aria-label="Close dispatch confirmation"
             className="p-1 text-mc-textMuted hover:text-mc-text"
           >
             <X size={16} />

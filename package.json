@@ -47,7 +47,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev -w @wacli/api\" \"npm run dev -w @wacli/web\"",
     "build": "npm run build -w @wacli/api && npm run build -w @wacli/web",
-    "test": "npm run test -w @wacli/api",
+    "test": "npm run test -w @wacli/api && npm run test -w @wacli/web",
     "preview": "npm run preview -w @wacli/web",
     "typecheck": "npm run typecheck -w @wacli/api && npm run typecheck -w @wacli/web",
     "lint": "eslint .",

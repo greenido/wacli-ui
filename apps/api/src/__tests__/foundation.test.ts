@@ -117,21 +117,46 @@ describe('ModeManager', () => {
     }
   });
 
-  it('defaults to readOnly = false (allow sends) when no settings file exists', () => {
+  it('defaults to readOnly = true on first run (no settings file yet)', () => {
     const mm = new ModeManager(tmpSettingsPath);
-    expect(mm.isReadOnly()).toBe(false);
+    expect(mm.isReadOnly()).toBe(true);
   });
 
   it('persists and updates readOnly state', () => {
     const mm = new ModeManager(tmpSettingsPath);
-    expect(mm.isReadOnly()).toBe(false);
-
-    mm.setReadOnly(true);
     expect(mm.isReadOnly()).toBe(true);
+
+    mm.setReadOnly(false);
+    expect(mm.isReadOnly()).toBe(false);
 
     // Reload from disk
     const mm2 = new ModeManager(tmpSettingsPath);
-    expect(mm2.isReadOnly()).toBe(true);
+    expect(mm2.isReadOnly()).toBe(false);
+  });
+
+  it('keeps the operator in write mode across restarts once they unlock', () => {
+    const first = new ModeManager(tmpSettingsPath);
+    first.setReadOnly(false);
+
+    // Safe mode is a first-run default only; it must never be re-imposed.
+    for (let restart = 0; restart < 3; restart++) {
+      expect(new ModeManager(tmpSettingsPath).isReadOnly()).toBe(false);
+    }
+  });
+
+  it('does not let an unrelated settings save erase the stored mode', () => {
+    const mm = new ModeManager(tmpSettingsPath);
+    mm.setReadOnly(false);
+
+    // Mirrors POST /api/settings sending only storeDir.
+    mm.updateSettings({ storeDir: '/tmp/store', account: undefined, readOnly: undefined });
+
+    expect(mm.isReadOnly()).toBe(false);
+    expect(new ModeManager(tmpSettingsPath).isReadOnly()).toBe(false);
+
+    const onDisk = JSON.parse(fs.readFileSync(tmpSettingsPath, 'utf8')) as Record<string, unknown>;
+    expect(onDisk.readOnly).toBe(false);
+    expect(onDisk.storeDir).toBe('/tmp/store');
   });
 });
 

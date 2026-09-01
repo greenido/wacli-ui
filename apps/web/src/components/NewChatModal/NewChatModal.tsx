@@ -6,6 +6,7 @@ import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedChat } from '../../types.ts';
 
 export const NewChatModal: React.FC = () => {
@@ -16,6 +17,11 @@ export const NewChatModal: React.FC = () => {
   const queryClient = useQueryClient();
 
   const [inputQuery, setInputQuery] = useState('');
+
+  const dialogRef = useModalDialog<HTMLDivElement>(activeModal === 'new-chat', () => {
+    setActiveModal(null);
+    setInputQuery('');
+  });
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -98,18 +104,25 @@ export const NewChatModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] font-mono text-xs">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-chat-title"
+        className="bg-mc-surface border border-mc-border rounded shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] font-mono text-xs"
+      >
         {/* Header */}
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
-          <div className="flex items-center gap-2 text-mc-live font-semibold">
+          <h2 id="new-chat-title" className="flex items-center gap-2 text-mc-live font-semibold">
             <UserPlus size={15} />
             <span>START NEW CONVERSATION</span>
-          </div>
+          </h2>
           <button
             onClick={() => {
               setActiveModal(null);
               setInputQuery('');
             }}
+            aria-label="Close new conversation dialog"
             className="p-1 text-mc-textMuted hover:text-mc-text rounded"
           >
             <X size={16} />
