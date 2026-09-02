@@ -2,8 +2,57 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
-import { normalizeChat } from '../wacli/normalize.js';
-import type { RawChat, UnifiedChat } from '../types.js';
+import { messagePreviewText, normalizeChat, normalizeMessage } from '../wacli/normalize.js';
+import { logger } from '../logger.js';
+import type { ChatPreview } from '../wacli/normalize.js';
+import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
+
+/**
+ * How many recent messages to scan for chat-rail previews. wacli's chat record
+ * carries only `last_message_ts` — no body — so the preview has to come from the
+ * message table. One unfiltered `messages list` covers every chat that has been
+ * active recently, which is exactly the rows sitting at the top of the rail,
+ * for the cost of a single extra subprocess.
+ */
+const PREVIEW_SCAN_LIMIT = 400;
+
+interface RawMessagesListResponse {
+  messages: RawMessage[] | null;
+}
+
+/**
+ * Best-effort: a preview is a nicety, so a failure here must never cost the
+ * operator their chat list.
+ */
+async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
+  const previews = new Map<string, ChatPreview>();
+
+  try {
+    const raw = await execWacli<RawMessagesListResponse | RawMessage[]>([
+      'messages',
+      'list',
+      '--limit',
+      String(PREVIEW_SCAN_LIMIT),
+    ]);
+
+    const rawList = Array.isArray(raw) ? raw : (raw?.messages ?? []);
+
+    for (const rawMsg of rawList) {
+      const msg = normalizeMessage(rawMsg);
+      // wacli returns newest first, and reactions are not conversation content.
+      if (!msg.chatJid || previews.has(msg.chatJid) || msg.reactionToId) continue;
+
+      const text = messagePreviewText(msg);
+      if (!text) continue;
+
+      previews.set(msg.chatJid, { text, fromMe: msg.fromMe });
+    }
+  } catch (err) {
+    logger.warn('api', `Chat previews unavailable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return previews;
+}
 
 function requireMutationPermission(req: Request, res: Response, next: NextFunction): void {
   const customHeader = req.headers['x-mission-control-request'];
@@ -57,7 +106,10 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
       else if (unread === 'false') args.push('--no-unread');
 
       const raw = await execWacli<RawChat[]>(args);
-      const chats: UnifiedChat[] = (Array.isArray(raw) ? raw : []).map(normalizeChat);
+      const previews = await fetchChatPreviews();
+      const chats: UnifiedChat[] = (Array.isArray(raw) ? raw : []).map((rawChat) =>
+        normalizeChat(rawChat, previews.get(rawChat.jid))
+      );
 
       res.json({ success: true, data: chats, error: null });
     } catch (err) {

@@ -3,6 +3,10 @@ export interface UnifiedChat {
   kind: 'dm' | 'group' | 'broadcast' | 'newsletter' | 'unknown';
   name: string;
   lastMessageTs: string | null;
+  /** Preview text for the most recent message in this chat, or null if unknown. */
+  lastMessage: string | null;
+  /** True when the previewed message was sent by the operator. */
+  lastMessageFromMe: boolean;
   archived: boolean;
   pinned: boolean;
   mutedUntil: number;
@@ -28,7 +32,10 @@ export interface UnifiedMessage {
   filename: string | null;
   mimeType: string | null;
   localPath: string | null;
+  /** WhatsApp's own star, as synced by wacli. Read-only: wacli cannot write it. */
   starred: boolean;
+  /** Mission Control's local bookmark. Stored here, never sent to WhatsApp. */
+  bookmarked: boolean;
   edited: boolean;
   revoked: boolean;
   snippet?: string | null;

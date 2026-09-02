@@ -72,6 +72,8 @@ export const NewChatModal: React.FC = () => {
       name: displayName,
       kind: jid.endsWith('@g.us') ? 'group' : 'dm',
       lastMessageTs: new Date().toISOString(),
+      lastMessage: null,
+      lastMessageFromMe: false,
       archived: false,
       pinned: false,
       mutedUntil: 0,

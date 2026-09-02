@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calendar } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
@@ -44,6 +45,7 @@ export const SendConfirmModal: React.FC = () => {
   const { data: modeData } = useQuery({
     queryKey: ['mode'],
     queryFn: () => api.getMode(),
+    refetchInterval: POLL_MODE_MS,
   });
 
   const isReadOnly = modeData?.readOnly ?? false;
@@ -173,15 +175,19 @@ export const SendConfirmModal: React.FC = () => {
           mimeType: sendConfirmData.fileAttachment?.type || null,
           localPath: null,
           starred: false,
+          bookmarked: false,
           edited: false,
           revoked: false,
           deliveryStatus: 'sent',
         };
 
-        queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-          ['messages', sendConfirmData.toJid],
+        // Prefix match: the thread cache is keyed by chat and window size, and
+        // the chat list by chat, search text and filter. An exact-key write
+        // would land on a key nothing is observing.
+        queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+          { queryKey: ['messages', sendConfirmData.toJid] },
           (old) => {
-            if (!old) return { messages: [optimisticMsg], hasMore: false };
+            if (!old) return old;
             return {
               ...old,
               messages: [...old.messages, optimisticMsg],
@@ -189,19 +195,23 @@ export const SendConfirmModal: React.FC = () => {
           }
         );
 
-        queryClient.setQueryData<UnifiedChat[]>(['chats'], (old) => {
+        queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
           const chats = old ? [...old] : [];
           const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
           const updatedChat: UnifiedChat = existingIdx >= 0
             ? {
                 ...chats[existingIdx],
                 lastMessageTs: new Date().toISOString(),
+                lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
+                lastMessageFromMe: true,
               }
             : {
                 jid: sendConfirmData.toJid,
                 name: sendConfirmData.recipientName,
                 kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
                 lastMessageTs: new Date().toISOString(),
+                lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
+                lastMessageFromMe: true,
                 archived: false,
                 pinned: false,
                 mutedUntil: 0,
@@ -217,7 +227,7 @@ export const SendConfirmModal: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['chats'] });
       }
 
-      clearComposer();
+      clearComposer(sendConfirmData.toJid);
 
       setTimeout(() => {
         setIsCommitted(false);
@@ -365,10 +375,23 @@ export const SendConfirmModal: React.FC = () => {
             <div className="text-xs text-mc-live">{sendConfirmData.toJid}</div>
           </div>
 
-          {/* Quoted Message */}
+          {/* Quoted Message — shown in full, because a raw wamid is not something
+              an operator can check the reply is aimed at the right message. */}
           {sendConfirmData.replyToId && (
-            <div className="text-[11px] text-mc-textMuted">
-              <span className="font-semibold text-mc-live">In Reply To Msg ID:</span> {sendConfirmData.replyToId}
+            <div className="p-2.5 bg-mc-bg rounded border-l-2 border-mc-live space-y-1">
+              <div className="text-mc-textMuted text-[10px]">QUOTING</div>
+              {sendConfirmData.replyToPreview ? (
+                <>
+                  <div className="text-mc-live font-semibold text-[11px]">
+                    {sendConfirmData.replyToPreview.sender}
+                  </div>
+                  <div className="text-mc-text text-[11px] font-sans line-clamp-3 whitespace-pre-wrap">
+                    {sendConfirmData.replyToPreview.text}
+                  </div>
+                </>
+              ) : (
+                <div className="text-mc-text text-[11px]">{sendConfirmData.replyToId}</div>
+              )}
             </div>
           )}
 

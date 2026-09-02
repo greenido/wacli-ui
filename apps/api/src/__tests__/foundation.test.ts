@@ -2,10 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { normalizeChat, normalizeMessage, normalizeDoctor, normalizeWebhookMessage } from '../wacli/normalize.js';
+import {
+  messagePreviewText,
+  normalizeChat,
+  normalizeMessage,
+  normalizeDoctor,
+  normalizeWebhookMessage,
+} from '../wacli/normalize.js';
 import { ModeManager } from '../wacli/mode.js';
 import { RunLogger } from '../logger.js';
-import type { RawChat, RawMessage } from '../types.js';
+import type { RawChat, RawMessage, UnifiedMessage } from '../types.js';
 
 describe('Normalize utilities', () => {
   it('normalizes raw chats with various kinds and formats', () => {
@@ -187,5 +193,42 @@ describe('RunLogger', () => {
     expect(contents).toContain('[INFO] [process] Process started');
     expect(contents).toContain('[WARN] [api] Rate limit near');
     expect(contents).toContain('[ERROR] [send] Send failed');
+  });
+});
+
+describe('messagePreviewText', () => {
+  const base = (over: Partial<UnifiedMessage> = {}): UnifiedMessage => ({
+    ...normalizeMessage({ ChatJID: '15551234567@s.whatsapp.net', MsgID: 'MSG-1' }),
+    ...over,
+  });
+
+  it('uses the message body when there is one', () => {
+    expect(messagePreviewText(base({ displayText: 'see you at 6' }))).toBe('see you at 6');
+  });
+
+  it('describes media, which carries no body text of its own', () => {
+    expect(messagePreviewText(base({ mediaType: 'image' }))).toContain('Photo');
+    expect(messagePreviewText(base({ mediaType: 'video' }))).toContain('Video');
+    expect(messagePreviewText(base({ mediaType: 'audio' }))).toContain('Voice message');
+    expect(messagePreviewText(base({ mediaType: 'sticker' }))).toBe('Sticker');
+    expect(messagePreviewText(base({ mediaType: 'document', filename: 'invoice.pdf' }))).toContain(
+      'invoice.pdf'
+    );
+  });
+
+  it('prefers a caption over the generic media label', () => {
+    expect(messagePreviewText(base({ mediaType: 'image', mediaCaption: 'the new sign' }))).toContain(
+      'the new sign'
+    );
+  });
+
+  it('reports a deleted message rather than showing it blank', () => {
+    expect(messagePreviewText(base({ revoked: true, text: 'oops' }))).toBe(
+      'This message was deleted.'
+    );
+  });
+
+  it('returns an empty string when there is genuinely nothing to show', () => {
+    expect(messagePreviewText(base())).toBe('');
   });
 });

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 
 export const WacliStatusBanner: React.FC = () => {
@@ -31,7 +32,7 @@ export const WacliStatusBanner: React.FC = () => {
   } = useQuery({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
-    refetchInterval: 5000,
+    refetchInterval: POLL_HEALTH_MS,
   });
 
   const handleRecheck = async () => {

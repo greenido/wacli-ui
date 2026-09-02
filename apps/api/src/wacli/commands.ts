@@ -37,8 +37,38 @@ export interface WacliInstallStatus {
   error: string | null;
 }
 
+/**
+ * `/api/health` is polled by every open pane, and each call used to spawn
+ * `wacli --version` on top of `wacli doctor`. The binary's version does not
+ * change while the app is running, so it is cached. A missing binary expires
+ * quickly, so installing wacli is noticed without a restart.
+ */
+const INSTALLED_TTL_MS = 60_000;
+const MISSING_TTL_MS = 5_000;
+
+let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
+
+export function resetWacliInstallCache(): void {
+  installCache = null;
+}
+
 export async function checkWacliInstalled(): Promise<WacliInstallStatus> {
   const bin = process.env.WACLI_BIN ?? 'wacli';
+
+  if (installCache && installCache.bin === bin && Date.now() < installCache.expiresAt) {
+    return installCache.status;
+  }
+
+  const status = await probeWacliInstalled(bin);
+  installCache = {
+    status,
+    bin,
+    expiresAt: Date.now() + (status.installed ? INSTALLED_TTL_MS : MISSING_TTL_MS),
+  };
+  return status;
+}
+
+async function probeWacliInstalled(bin: string): Promise<WacliInstallStatus> {
   try {
     const { stdout, stderr } = await execFileAsync(bin, ['--version'], {
       timeout: 5000,

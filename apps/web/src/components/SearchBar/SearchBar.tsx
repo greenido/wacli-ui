@@ -52,6 +52,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
       name: msg.chatName || msg.chatJid.split('@')[0],
       kind: msg.chatJid.endsWith('@g.us') ? 'group' : 'dm',
       lastMessageTs: msg.ts,
+      lastMessage: msg.displayText || msg.text || msg.mediaCaption || null,
+      lastMessageFromMe: msg.fromMe,
       archived: false,
       pinned: false,
       mutedUntil: 0,

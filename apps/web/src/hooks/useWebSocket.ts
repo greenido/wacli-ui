@@ -50,11 +50,14 @@ export function useWebSocket() {
           if (payload.type === 'message.new') {
             const newMsg = payload.data;
 
-            // 1. Reconcile into active thread messages cache
-            queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-              ['messages', newMsg.chatJid],
+            // 1. Reconcile into the active thread cache. The thread is keyed by
+            //    chat *and* window size, so match on the prefix: a widened
+            //    window is a different key holding the same conversation.
+            queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+              { queryKey: ['messages', newMsg.chatJid] },
               (old) => {
-                if (!old) return { messages: [newMsg], hasMore: false };
+                // Nothing loaded yet: the fetch already in flight will carry it.
+                if (!old) return old;
                 if (old.messages.some((m) => m.msgId === newMsg.msgId)) {
                   return old; // dedupe
                 }
@@ -104,8 +107,8 @@ export function useWebSocket() {
             }
           } else if (payload.type === 'message.receipt') {
             const { chatJid, messageIds, status } = payload.data;
-            queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-              ['messages', chatJid],
+            queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+              { queryKey: ['messages', chatJid] },
               (old) => {
                 if (!old) return old;
                 return {

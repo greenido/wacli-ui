@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Trash2, RotateCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -46,6 +47,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
       name: name || toJid.split('@')[0],
       kind: toJid.endsWith('@g.us') ? 'group' : 'dm',
       lastMessageTs: null,
+      lastMessage: null,
+      lastMessageFromMe: false,
       archived: false,
       pinned: false,
       mutedUntil: 0,
@@ -68,13 +71,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const { data: health } = useQuery({
     queryKey: ['health'],
     queryFn: () => api.getHealth(),
-    refetchInterval: 5000,
+    refetchInterval: POLL_HEALTH_MS,
   });
 
   const { data: scheduledItems = [] } = useQuery({
     queryKey: ['scheduled'],
     queryFn: () => api.getScheduled(),
-    refetchInterval: 5000,
+    refetchInterval: POLL_SCHEDULED_MS,
   });
 
   const sortedScheduledItems = useMemo(
