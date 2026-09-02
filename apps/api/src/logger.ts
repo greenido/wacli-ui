@@ -8,6 +8,28 @@ const __dirname = path.dirname(__filename);
 export type LogCategory = 'process' | 'send' | 'ws' | 'api' | 'webhook' | 'automation' | 'media';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Run logs older than this are removed when a new run starts. */
+export const LOG_RETENTION_DAYS = 3;
+
+/**
+ * Exactly the filename this class writes: `run-` + an ISO timestamp with `:`
+ * and `.` swapped for `-`. Deliberately strict — `logsDir` is caller-supplied,
+ * so nothing that we did not write is ever a deletion candidate.
+ */
+const RUN_LOG_PATTERN = /^run-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.log$/;
+
+/** When the run that owns this file started, or null if the name is not ours. */
+function runStartedAt(fileName: string): number | null {
+  const match = RUN_LOG_PATTERN.exec(fileName);
+  if (!match) return null;
+
+  const [, date, hours, minutes, seconds, millis] = match;
+  const parsed = Date.parse(`${date}T${hours}:${minutes}:${seconds}.${millis}Z`);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 export class RunLogger {
   private logFilePath: string;
   private logsDir: string;
@@ -27,6 +49,50 @@ export class RunLogger {
       this.write('INFO', 'process', `Run log initialized at ${this.logFilePath}`);
     } catch (err) {
       console.error('Failed to create log file:', err);
+    }
+
+    // Every run leaves a file behind and nothing used to clear them out.
+    this.pruneExpiredLogs();
+  }
+
+  /**
+   * Deletes run logs past the retention window. Only files named the way this
+   * class names them are touched, and never the current run's own file — a
+   * long-lived process must not delete the log it is still writing to. A
+   * failure here is not worth refusing to start over, so it stays quiet.
+   */
+  private pruneExpiredLogs(): void {
+    const cutoff = Date.now() - LOG_RETENTION_DAYS * DAY_MS;
+    let removed = 0;
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.logsDir);
+    } catch {
+      return;
+    }
+
+    for (const name of entries) {
+      const startedAt = runStartedAt(name);
+      if (startedAt === null || startedAt >= cutoff) continue;
+
+      const filePath = path.join(this.logsDir, name);
+      if (filePath === this.logFilePath) continue;
+
+      try {
+        fs.unlinkSync(filePath);
+        removed++;
+      } catch {
+        // A log we cannot remove is not a reason to fail the run.
+      }
+    }
+
+    if (removed > 0) {
+      this.write(
+        'INFO',
+        'process',
+        `Pruned ${removed} run log${removed === 1 ? '' : 's'} older than ${LOG_RETENTION_DAYS} days`
+      );
     }
   }
 

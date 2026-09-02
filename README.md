@@ -189,6 +189,7 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 | `WACLI_WEBHOOK_SECRET`| Auto-generated per session | HMAC secret used for internal webhook validation |
 | `WACLI_SETTINGS_FILE` | `~/.wacli-mission-control/settings.json` | Where operator mode and store settings persist |
 | `WACLI_SCHEDULED_FILE`| `~/.wacli-mission-control/scheduled.json` | Where scheduled messages persist |
+| `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | Where local message bookmarks persist |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | Set to `1` to log full inbound webhook payloads. Off by default so message bodies and contact details stay out of log files |
 | `VITE_API_URL` | `http://127.0.0.1:3002` | API base URL configured in `apps/web` |
 
@@ -247,6 +248,7 @@ Supported event types: `message.created`, `receipt.updated`, `presence.updated`,
 - **CORS Restricted**: Browser cross-origin requests are limited strictly to loopback origins.
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.
+- **Run Logs Expire**: Each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone.
 
 ---
 
