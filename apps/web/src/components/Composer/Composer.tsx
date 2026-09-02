@@ -2,17 +2,32 @@ import React, { useRef, useEffect } from 'react';
 import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import type { UnifiedMessage } from '../../types.ts';
+
+/** What the confirm dialog shows instead of a bare wamid. */
+function describeReplyTarget(msg: UnifiedMessage): { sender: string; text: string } {
+  const text = msg.displayText || msg.text || msg.mediaCaption || '';
+  return {
+    sender: msg.senderName || msg.senderJid || 'Unknown sender',
+    text: text || `[${msg.mediaType || 'no text'}]`,
+  };
+}
 
 export const Composer: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
-  const replyingTo = useAppStore((s) => s.replyingTo);
+  // Composer state belongs to a conversation, not to the app, so every read and
+  // write below is scoped by JID. An empty key is only ever used while no chat
+  // is selected, in which case the composer does not render.
+  const chatJid = selectedChat?.jid ?? '';
+  const replyingTo = useAppStore((s) => s.replyingToByChat[chatJid] ?? null);
   const setReplyingTo = useAppStore((s) => s.setReplyingTo);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const setSendConfirmData = useAppStore((s) => s.setSendConfirmData);
-  const composerDraft = useAppStore((s) => s.composerDraft);
+  const composerDraft = useAppStore((s) => s.composerDrafts[chatJid] ?? '');
   const setComposerDraft = useAppStore((s) => s.setComposerDraft);
-  const composerFile = useAppStore((s) => s.composerFile);
+  const composerFile = useAppStore((s) => s.composerFiles[chatJid] ?? null);
   const setComposerFile = useAppStore((s) => s.setComposerFile);
   const focusComposerTrigger = useAppStore((s) => s.focusComposerTrigger);
 
@@ -23,6 +38,7 @@ export const Composer: React.FC = () => {
   const { data: modeData } = useQuery({
     queryKey: ['mode'],
     queryFn: () => api.getMode(),
+    refetchInterval: POLL_MODE_MS,
   });
 
   const modeMutation = useMutation({
@@ -85,6 +101,7 @@ export const Composer: React.FC = () => {
       recipientName: selectedChat.name,
       messageText: composerDraft.trim(),
       replyToId: replyingTo?.msgId,
+      replyToPreview: replyingTo ? describeReplyTarget(replyingTo) : undefined,
       fileAttachment: composerFile ?? undefined,
       scheduleMode: false,
     });
@@ -102,6 +119,7 @@ export const Composer: React.FC = () => {
       recipientName: selectedChat.name,
       messageText: composerDraft.trim(),
       replyToId: replyingTo?.msgId,
+      replyToPreview: replyingTo ? describeReplyTarget(replyingTo) : undefined,
       fileAttachment: composerFile ?? undefined,
       scheduleMode: true,
     });
@@ -127,7 +145,7 @@ export const Composer: React.FC = () => {
             <span className="text-mc-textMuted truncate">{replyingTo.displayText || replyingTo.text}</span>
           </div>
           <button
-            onClick={() => setReplyingTo(null)}
+            onClick={() => setReplyingTo(chatJid, null)}
             className="p-1 text-mc-textMuted hover:text-mc-text"
           >
             <X size={13} />
@@ -140,7 +158,7 @@ export const Composer: React.FC = () => {
         <div className="mb-2 p-1.5 rounded bg-mc-bg border border-mc-border flex items-center justify-between text-xs font-mono">
           <span className="text-mc-text truncate">{composerFile.name} ({(composerFile.size / 1024).toFixed(1)} KB)</span>
           <button
-            onClick={() => setComposerFile(null)}
+            onClick={() => setComposerFile(chatJid, null)}
             className="p-1 text-mc-textMuted hover:text-mc-danger"
           >
             <X size={13} />
@@ -155,7 +173,7 @@ export const Composer: React.FC = () => {
           className="hidden"
           onChange={(e) => {
             if (e.target.files?.[0]) {
-              setComposerFile(e.target.files[0]);
+              setComposerFile(chatJid, e.target.files[0]);
             }
           }}
         />
@@ -172,7 +190,7 @@ export const Composer: React.FC = () => {
           <textarea
             ref={textareaRef}
             value={composerDraft}
-            onChange={(e) => setComposerDraft(e.target.value)}
+            onChange={(e) => setComposerDraft(chatJid, e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder={`Message ${selectedChat.name}... (Press Enter to send)`}

@@ -217,8 +217,12 @@ export const api = {
     return url.toString();
   },
 
-  starMessage: (data: { chat: string; id: string; starred: boolean }) =>
-    request<{ chat: string; id: string; starred: boolean }>('/api/messages/star', {
+  /**
+   * Mission Control's own bookmark. Not a WhatsApp star: wacli can read a
+   * synced star but has no command to set one, so this never leaves the host.
+   */
+  bookmarkMessage: (data: { chat: string; id: string; bookmarked: boolean }) =>
+    request<{ chat: string; id: string; bookmarked: boolean }>('/api/messages/bookmark', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

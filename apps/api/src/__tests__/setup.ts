@@ -11,6 +11,7 @@ const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-test-'));
 
 process.env.WACLI_SETTINGS_FILE = path.join(sandbox, 'settings.json');
 process.env.WACLI_SCHEDULED_FILE = path.join(sandbox, 'scheduled.json');
+process.env.WACLI_BOOKMARKS_FILE = path.join(sandbox, 'bookmarks.json');
 process.env.WACLI_STORE_DIR = path.join(sandbox, 'store');
 process.env.WACLI_LOG_DIR = path.join(sandbox, 'logs');
 

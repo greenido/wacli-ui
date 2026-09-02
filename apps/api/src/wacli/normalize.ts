@@ -7,7 +7,41 @@ import type {
   UnifiedMessage,
 } from '../types.js';
 
-export function normalizeChat(raw: RawChat): UnifiedChat {
+/**
+ * One-line preview of a message for the chat rail. Media carries no body text,
+ * so it is described rather than shown blank — a row that says nothing is the
+ * bug this replaces.
+ */
+export function messagePreviewText(msg: UnifiedMessage): string {
+  if (msg.revoked) return 'This message was deleted.';
+
+  const caption = (msg.mediaCaption || '').trim();
+  const body = (msg.displayText || msg.text || '').trim();
+
+  switch (msg.mediaType) {
+    case 'image':
+      return caption ? `\u{1F4F7} ${caption}` : '\u{1F4F7} Photo';
+    case 'video':
+      return caption ? `\u{1F3A5} ${caption}` : '\u{1F3A5} Video';
+    case 'audio':
+      return '\u{1F3A4} Voice message';
+    case 'sticker':
+      return 'Sticker';
+    case 'document':
+      return `\u{1F4C4} ${msg.filename || caption || 'Document'}`;
+    default:
+      break;
+  }
+
+  return body || caption || '';
+}
+
+export interface ChatPreview {
+  text: string;
+  fromMe: boolean;
+}
+
+export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat {
   let kind: UnifiedChat['kind'] = 'unknown';
   if (raw.kind === 'dm' || raw.kind === 'group' || raw.kind === 'broadcast' || raw.kind === 'newsletter') {
     kind = raw.kind;
@@ -24,6 +58,8 @@ export function normalizeChat(raw: RawChat): UnifiedChat {
     kind,
     name: raw.name || raw.jid.split('@')[0],
     lastMessageTs: raw.last_message_ts ?? null,
+    lastMessage: preview?.text ?? null,
+    lastMessageFromMe: preview?.fromMe ?? false,
     archived: Boolean(raw.archived),
     pinned: Boolean(raw.pinned),
     mutedUntil: Number(raw.muted_until ?? 0),
@@ -56,6 +92,7 @@ export function normalizeMessage(raw: RawMessage): UnifiedMessage {
     mimeType: raw.MimeType ?? null,
     localPath: raw.LocalPath ?? null,
     starred: Boolean(raw.Starred),
+    bookmarked: false,
     edited: Boolean(raw.Edited),
     revoked: Boolean(raw.Revoked || raw.DeletedForMe),
     snippet: raw.Snippet ?? null,
@@ -83,6 +120,7 @@ export function normalizeWebhookMessage(raw: RawWebhookMessage): UnifiedMessage 
     mimeType: null,
     localPath: null,
     starred: false,
+    bookmarked: false,
     edited: false,
     revoked: false,
   };

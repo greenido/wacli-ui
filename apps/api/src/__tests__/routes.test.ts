@@ -110,19 +110,67 @@ describe('API Read Endpoints', () => {
     expect(res.body.data.messages[0].msgId).toBe('MSG-001');
   });
 
-  it('POST /api/messages/star toggles star status', async () => {
+  it('POST /api/messages/bookmark records a bookmark the message list reports back', async () => {
     const res = await request(app)
-      .post('/api/messages/star')
+      .post('/api/messages/bookmark')
       .send({
         chat: '15551234567@s.whatsapp.net',
-        id: 'MSG-999',
-        starred: true,
+        id: 'MSG-001',
+        bookmarked: true,
       });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.starred).toBe(true);
-    expect(res.body.data.id).toBe('MSG-999');
+    expect(res.body.data.bookmarked).toBe(true);
+    expect(res.body.data.id).toBe('MSG-001');
+
+    // The old star endpoint kept a process-local map that nothing read back on
+    // a fresh request. A bookmark has to survive the round trip to be real.
+    const listed = await request(app).get('/api/messages?limit=5');
+    expect(listed.body.data.messages[0].msgId).toBe('MSG-001');
+    expect(listed.body.data.messages[0].bookmarked).toBe(true);
+
+    const cleared = await request(app)
+      .post('/api/messages/bookmark')
+      .send({ chat: '15551234567@s.whatsapp.net', id: 'MSG-001', bookmarked: false });
+    expect(cleared.body.data.bookmarked).toBe(false);
+
+    const relisted = await request(app).get('/api/messages?limit=5');
+    expect(relisted.body.data.messages[0].bookmarked).toBe(false);
+  });
+
+  it('GET /api/chats carries a last-message preview instead of only a timestamp', async () => {
+    const res = await request(app).get('/api/chats');
+
+    expect(res.status).toBe(200);
+    const alice = res.body.data.find(
+      (c: { jid: string }) => c.jid === '15551234567@s.whatsapp.net'
+    );
+    expect(alice).toBeDefined();
+    expect(alice.lastMessage).toBe('Hello from mock wacli');
+    expect(alice.lastMessageFromMe).toBe(false);
+  });
+
+  it('GET /api/chats still returns chats when previews cannot be built', async () => {
+    const { execWacli } = await import('../wacli/commands.js');
+    const mocked = vi.mocked(execWacli);
+    const original = mocked.getMockImplementation()!;
+
+    mocked.mockImplementation(async (args: string[]) => {
+      if (args.join(' ').startsWith('messages list')) {
+        throw new Error('store is locked by another process');
+      }
+      return original(args);
+    });
+
+    try {
+      const res = await request(app).get('/api/chats');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].lastMessage).toBeNull();
+    } finally {
+      mocked.mockImplementation(original);
+    }
   });
 
   it('POST /api/daemon/restart, /start, /stop endpoints operate on process manager', async () => {

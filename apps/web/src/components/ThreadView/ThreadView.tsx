@@ -6,20 +6,36 @@ import {
   CheckCheck,
   Copy,
   Star,
+  Bookmark,
+  ChevronUp,
   Clock,
+  Loader2,
   Trash2,
   AlertOctagon,
   AlertTriangle,
   Terminal,
 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
-import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { POLL_MESSAGES_MS, POLL_SCHEDULED_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import type { UnifiedMessage } from '../../types.ts';
+
+interface MessagePage {
+  messages: UnifiedMessage[];
+  hasMore: boolean;
+}
+
+/** How many messages the thread opens with, and each "load older" step adds. */
+const MESSAGE_WINDOW_STEP = 200;
+
+const HIGHLIGHT_TTL_MS = 5000;
+
+/** Longer, because a missed target comes with a notice worth reading. */
+const HIGHLIGHT_MISS_TTL_MS = 12000;
 
 export const ThreadView: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
@@ -31,6 +47,20 @@ export const ThreadView: React.FC = () => {
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
+  // How much history is loaded, and which chat that was decided for. Deriving
+  // the size from the pair means moving to another conversation starts from the
+  // newest page again, with no effect to keep the two in sync.
+  const [messageWindow, setMessageWindow] = useState<{ jid: string | null; size: number }>({
+    jid: null,
+    size: MESSAGE_WINDOW_STEP,
+  });
+  const windowSize =
+    messageWindow.jid === (selectedChat?.jid ?? null) ? messageWindow.size : MESSAGE_WINDOW_STEP;
+
+  const loadOlderMessages = () => {
+    setMessageWindow({ jid: selectedChat?.jid ?? null, size: windowSize + MESSAGE_WINDOW_STEP });
+  };
+
   const queryClient = useQueryClient();
 
   const { data: health } = useQuery({
@@ -39,29 +69,38 @@ export const ThreadView: React.FC = () => {
   });
 
   const readsReady = isWacliReadyForReads(health);
-  const readQueryOpts = wacliReadQueryOptions<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+  const readQueryOpts = wacliReadQueryOptions<MessagePage>(
     readsReady && Boolean(selectedChat?.jid)
   );
 
+  // The window is part of the query key, so widening it is an ordinary fetch
+  // rather than a cache mutation. Everything that writes into a thread does so
+  // with a prefix match, and therefore keeps working across window sizes.
   const {
     data: messagesData,
     isLoading,
+    isFetching,
   } = useQuery({
-    queryKey: ['messages', selectedChat?.jid],
+    queryKey: ['messages', selectedChat?.jid, windowSize],
     queryFn: () =>
       selectedChat
-        ? api.getMessages({ chat: selectedChat.jid, limit: 200 })
+        ? api.getMessages({ chat: selectedChat.jid, limit: windowSize })
         : Promise.resolve({ messages: [], hasMore: false }),
-    refetchInterval: 5000,
+    refetchInterval: POLL_MESSAGES_MS,
+    // Keep the narrower window on screen while the wider one loads, so
+    // "load older" extends the thread instead of blanking it.
+    placeholderData: keepPreviousData,
     ...readQueryOpts,
   });
+
+  const canLoadOlder = Boolean(messagesData?.hasMore);
 
   // Scheduled messages for current chat
   const { data: scheduledList = [] } = useQuery({
     queryKey: ['scheduled', selectedChat?.jid],
     queryFn: () => (selectedChat ? api.getScheduled({ chat: selectedChat.jid }) : []),
     enabled: Boolean(selectedChat?.jid),
-    refetchInterval: 5000,
+    refetchInterval: POLL_SCHEDULED_MS,
   });
 
   const pendingScheduled = scheduledList.filter((s) => s.status === 'pending');
@@ -73,31 +112,25 @@ export const ThreadView: React.FC = () => {
     },
   });
 
-  // Star / Unstar mutation
-  const starMutation = useMutation({
-    mutationFn: (params: { chat: string; id: string; starred: boolean }) =>
-      api.starMessage(params),
-    onMutate: async ({ chat, id, starred }) => {
+  // Local bookmark toggle. This is Mission Control's own flag, not WhatsApp's
+  // star: wacli can read a synced star but has no command to set one, so a
+  // "star" button here could never reach the phone.
+  const bookmarkMutation = useMutation({
+    mutationFn: (params: { chat: string; id: string; bookmarked: boolean }) =>
+      api.bookmarkMessage(params),
+    onMutate: async ({ chat, id, bookmarked }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chat] });
-      const prev = queryClient.getQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>([
-        'messages',
-        chat,
-      ]);
-      if (prev) {
-        queryClient.setQueryData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-          ['messages', chat],
-          {
-            ...prev,
-            messages: prev.messages.map((m) => (m.msgId === id ? { ...m, starred } : m)),
-          }
-        );
-      }
-      return { prev };
+      queryClient.setQueriesData<MessagePage>({ queryKey: ['messages', chat] }, (old) =>
+        old
+          ? {
+              ...old,
+              messages: old.messages.map((m) => (m.msgId === id ? { ...m, bookmarked } : m)),
+            }
+          : old
+      );
     },
-    onError: (_err, { chat }, context) => {
-      if (context?.prev) {
-        queryClient.setQueryData(['messages', chat], context.prev);
-      }
+    onError: (_err, { chat }) => {
+      void queryClient.invalidateQueries({ queryKey: ['messages', chat] });
     },
   });
 
@@ -128,25 +161,46 @@ export const ThreadView: React.FC = () => {
     return { messages: visibleMsgs, reactionsMap: rxMap };
   }, [messagesData?.messages]);
 
-  // Auto-scroll to bottom on message load or new incoming (unless navigating to a specific highlighted msg)
+  // A jump target that is not in the loaded window — an old search hit, or a
+  // send-log entry whose optimistic id has since been replaced by a real one.
+  const highlightMissed =
+    Boolean(highlightedMessageId) &&
+    !isFetching &&
+    messages.length > 0 &&
+    !messages.some((m) => m.msgId === highlightedMessageId);
+
+  // Auto-scroll to the newest message, unless we are navigating to a specific one.
   useEffect(() => {
-    if (highlightedMessageId) {
-      const el = document.getElementById(`msg-${highlightedMessageId}`);
-      if (el) {
-        const raf = requestAnimationFrame(() => {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-        const timer = setTimeout(() => {
-          setHighlightedMessageId(null);
-        }, 5000);
-        return () => {
-          cancelAnimationFrame(raf);
-          clearTimeout(timer);
-        };
+    if (!highlightedMessageId) {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
-    } else if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      return;
     }
+
+    const el = document.getElementById(`msg-${highlightedMessageId}`);
+    if (el) {
+      const raf = requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_TTL_MS);
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(timer);
+      };
+    }
+
+    // Put the notice and the "load older" control in view; leaving them above
+    // the fold would look like the jump silently did nothing.
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+
+    // Give up eventually, but always clear the id. Leaving it set used to
+    // disable the auto-scroll branch above for the rest of the session, because
+    // only the found path ever reset it.
+    const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_MISS_TTL_MS);
+    return () => clearTimeout(timer);
   }, [selectedChat?.jid, messages, highlightedMessageId, setHighlightedMessageId]);
 
   const handleReact = async (msg: UnifiedMessage, emoji: string) => {
@@ -177,12 +231,12 @@ export const ThreadView: React.FC = () => {
     }
   };
 
-  const handleToggleStar = (msg: UnifiedMessage) => {
+  const handleToggleBookmark = (msg: UnifiedMessage) => {
     if (!selectedChat) return;
-    starMutation.mutate({
+    bookmarkMutation.mutate({
       chat: selectedChat.jid,
       id: msg.msgId,
-      starred: !msg.starred,
+      bookmarked: !msg.bookmarked,
     });
   };
 
@@ -313,6 +367,42 @@ export const ThreadView: React.FC = () => {
 
       {/* Message List */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {/* Older history. wacli keeps the full archive locally; the thread just
+            has to ask for more of it. */}
+        {highlightMissed && (
+          <div className="mb-1 p-2 rounded bg-mc-surface border border-mc-safe/40 text-[11px] font-mono text-mc-safe flex items-center gap-2">
+            <AlertTriangle size={13} className="shrink-0" />
+            <span>
+              {canLoadOlder
+                ? 'That message is older than the history loaded here — load older messages to reach it.'
+                : 'That message is not in the local archive for this chat.'}
+            </span>
+          </div>
+        )}
+
+        {canLoadOlder && messages.length > 0 && (
+          <div className="flex justify-center pb-1">
+            <button
+              onClick={loadOlderMessages}
+              disabled={isFetching}
+              className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
+              title="Load the previous 200 messages from the local archive"
+            >
+              {isFetching ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>LOADING...</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp size={12} />
+                  <span>LOAD OLDER MESSAGES</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="text-center py-12 text-xs font-mono text-mc-textMuted">
             Loading message history...
@@ -381,8 +471,13 @@ export const ThreadView: React.FC = () => {
                   {/* Message Footer: Timestamp, Edited, Star Badge, Status */}
                   <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] font-mono text-mc-textMuted">
                     {msg.starred && (
-                      <span title="Starred message">
+                      <span title="Starred in WhatsApp">
                         <Star size={11} className="fill-[#F5A623] text-[#F5A623]" />
+                      </span>
+                    )}
+                    {msg.bookmarked && (
+                      <span title="Bookmarked in Mission Control (this machine only)">
+                        <Bookmark size={11} className="fill-mc-live text-mc-live" />
                       </span>
                     )}
                     {msg.edited && <span className="italic">edited</span>}
@@ -417,7 +512,7 @@ export const ThreadView: React.FC = () => {
                   <div className="absolute -top-3.5 right-2 hidden group-hover:flex items-center gap-0.5 bg-mc-surface/95 backdrop-blur-sm border border-mc-border rounded px-1 py-0.5 shadow-md z-20">
                     {/* Reply */}
                     <button
-                      onClick={() => setReplyingTo(msg)}
+                      onClick={() => setReplyingTo(selectedChat.jid, msg)}
                       className="p-1 hover:text-mc-live text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
                       title="Reply"
                     >
@@ -435,15 +530,20 @@ export const ThreadView: React.FC = () => {
                       {isCopied ? <Check size={12} /> : <Copy size={12} />}
                     </button>
 
-                    {/* Star / Unstar Message */}
+                    {/* Local bookmark. Named for what it is: wacli cannot write
+                        WhatsApp's star, so this never leaves this machine. */}
                     <button
-                      onClick={() => handleToggleStar(msg)}
+                      onClick={() => handleToggleBookmark(msg)}
                       className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-                        msg.starred ? 'text-[#F5A623]' : 'text-mc-textMuted hover:text-[#F5A623]'
+                        msg.bookmarked ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-live'
                       }`}
-                      title={msg.starred ? 'Unstar message' : 'Star message'}
+                      title={
+                        msg.bookmarked
+                          ? 'Remove local bookmark'
+                          : 'Bookmark locally (not synced to WhatsApp)'
+                      }
                     >
-                      <Star size={12} className={msg.starred ? 'fill-[#F5A623]' : ''} />
+                      <Bookmark size={12} className={msg.bookmarked ? 'fill-mc-live' : ''} />
                     </button>
 
                     {/* Expanded Emoji Reaction Drawer */}

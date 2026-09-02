@@ -3,7 +3,7 @@ import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, Alert
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
-import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
@@ -42,7 +42,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
         archived: chatFilter === 'archived' ? true : chatFilter === 'all' ? false : undefined,
         muted: chatFilter === 'muted' ? true : undefined,
       }),
-    refetchInterval: 10000,
+    refetchInterval: POLL_CHATS_MS,
     ...readQueryOpts,
   });
 
@@ -207,9 +207,16 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                     </span>
                   </div>
 
+                  {/* What the conversation is about. The JID stays as the
+                      fallback for chats with nothing in the local archive. */}
                   <div className="text-[11px] truncate">
                     {isTyping ? (
                       <span className="text-mc-live font-mono animate-pulse">typing...</span>
+                    ) : chat.lastMessage ? (
+                      <span className="text-mc-textMuted">
+                        {chat.lastMessageFromMe && <span className="text-mc-textMuted/70">You: </span>}
+                        {chat.lastMessage}
+                      </span>
                     ) : (
                       <span className="text-mc-textMuted font-mono">{chat.jid.split('@')[0]}</span>
                     )}

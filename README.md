@@ -31,7 +31,9 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 ### 🛡️ Safe-by-Default Architecture
 - **Read-Only on First Run**: A fresh install starts locked — outgoing actions (sends, replies, emoji reactions, scheduled jobs) are all blocked until you explicitly unlock live sends.
 - **Your Choice Sticks**: Safe mode is a first-run default, not a recurring nag. Once you unlock live sends, that choice persists across restarts and is never silently re-imposed — and nothing but you can change it. Scheduled dispatches respect the lock rather than lifting it: a message that comes due while safe mode is on **fails loudly** — marked failed with the reason, logged as an error, and shown in red in the scheduled list — rather than going out behind your back or sitting silently. Unlock live sends and reschedule it.
-- **Two-Step Mutation Guardrails**: Every send, media dispatch, or reaction prompt passes through a `SendConfirmModal` confirmation step with target JID, payload preview, and explicit confirmation.
+- **Two-Step Mutation Guardrails**: Every send, media dispatch, or reaction prompt passes through a `SendConfirmModal` confirmation step with target JID, payload preview, the quoted message when replying, and explicit confirmation.
+- **Drafts Stay With Their Conversation**: The composer draft, attachment, and reply target are scoped to the chat they were started in, so switching chats can never carry a message — or a reply aimed at one thread — into another.
+- **Bookmarks Are Local, And Say So**: wacli can read a WhatsApp star but has no command to set one, so Mission Control's bookmark is presented as its own local flag rather than pretending to reach your phone.
 - **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
 
 ### ⚡ Real-Time Ingestion & Process Supervision
@@ -41,16 +43,16 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 
 ### 💬 Three-Pane Operator Console
 - **Left Rail (Chat List)**:
-  - Real-time unread counts, contact names, and phone numbers.
+  - Real-time unread counts, contact names, and a preview of the last message (`You:` prefixed when it is yours, media described rather than left blank).
   - Live typing presence indicators (`typing...`).
   - Quick filters: `All`, `Unread`, `Pinned`, `Muted`, and `Archived`.
   - Filter search by contact name or JID.
 - **Center Pane (Thread View & Composer)**:
-  - Full conversation history with chronological sorting and auto-scroll.
+  - Chronological history with auto-scroll, and a **Load Older Messages** control that pages further back through the local archive.
   - Group sender attribution and system notices.
   - Delivery receipts (`sent`, `delivered`, `read`/`played`).
-  - Starred message tracking and text copy to clipboard.
-  - Interactive hover actions: quick reply, copy text, star/unstar, and emoji reactions.
+  - WhatsApp stars shown as synced by wacli, plus local bookmarks and text copy to clipboard.
+  - Interactive hover actions: quick reply, copy text, bookmark, and emoji reactions.
   - **Expanded Emoji Reaction Drawer**: Categorized emoji picker (Smileys, Gestures, Hearts, Celebration), real-time search filter, quick reactions row, smart top/bottom viewport positioning, and boundary-aware alignment so popovers are never obscured by sidebars.
   - **Media Viewer**: Inline image rendering, waveform audio player, video playback, and document download.
   - **Fixed Composer**: Multi-line auto-expanding input, reply pill attachment, file upload preview, sticker toggle, and voice message simulation.
@@ -203,9 +205,9 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `GET` | `/api/health` | Service health, daemon state, uptime, and lock status |
 | `GET` | `/api/settings` | Current read-only mode state and session metadata |
 | `POST`| `/api/mode` | Update read-only / write mode (`{ readOnly: boolean }`) |
-| `GET` | `/api/chats` | List chats with unread counts, filters (`unread`, `pinned`, `archived`) |
-| `GET` | `/api/messages` | Fetch messages for a chat (`?chat=<jid>&limit=100`) |
-| `POST`| `/api/messages/star` | Star or unstar a message (`{ chat, id, starred }`) |
+| `GET` | `/api/chats` | List chats with unread counts, last-message previews, filters (`unread`, `pinned`, `archived`) |
+| `GET` | `/api/messages` | Fetch messages for a chat (`?chat=<jid>&limit=100`); raise `limit` to page further back |
+| `POST`| `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
 | `GET` | `/api/search` | Search message history with FTS5 (`?q=<query>&limit=50`) |
 | `POST`| `/api/send/text` | Send a text message or reply (`{ to, message, replyTo?, confirm: true }`) |
 | `POST`| `/api/send/media` | Upload and dispatch media (`multipart/form-data`) |

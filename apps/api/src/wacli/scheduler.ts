@@ -297,6 +297,7 @@ export class Scheduler {
             mimeType: item.mimeType || null,
             localPath: null,
             starred: false,
+            bookmarked: false,
             edited: false,
             revoked: false,
             deliveryStatus: 'sent',

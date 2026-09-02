@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Unlock, Lock, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
 
 const STORAGE_KEY = 'wacli_safe_mode';
 
@@ -11,7 +12,7 @@ export const ReadOnlyBanner: React.FC = () => {
   const { data: modeData } = useQuery({
     queryKey: ['mode'],
     queryFn: () => api.getMode(),
-    refetchInterval: 5000,
+    refetchInterval: POLL_MODE_MS,
   });
 
   React.useEffect(() => {
