@@ -35,6 +35,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Drafts Stay With Their Conversation**: The composer draft, attachment, and reply target are scoped to the chat they were started in, so switching chats can never carry a message — or a reply aimed at one thread — into another.
 - **Bookmarks Are Local, And Say So**: wacli can read a WhatsApp star but has no command to set one, so Mission Control's bookmark is presented as its own local flag rather than pretending to reach your phone.
 - **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
+- **Notifications Stay Local**: Desktop notifications are raised in your own browser from the WebSocket bridge — no push service, no third party, nothing leaves the machine. They are off until you switch them on in Settings and the browser grants permission.
 
 ### ⚡ Real-Time Ingestion & Process Supervision
 - **Supervised `wacli sync --follow` Daemon**: The Node.js API manages the sync process lifecycle with automatic exponential backoff restarts and heartbeat liveness checks.
@@ -45,6 +46,8 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Left Rail (Chat List)**:
   - Real-time unread counts, contact names, and a preview of the last message (`You:` prefixed when it is yours, media described rather than left blank).
   - Live typing presence indicators (`typing...`).
+  - Waiting count in the browser tab title, so a backgrounded console still says whether anything needs you.
+  - Opt-in desktop notifications for incoming messages. Your own messages, reactions, muted chats, and the conversation already on screen stay silent; clicking one focuses the window and opens that chat.
   - Quick filters: `All`, `Unread`, `Pinned`, `Muted`, and `Archived`.
   - Filter search by contact name or JID, debounced so a word typed into the box costs one query rather than one per letter.
 - **Center Pane (Thread View & Composer)**:

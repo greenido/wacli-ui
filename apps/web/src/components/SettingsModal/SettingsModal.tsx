@@ -1,9 +1,83 @@
-import React from 'react';
-import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import {
+  notificationPermission,
+  notificationsEnabled,
+  notificationsSupported,
+  requestNotificationPermission,
+  setNotificationsEnabled,
+} from '../../lib/notifications.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+
+/**
+ * Desktop notifications are opt-in twice over: the operator has to switch them
+ * on here, and the browser has to grant permission. This shows which of the two
+ * is missing rather than leaving a silent console unexplained.
+ */
+const NotificationToggle: React.FC = () => {
+  const supported = notificationsSupported();
+  const [enabled, setEnabled] = useState(() => notificationsEnabled());
+  const [permission, setPermission] = useState<NotificationPermission>(() => notificationPermission());
+  const [isRequesting, setIsRequesting] = useState(false);
+
+  const isOn = enabled && permission === 'granted';
+  const isBlocked = supported && permission === 'denied';
+
+  const handleToggle = async () => {
+    if (isOn) {
+      setNotificationsEnabled(false);
+      setEnabled(false);
+      return;
+    }
+
+    setIsRequesting(true);
+    try {
+      const granted = await requestNotificationPermission();
+      setPermission(granted);
+      if (granted === 'granted') {
+        setNotificationsEnabled(true);
+        setEnabled(true);
+      }
+    } finally {
+      setIsRequesting(false);
+    }
+  };
+
+  return (
+    <div className="p-3 bg-mc-bg rounded border border-mc-border space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-mc-text flex items-center gap-2">
+          {isOn ? <Bell size={16} className="text-mc-live" /> : <BellOff size={16} className="text-mc-textMuted" />}
+          DESKTOP NOTIFICATIONS
+        </span>
+        <button
+          onClick={() => void handleToggle()}
+          disabled={!supported || isBlocked || isRequesting}
+          aria-pressed={isOn}
+          className={`px-3 py-1 rounded text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+            isOn
+              ? 'bg-mc-live/20 text-mc-live border border-mc-live/60 hover:bg-mc-live/30'
+              : 'bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50'
+          }`}
+        >
+          {isRequesting ? 'ASKING...' : isOn ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      <p className="text-[11px] text-mc-textMuted font-sans">
+        {!supported
+          ? 'This browser cannot show desktop notifications.'
+          : isBlocked
+          ? 'Blocked in your browser settings. Allow notifications for this site, then re-open Settings.'
+          : isOn
+          ? 'Incoming messages raise a desktop notification. Your own messages, reactions, muted chats, and the conversation you are already watching stay silent.'
+          : 'Off. Turning this on asks the browser for permission; nothing is sent anywhere — the notification is raised locally from the WebSocket bridge.'}
+      </p>
+    </div>
+  );
+};
 
 export const SettingsModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);
@@ -101,6 +175,8 @@ export const SettingsModal: React.FC = () => {
                 : 'Live mode active: outbound commands are allowed with modal confirmation.'}
             </p>
           </div>
+
+          <NotificationToggle />
 
           {/* wacli CLI Installation Status */}
           <div className="space-y-2">

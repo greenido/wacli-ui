@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useWebSocket } from './useWebSocket.ts';
+import { NOTIFICATIONS_STORAGE_KEY } from '../lib/notifications.ts';
 import { useAppStore } from '../store/appStore.ts';
 import type { MissionControlEvent, UnifiedChat, UnifiedMessage } from '../types.ts';
 
@@ -233,6 +234,148 @@ describe('useWebSocket chat rail reconciliation', () => {
     );
     expect(railInvalidations).toHaveLength(1);
 
+    unmount();
+  });
+});
+
+/** Records constructions so the tests can assert on copy, not just on count. */
+class FakeNotification {
+  static permission: NotificationPermission = 'granted';
+  static instances: FakeNotification[] = [];
+  static requestPermission = vi.fn().mockResolvedValue('granted' as NotificationPermission);
+
+  onclick: (() => void) | null = null;
+  closed = false;
+
+  constructor(public title: string, public options: NotificationOptions) {
+    FakeNotification.instances.push(this);
+  }
+
+  close() {
+    this.closed = true;
+  }
+}
+
+describe('useWebSocket desktop notifications', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    FakeNotification.instances = [];
+    FakeNotification.permission = 'granted';
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('Notification', FakeNotification);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    useAppStore.setState({ selectedChat: null });
+    localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'true');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  it('raises a notification for an incoming message', () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    expect(FakeNotification.instances).toHaveLength(1);
+    expect(FakeNotification.instances[0].title).toBe('Alice');
+    expect(FakeNotification.instances[0].options.body).toBe('the newest line');
+
+    unmount();
+  });
+
+  it('stays silent when the operator has not opted in', () => {
+    localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, 'false');
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    expect(FakeNotification.instances).toHaveLength(0);
+    unmount();
+  });
+
+  it('stays silent for a muted chat', () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat({ mutedUntil: 1893456000 })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    expect(FakeNotification.instances).toHaveLength(0);
+    unmount();
+  });
+
+  it('selects the chat when the notification is clicked', () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    act(() => {
+      FakeNotification.instances[0].onclick?.();
+    });
+
+    expect(useAppStore.getState().selectedChat?.jid).toBe('alice@s.whatsapp.net');
+    expect(FakeNotification.instances[0].closed).toBe(true);
+    unmount();
+  });
+
+  it('can still open a chat the rail has never listed', () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({
+        type: 'message.new',
+        data: message({ chatJid: 'stranger@s.whatsapp.net', chatName: 'Stranger', msgId: 'NEW-1' }),
+        ts: '2026-09-01T11:00:00Z',
+      });
+    });
+
+    act(() => {
+      FakeNotification.instances[0].onclick?.();
+    });
+
+    expect(useAppStore.getState().selectedChat?.jid).toBe('stranger@s.whatsapp.net');
+    expect(useAppStore.getState().selectedChat?.name).toBe('Stranger');
+    unmount();
+  });
+
+  it('does not break message ingestion when the browser refuses to construct one', () => {
+    vi.stubGlobal(
+      'Notification',
+      Object.assign(
+        class {
+          constructor() {
+            throw new Error('Notifications require a user gesture');
+          }
+        },
+        { permission: 'granted' as NotificationPermission }
+      )
+    );
+
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
+    expect(rail[0].lastMessage).toBe('the newest line');
     unmount();
   });
 });

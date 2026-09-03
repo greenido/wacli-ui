@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/appStore.ts';
+import { chatFromMessage } from '../lib/chatFromMessage.ts';
 import { markChatAsRead } from '../lib/chatRead.ts';
 import { messagePreviewText } from '../lib/messagePreview.ts';
+import {
+  notificationPermission,
+  notificationsEnabled,
+  notificationsSupported,
+  shouldNotify,
+  showMessageNotification,
+} from '../lib/notifications.ts';
 import { sameWhatsAppUser } from '../lib/presence.ts';
 import type { MissionControlEvent, MissionControlStatus, UnifiedChat, UnifiedMessage } from '../types.ts';
 
@@ -93,12 +101,15 @@ export function useWebSocket() {
             // A reaction is not conversation content — the server-side preview scan
             // skips it, so the rail keeps showing the message being reacted to.
             const preview = newMsg.reactionToId ? null : messagePreviewText(newMsg);
+            let railChat: UnifiedChat | undefined;
             let chatIsInRail = false;
 
             queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
               if (!old) return old;
-              if (!old.some((c) => c.jid === newMsg.chatJid)) return old;
+              const known = old.find((c) => c.jid === newMsg.chatJid);
+              if (!known) return old;
               chatIsInRail = true;
+              railChat ??= known;
 
               return old.map((c) => {
                 if (c.jid !== newMsg.chatJid) return c;
@@ -144,6 +155,30 @@ export function useWebSocket() {
 
             if (!newMsg.fromMe) {
               useAppStore.getState().clearPresence(newMsg.chatJid);
+            }
+
+            // Desktop ping. The policy lives in lib/notifications so it can be
+            // reasoned about without a socket; everything it needs is in hand.
+            const notify = shouldNotify({
+              msg: newMsg,
+              chat: railChat,
+              isViewingChat,
+              documentVisible: document.visibilityState === 'visible' && document.hasFocus(),
+              enabled: notificationsEnabled(),
+              supported: notificationsSupported(),
+              permission: notificationPermission(),
+            });
+
+            if (notify.show) {
+              showMessageNotification(newMsg, () => {
+                const target = railChat ?? chatFromMessage(newMsg);
+                useAppStore.getState().setSelectedChat({ ...target, unread: false, unreadCount: 0 });
+                try {
+                  localStorage.setItem('wacli_selected_chat', target.jid);
+                } catch {
+                  // Selection still applies for this session.
+                }
+              });
             }
           } else if (payload.type === 'message.receipt') {
             const { chatJid, messageIds, status } = payload.data;

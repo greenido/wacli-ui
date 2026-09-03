@@ -10,6 +10,7 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal.tsx';
 import { NewChatModal } from './components/NewChatModal/NewChatModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
+import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 
 const DEFAULT_CHAT_LIST_WIDTH = 320;
@@ -17,6 +18,9 @@ const DEFAULT_STATUS_STRIP_WIDTH = 256;
 
 export const App: React.FC = () => {
   const { isConnected } = useWebSocket();
+  // Puts the waiting count in the tab title, so a backgrounded console still
+  // says whether anything needs the operator.
+  useUnreadTitle();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Resizable pane widths with localStorage persistence
