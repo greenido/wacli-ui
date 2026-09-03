@@ -35,6 +35,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Drafts Stay With Their Conversation**: The composer draft, attachment, and reply target are scoped to the chat they were started in, so switching chats can never carry a message — or a reply aimed at one thread — into another.
 - **Bookmarks Are Local, And Say So**: wacli can read a WhatsApp star but has no command to set one, so Mission Control's bookmark is presented as its own local flag rather than pretending to reach your phone.
 - **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
+- **Exports Stay Local**: A conversation export runs `wacli messages export` and hands the file straight to your browser. Nothing is uploaded, and the file says in its own header when the size cap truncated it.
 - **Notifications Stay Local**: Desktop notifications are raised in your own browser from the WebSocket bridge — no push service, no third party, nothing leaves the machine. They are off until you switch them on in Settings and the browser grants permission.
 
 ### ⚡ Real-Time Ingestion & Process Supervision
@@ -52,6 +53,9 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
   - Filter search by contact name or JID, debounced so a word typed into the box costs one query rather than one per letter.
 - **Center Pane (Thread View & Composer)**:
   - Chronological history with auto-scroll, and a **Load Older Messages** control that pages further back through the local archive.
+  - **Archive coverage** in the header (how far back this machine actually holds), so a thread that stops has an explanation rather than just an end.
+  - **Request Older From Phone**: when local paging runs out, `wacli history backfill` asks your primary device for more. It writes the local store, so safe read-only mode refuses it.
+  - **Export conversation** as a readable text transcript or as the full JSON wacli produced.
   - Group sender attribution and system notices.
   - Delivery receipts (`sent`, `delivered`, `read`/`played`).
   - WhatsApp stars shown as synced by wacli, plus local bookmarks and text copy to clipboard.
@@ -212,6 +216,9 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `GET` | `/api/chats` | List chats with unread counts, last-message previews, filters (`unread`, `pinned`, `archived`) |
 | `GET` | `/api/messages` | Fetch messages for a chat (`?chat=<jid>&limit=100`); raise `limit` to page further back |
 | `POST`| `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
+| `GET` | `/api/messages/export` | Export a conversation (`?chat=<jid>&limit=1000`); answers `truncated` when the cap was hit |
+| `GET` | `/api/history/coverage` | How far back the local archive reaches (`?chat=<jid>`, or every chat when omitted) |
+| `POST`| `/api/history/backfill` | Ask the primary device for older messages (`{ chat, count? }`); refused in read-only mode |
 | `GET` | `/api/search` | Search message history with FTS5 (`?q=<query>&limit=50`) |
 | `POST`| `/api/send/text` | Send a text message or reply (`{ to, message, replyTo?, confirm: true }`) |
 | `POST`| `/api/send/media` | Upload and dispatch media (`multipart/form-data`) |

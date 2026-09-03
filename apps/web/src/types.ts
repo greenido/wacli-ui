@@ -42,6 +42,31 @@ export interface UnifiedMessage {
   deliveryStatus?: 'sent' | 'delivered' | 'read' | 'played';
 }
 
+/**
+ * How far back the local archive actually reaches for one chat. Mirrors
+ * `ChatCoverage` in `apps/api/src/types.ts`.
+ */
+export interface ChatCoverage {
+  chatJid: string;
+  name: string;
+  kind: string;
+  messageCount: number;
+  oldestTs: string | null;
+  newestTs: string | null;
+  lastMessageTs: string | null;
+  status: string;
+}
+
+export interface ConversationExport {
+  chatJid: string;
+  chatName: string;
+  exportedAt: string;
+  count: number;
+  /** True when the cap was hit, so the export is not the whole conversation. */
+  truncated: boolean;
+  messages: UnifiedMessage[];
+}
+
 export interface UnifiedDoctor {
   storeDir: string;
   lockHeld: boolean;

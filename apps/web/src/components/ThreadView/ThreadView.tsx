@@ -9,6 +9,7 @@ import {
   Bookmark,
   ChevronUp,
   Clock,
+  CloudDownload,
   Loader2,
   Trash2,
   AlertOctagon,
@@ -22,7 +23,8 @@ import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
-import type { UnifiedMessage } from '../../types.ts';
+import { ExportMenu } from './ExportMenu.tsx';
+import type { ChatCoverage, UnifiedMessage } from '../../types.ts';
 
 interface MessagePage {
   messages: UnifiedMessage[];
@@ -36,6 +38,22 @@ const HIGHLIGHT_TTL_MS = 5000;
 
 /** Longer, because a missed target comes with a notice worth reading. */
 const HIGHLIGHT_MISS_TTL_MS = 12000;
+
+/**
+ * Coverage changes only when sync or a backfill moves the archive boundary, so
+ * it is fetched on chat open and left alone — not polled.
+ */
+const COVERAGE_STALE_MS = 5 * 60_000;
+
+/** How many older messages one "ask the phone" request tries to pull back. */
+const BACKFILL_BATCH = 200;
+
+function archiveDate(ts: string | null): string | null {
+  if (!ts) return null;
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
 export const ThreadView: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
@@ -94,6 +112,28 @@ export const ThreadView: React.FC = () => {
   });
 
   const canLoadOlder = Boolean(messagesData?.hasMore);
+
+  // How far back the local archive reaches. Paging the thread stops at whatever
+  // sync happened to pull; this is what tells the operator whether the wall they
+  // hit is the end of the conversation or just the end of what was synced.
+  const { data: coverageRows } = useQuery({
+    queryKey: ['coverage', selectedChat?.jid],
+    queryFn: () =>
+      selectedChat ? api.getHistoryCoverage({ chat: selectedChat.jid }) : Promise.resolve([]),
+    staleTime: COVERAGE_STALE_MS,
+    ...wacliReadQueryOptions<ChatCoverage[]>(readsReady && Boolean(selectedChat?.jid)),
+  });
+
+  const coverage = coverageRows?.[0] ?? null;
+  const archiveStart = archiveDate(coverage?.oldestTs ?? null);
+
+  const backfillMutation = useMutation({
+    mutationFn: (chatJid: string) => api.backfillHistory({ chat: chatJid, count: BACKFILL_BATCH }),
+    onSuccess: (_result, chatJid) => {
+      queryClient.invalidateQueries({ queryKey: ['messages', chatJid] });
+      queryClient.invalidateQueries({ queryKey: ['coverage', chatJid] });
+    },
+  });
 
   // Scheduled messages for current chat
   const { data: scheduledList = [] } = useQuery({
@@ -341,6 +381,17 @@ export const ThreadView: React.FC = () => {
             {isTyping && <span className="text-mc-live animate-pulse">● typing...</span>}
           </div>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {coverage && coverage.messageCount > 0 && (
+            <span
+              className="hidden sm:block text-[10px] font-mono text-mc-textMuted"
+              title="How far back this machine's local archive reaches for this chat"
+            >
+              ARCHIVE {archiveStart ?? '?'} · {coverage.messageCount.toLocaleString()} MSG
+            </span>
+          )}
+          <ExportMenu chatJid={selectedChat.jid} chatName={selectedChat.name} />
+        </div>
       </div>
 
       {/* Scheduled Messages Banner for this chat (Send Later FR) */}
@@ -377,6 +428,50 @@ export const ThreadView: React.FC = () => {
                 ? 'That message is older than the history loaded here — load older messages to reach it.'
                 : 'That message is not in the local archive for this chat.'}
             </span>
+          </div>
+        )}
+
+        {/* The local archive has run out. wacli can ask the primary device for
+            more, which is the only way past this wall. */}
+        {!canLoadOlder && messages.length > 0 && (
+          <div className="flex flex-col items-center gap-1.5 pb-2">
+            <span className="text-[10px] font-mono text-mc-textMuted text-center">
+              {archiveStart
+                ? `Local archive for this chat starts ${archiveStart}.`
+                : 'Start of the local archive for this chat.'}
+            </span>
+            <button
+              onClick={() => backfillMutation.mutate(selectedChat.jid)}
+              disabled={backfillMutation.isPending || Boolean(health?.readOnly)}
+              className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title={
+                health?.readOnly
+                  ? 'Safe read-only mode is active: a backfill writes the local store, so it is disabled.'
+                  : 'Ask your phone for older messages in this chat and add them to the local archive'
+              }
+            >
+              {backfillMutation.isPending ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>ASKING YOUR PHONE...</span>
+                </>
+              ) : (
+                <>
+                  <CloudDownload size={12} />
+                  <span>REQUEST OLDER FROM PHONE</span>
+                </>
+              )}
+            </button>
+            {backfillMutation.isError && (
+              <span className="text-[10px] font-mono text-mc-danger text-center max-w-sm">
+                {(backfillMutation.error as Error).message}
+              </span>
+            )}
+            {backfillMutation.isSuccess && !backfillMutation.isPending && (
+              <span className="text-[10px] font-mono text-mc-textMuted text-center max-w-sm">
+                Request sent. Your phone answers on its own schedule — anything it returns appears here.
+              </span>
+            )}
           </div>
         )}
 

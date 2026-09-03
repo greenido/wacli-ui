@@ -1,5 +1,7 @@
 import type {
+  ChatCoverage,
   RawChat,
+  RawChatCoverage,
   RawMessage,
   RawWebhookMessage,
   UnifiedChat,
@@ -42,6 +44,19 @@ export function messagePreviewText(msg: UnifiedMessage): string {
 export interface ChatPreview {
   text: string;
   fromMe: boolean;
+}
+
+export function normalizeCoverage(raw: RawChatCoverage): ChatCoverage {
+  return {
+    chatJid: raw.chat_jid ?? '',
+    name: raw.name ?? '',
+    kind: raw.kind ?? 'unknown',
+    messageCount: Number(raw.message_count ?? 0),
+    oldestTs: raw.oldest_ts ?? null,
+    newestTs: raw.newest_ts ?? null,
+    lastMessageTs: raw.last_message_ts ?? null,
+    status: raw.status ?? 'unknown',
+  };
 }
 
 export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat {
