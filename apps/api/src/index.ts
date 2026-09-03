@@ -15,6 +15,7 @@ import { createChatsRouter } from './routes/chats.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createSearchRouter } from './routes/search.js';
 import { createHistoryRouter } from './routes/history.js';
+import { createContactsRouter } from './routes/contacts.js';
 import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
 import { scheduler } from './wacli/scheduler.js';
@@ -115,6 +116,7 @@ export function createApp(
   app.use('/api', createMessagesRouter());
   app.use('/api', createSearchRouter());
   app.use('/api', createHistoryRouter(processManager));
+  app.use('/api', createContactsRouter(processManager));
   app.use('/api', createSendRouter());
   app.use('/api', createMediaRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));

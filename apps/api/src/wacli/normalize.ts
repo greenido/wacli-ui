@@ -2,10 +2,14 @@ import type {
   ChatCoverage,
   RawChat,
   RawChatCoverage,
+  RawContact,
+  RawGroup,
   RawMessage,
   RawWebhookMessage,
   UnifiedChat,
+  UnifiedContact,
   UnifiedDoctor,
+  UnifiedGroup,
   UnifiedMessage,
 } from '../types.js';
 
@@ -44,6 +48,29 @@ export function messagePreviewText(msg: UnifiedMessage): string {
 export interface ChatPreview {
   text: string;
   fromMe: boolean;
+}
+
+export function normalizeContact(raw: RawContact): Omit<UnifiedContact, 'tags'> {
+  return {
+    jid: raw.jid ?? '',
+    phone: raw.phone ?? (raw.jid ?? '').split('@')[0],
+    name: raw.name ?? '',
+    alias: raw.alias ?? '',
+    systemName: raw.system_name ?? '',
+    updatedAt: raw.updated_at ?? null,
+    known: true,
+  };
+}
+
+export function normalizeGroup(raw: RawGroup): UnifiedGroup {
+  return {
+    jid: raw.JID ?? '',
+    name: raw.Name ?? '',
+    ownerJid: raw.OwnerJID ?? '',
+    createdAt: raw.CreatedAt ?? null,
+    leftAt: raw.LeftAt ?? null,
+    updatedAt: raw.UpdatedAt ?? null,
+  };
 }
 
 export function normalizeCoverage(raw: RawChatCoverage): ChatCoverage {

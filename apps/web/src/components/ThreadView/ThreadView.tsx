@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Clock,
   CloudDownload,
+  Info,
   Loader2,
   Trash2,
   AlertOctagon,
@@ -61,6 +62,7 @@ export const ThreadView: React.FC = () => {
   const presenceMap = useAppStore((s) => s.presenceMap);
   const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
+  const setActiveModal = useAppStore((s) => s.setActiveModal);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
@@ -391,6 +393,15 @@ export const ThreadView: React.FC = () => {
             </span>
           )}
           <ExportMenu chatJid={selectedChat.jid} chatName={selectedChat.name} />
+          <button
+            onClick={() => setActiveModal('chat-info')}
+            title="Contact details, local alias, and tags"
+            aria-label="Chat info"
+            className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+          >
+            <Info size={12} />
+            <span>INFO</span>
+          </button>
         </div>
       </div>
 

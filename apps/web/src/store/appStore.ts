@@ -27,6 +27,8 @@ interface AppState {
   selectedChat: UnifiedChat | null;
   searchQuery: string;
   chatFilter: 'all' | 'unread' | 'pinned' | 'archived' | 'muted';
+  /** Mission Control's own label filter, orthogonal to the chat filters above. */
+  tagFilter: string | null;
   /**
    * Composer state is keyed by chat JID. A single shared draft followed the
    * operator into whichever chat they switched to, so a reply aimed at one
@@ -36,7 +38,7 @@ interface AppState {
   presenceMap: Record<string, { state: 'composing' | 'paused'; sender: string }>;
   sendLogs: SendLogEntry[];
   highlightedMessageId: string | null;
-  activeModal: 'send-confirm' | 'settings' | 'new-chat' | null;
+  activeModal: 'send-confirm' | 'settings' | 'new-chat' | 'chat-info' | null;
   composerDrafts: Record<string, string>;
   composerFiles: Record<string, File>;
   focusComposerTrigger: number;
@@ -55,13 +57,14 @@ interface AppState {
   setSelectedChat: (chat: UnifiedChat | null) => void;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: 'all' | 'unread' | 'pinned' | 'archived' | 'muted') => void;
+  setTagFilter: (tag: string | null) => void;
   setReplyingTo: (chatJid: string, msg: UnifiedMessage | null) => void;
   setPresence: (chatJid: string, state: 'composing' | 'paused', sender: string) => void;
   clearPresence: (chatJid: string) => void;
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
   setHighlightedMessageId: (id: string | null) => void;
-  setActiveModal: (modal: 'send-confirm' | 'settings' | 'new-chat' | null) => void;
+  setActiveModal: (modal: 'send-confirm' | 'settings' | 'new-chat' | 'chat-info' | null) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
   setComposerDraft: (chatJid: string, draft: string) => void;
   setComposerFile: (chatJid: string, file: File | null) => void;
@@ -80,6 +83,7 @@ export const useAppStore = create<AppState>((set) => ({
   selectedChat: null,
   searchQuery: '',
   chatFilter: 'all',
+  tagFilter: null,
   replyingToByChat: {},
   presenceMap: {},
   sendLogs: [],
@@ -93,6 +97,7 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedChat: (chat) => set({ selectedChat: chat }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setChatFilter: (filter) => set({ chatFilter: filter }),
+  setTagFilter: (tag) => set({ tagFilter: tag }),
   setReplyingTo: (chatJid, msg) =>
     set((s) => ({
       replyingToByChat: msg
