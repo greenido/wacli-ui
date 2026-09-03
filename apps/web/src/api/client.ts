@@ -1,4 +1,6 @@
 import type {
+  ChatCoverage,
+  ConversationExport,
   UnifiedChat,
   UnifiedMessage,
   MissionControlStatus,
@@ -120,6 +122,31 @@ export const api = {
     asc?: boolean;
   }) =>
     request<{ messages: UnifiedMessage[]; hasMore: boolean }>('/api/messages', {}, params),
+
+  /**
+   * Everything in one conversation, for keeping or reading elsewhere. Answers
+   * with `truncated` rather than quietly handing back a partial history.
+   */
+  exportConversation: (params: { chat: string; limit?: number; before?: string; after?: string }) =>
+    request<ConversationExport>('/api/messages/export', {}, params),
+
+  /** How far back the local archive reaches — what the thread can page to. */
+  getHistoryCoverage: (params: { chat?: string } = {}) =>
+    request<ChatCoverage[]>('/api/history/coverage', {}, params),
+
+  /**
+   * Asks the primary device for older messages. This reaches the phone and
+   * writes the local store, so safe read-only mode refuses it.
+   */
+  backfillHistory: (data: { chat: string; count?: number }) =>
+    request<{ chat: string; requested: number }>('/api/history/backfill', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify(data),
+    }),
 
   searchMessages: (params: {
     q: string;

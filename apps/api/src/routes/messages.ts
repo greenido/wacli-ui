@@ -10,6 +10,14 @@ interface RawMessagesListResponse {
 }
 
 /**
+ * Export is capped well below `execWacli`'s 10 MB output buffer — roughly
+ * 800 bytes a message in practice — so a long conversation comes back
+ * truncated rather than as an unparseable half-response.
+ */
+const EXPORT_DEFAULT_LIMIT = 1000;
+const EXPORT_MAX_LIMIT = 5000;
+
+/**
  * Bookmarks are local-only state, so unlike a send or a chat mutation they are
  * still allowed while safe read-only mode is on: nothing reaches WhatsApp or
  * the wacli store. The custom header is still required, to keep stray scripts
@@ -67,6 +75,58 @@ export function createMessagesRouter(): Router {
         data: {
           messages,
           hasMore: messages.length >= Number(limit || 50),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/messages/export - a whole conversation, for keeping or reading elsewhere
+  router.get('/messages/export', async (req, res, next) => {
+    try {
+      const chat = req.query.chat as string | undefined;
+      if (!chat) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Query parameter "chat" (JID) is required.',
+        });
+        return;
+      }
+
+      const requested = Number(req.query.limit ?? EXPORT_DEFAULT_LIMIT);
+      const limit = Number.isFinite(requested)
+        ? Math.min(Math.max(Math.trunc(requested), 1), EXPORT_MAX_LIMIT)
+        : EXPORT_DEFAULT_LIMIT;
+
+      const args = ['messages', 'export', '--chat', chat, '--limit', String(limit)];
+      const before = req.query.before as string | undefined;
+      const after = req.query.after as string | undefined;
+      if (before) args.push('--before', before);
+      if (after) args.push('--after', after);
+
+      const raw = await execWacli<RawMessagesListResponse | RawMessage[]>(args, {
+        timeoutMs: 60000,
+      });
+      const rawList = Array.isArray(raw) ? raw : (raw?.messages ?? []);
+      const messages = rawList.map((m) => {
+        const norm = normalizeMessage(m);
+        norm.bookmarked = Boolean(norm.msgId) && bookmarkStore.has(norm.msgId);
+        return norm;
+      });
+
+      res.json({
+        success: true,
+        data: {
+          chatJid: chat,
+          chatName: messages[0]?.chatName ?? chat.split('@')[0],
+          exportedAt: new Date().toISOString(),
+          count: messages.length,
+          // Say so rather than letting the operator assume they have it all.
+          truncated: messages.length >= limit,
+          messages,
         },
         error: null,
       });

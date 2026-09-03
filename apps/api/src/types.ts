@@ -42,6 +42,23 @@ export interface UnifiedMessage {
   deliveryStatus?: 'sent' | 'delivered' | 'read' | 'played';
 }
 
+/**
+ * How far back the local archive actually reaches for one chat. Paging the
+ * thread stops at whatever sync happened to pull; this is what says whether
+ * there is more on the phone worth asking for.
+ */
+export interface ChatCoverage {
+  chatJid: string;
+  name: string;
+  kind: string;
+  messageCount: number;
+  oldestTs: string | null;
+  newestTs: string | null;
+  lastMessageTs: string | null;
+  /** wacli's own verdict, e.g. "ready" when a backfill can be anchored. */
+  status: string;
+}
+
 export interface UnifiedDoctor {
   storeDir: string;
   lockHeld: boolean;
@@ -127,6 +144,17 @@ export interface RawChat {
   muted_until?: number;
   unread?: boolean;
   unread_count?: number;
+}
+
+export interface RawChatCoverage {
+  chat_jid?: string;
+  kind?: string;
+  name?: string;
+  last_message_ts?: string | null;
+  message_count?: number;
+  oldest_ts?: string | null;
+  newest_ts?: string | null;
+  status?: string;
 }
 
 export interface RawMessage {
