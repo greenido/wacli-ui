@@ -38,7 +38,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 
 ### ⚡ Real-Time Ingestion & Process Supervision
 - **Supervised `wacli sync --follow` Daemon**: The Node.js API manages the sync process lifecycle with automatic exponential backoff restarts and heartbeat liveness checks.
-- **Zero-Polling Realtime Bridge**: Webhook events (`message`, `receipt`, `chat_presence`) are verified via HMAC-SHA256 and pushed instantly to the UI over WebSockets.
+- **Push-First Realtime Bridge**: Webhook events (`message`, `receipt`, `chat_presence`) are verified via HMAC-SHA256 and pushed instantly to the UI over WebSockets. Arriving messages are folded straight into the cached chat rail and thread, so the common case costs no request at all; polling stays on a slow timer as the safety net for whatever the socket misses.
 - **Lock Management**: Seamlessly coordinates store lock delegation between the running sync supervisor and one-shot write operations.
 
 ### 💬 Three-Pane Operator Console
@@ -46,7 +46,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
   - Real-time unread counts, contact names, and a preview of the last message (`You:` prefixed when it is yours, media described rather than left blank).
   - Live typing presence indicators (`typing...`).
   - Quick filters: `All`, `Unread`, `Pinned`, `Muted`, and `Archived`.
-  - Filter search by contact name or JID.
+  - Filter search by contact name or JID, debounced so a word typed into the box costs one query rather than one per letter.
 - **Center Pane (Thread View & Composer)**:
   - Chronological history with auto-scroll, and a **Load Older Messages** control that pages further back through the local archive.
   - Group sender attribution and system notices.

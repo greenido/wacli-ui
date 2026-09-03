@@ -11,6 +11,9 @@ import type {
  * One-line preview of a message for the chat rail. Media carries no body text,
  * so it is described rather than shown blank — a row that says nothing is the
  * bug this replaces.
+ *
+ * Twin of `messagePreviewText` in `apps/web/src/lib/messagePreview.ts`, which
+ * folds the same message when it arrives over the WebSocket. Keep them in step.
  */
 export function messagePreviewText(msg: UnifiedMessage): string {
   if (msg.revoked) return 'This message was deleted.';

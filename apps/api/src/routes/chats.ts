@@ -16,8 +16,25 @@ import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
  */
 const PREVIEW_SCAN_LIMIT = 400;
 
+/**
+ * That scan returns roughly 300 KB of JSON to keep one line per chat, and
+ * `/api/chats` is refetched far more often than the rail actually changes:
+ * every filter tap, every settled search term, every reconnect. Holding the
+ * folded map briefly collapses those bursts into one subprocess. It is
+ * deliberately short — the live rail is kept current by the WebSocket, so this
+ * only has to cover back-to-back requests, not a quiet minute.
+ */
+const PREVIEW_CACHE_TTL_MS = 5_000;
+
 interface RawMessagesListResponse {
   messages: RawMessage[] | null;
+}
+
+let previewCache: { previews: Map<string, ChatPreview>; expiresAt: number } | null = null;
+
+/** Test seam: the cache is module state, so suites must be able to clear it. */
+export function resetChatPreviewCache(): void {
+  previewCache = null;
 }
 
 /**
@@ -25,6 +42,10 @@ interface RawMessagesListResponse {
  * operator their chat list.
  */
 async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
+  if (previewCache && Date.now() < previewCache.expiresAt) {
+    return previewCache.previews;
+  }
+
   const previews = new Map<string, ChatPreview>();
 
   try {
@@ -49,8 +70,11 @@ async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
     }
   } catch (err) {
     logger.warn('api', `Chat previews unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    // A failed scan is not worth caching: the next request should try again.
+    return previews;
   }
 
+  previewCache = { previews, expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS };
   return previews;
 }
 
