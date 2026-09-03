@@ -2,8 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/appStore.ts';
 import { markChatAsRead } from '../lib/chatRead.ts';
+import { messagePreviewText } from '../lib/messagePreview.ts';
 import { sameWhatsAppUser } from '../lib/presence.ts';
 import type { MissionControlEvent, MissionControlStatus, UnifiedChat, UnifiedMessage } from '../types.ts';
+
+/**
+ * How long to hold a chat-list refetch open so a burst of messages from chats
+ * the rail has never seen costs one request instead of one per message.
+ */
+const CHATS_REFETCH_COALESCE_MS = 1_000;
 
 export function useWebSocket() {
   const queryClient = useQueryClient();
@@ -12,7 +19,18 @@ export function useWebSocket() {
 
   useEffect(() => {
     let reconnectTimer: ReturnType<typeof setTimeout>;
+    let chatsRefetchTimer: ReturnType<typeof setTimeout> | null = null;
     let shouldReconnect = true;
+
+    // `/api/chats` costs a `chats list` plus a ~300 KB message scan, so it is
+    // asked for only when the cache genuinely cannot be patched in place.
+    function scheduleChatsRefetch() {
+      if (chatsRefetchTimer) return;
+      chatsRefetchTimer = setTimeout(() => {
+        chatsRefetchTimer = null;
+        void queryClient.invalidateQueries({ queryKey: ['chats'] });
+      }, CHATS_REFETCH_COALESCE_MS);
+    }
 
     function connect() {
       const defaultWsUrl =
@@ -72,25 +90,45 @@ export function useWebSocket() {
             const selectedJid = useAppStore.getState().selectedChat?.jid;
             const isViewingChat = selectedJid === newMsg.chatJid;
 
+            // A reaction is not conversation content — the server-side preview scan
+            // skips it, so the rail keeps showing the message being reacted to.
+            const preview = newMsg.reactionToId ? null : messagePreviewText(newMsg);
+            let chatIsInRail = false;
+
             queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
               if (!old) return old;
+              if (!old.some((c) => c.jid === newMsg.chatJid)) return old;
+              chatIsInRail = true;
+
               return old.map((c) => {
                 if (c.jid !== newMsg.chatJid) return c;
+
+                const patched = preview
+                  ? { ...c, lastMessage: preview, lastMessageFromMe: newMsg.fromMe }
+                  : c;
 
                 if (isViewingChat) {
                   if (!newMsg.fromMe) {
                     void markChatAsRead(queryClient, newMsg.chatJid);
                   }
                   return {
-                    ...c,
+                    ...patched,
                     lastMessageTs: newMsg.ts,
                     unread: false,
                     unreadCount: 0,
                   };
                 }
 
-                // wacli sync already updates unread_count in the store; only bump timestamp here.
-                return { ...c, lastMessageTs: newMsg.ts };
+                // The next poll reconciles against the store's own unread_count;
+                // bumping it here is what makes the badge move immediately.
+                return newMsg.fromMe
+                  ? { ...patched, lastMessageTs: newMsg.ts }
+                  : {
+                      ...patched,
+                      lastMessageTs: newMsg.ts,
+                      unread: true,
+                      unreadCount: c.unreadCount + 1,
+                    };
               }).sort((a, b) => {
                 const tsA = a.lastMessageTs ? new Date(a.lastMessageTs).getTime() : 0;
                 const tsB = b.lastMessageTs ? new Date(b.lastMessageTs).getTime() : 0;
@@ -98,8 +136,10 @@ export function useWebSocket() {
               });
             });
 
-            if (!isViewingChat && !newMsg.fromMe) {
-              queryClient.invalidateQueries({ queryKey: ['chats'] });
+            // The rail row is now correct without a round trip. Only a chat the
+            // rail has never seen still needs one.
+            if (!chatIsInRail) {
+              scheduleChatsRefetch();
             }
 
             if (!newMsg.fromMe) {
@@ -153,6 +193,7 @@ export function useWebSocket() {
     return () => {
       shouldReconnect = false;
       clearTimeout(reconnectTimer);
+      if (chatsRefetchTimer) clearTimeout(chatsRefetchTimer);
       if (wsRef.current) {
         if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
           wsRef.current.close();

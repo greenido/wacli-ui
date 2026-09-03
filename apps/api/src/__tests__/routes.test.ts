@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../index.js';
+import { resetChatPreviewCache } from '../routes/chats.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { modeManager } from '../wacli/mode.js';
 
@@ -62,6 +63,12 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
 describe('API Read Endpoints', () => {
   const pm = new WacliProcessManager({ apiPort: 3002 });
   const app = createApp(pm);
+
+  // Chat previews are cached for a few seconds, which is shorter than a browser
+  // burst but longer than this suite takes to run.
+  beforeEach(() => {
+    resetChatPreviewCache();
+  });
 
   it('GET /api/chats returns chat list array', async () => {
     const res = await request(app).get('/api/chats?limit=5');

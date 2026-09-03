@@ -5,12 +5,15 @@ import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
 interface ChatListProps {
   width?: number;
 }
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const selectedChat = useAppStore((s) => s.selectedChat);
@@ -28,14 +31,19 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     queryFn: () => api.getHealth(),
   });
 
+  // `GET /api/chats` is the app's most expensive read — a `chats list` plus the
+  // 400-message preview scan — so the query key follows the typing rather than
+  // leading it. The input itself stays instant; only the fetch waits.
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
+
   const readsReady = isWacliReadyForReads(health);
   const readQueryOpts = wacliReadQueryOptions<UnifiedChat[]>(readsReady);
 
   const { data: chats = [], isLoading, isError, error, isFetching } = useQuery({
-    queryKey: ['chats', searchQuery, chatFilter],
+    queryKey: ['chats', debouncedSearchQuery, chatFilter],
     queryFn: () =>
       api.getChats({
-        query: searchQuery || undefined,
+        query: debouncedSearchQuery || undefined,
         limit: 100,
         unread: chatFilter === 'unread' ? true : undefined,
         pinned: chatFilter === 'pinned' ? true : undefined,

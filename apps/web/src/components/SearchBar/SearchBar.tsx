@@ -6,12 +6,15 @@ import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 interface SearchBarProps {
   onClose: () => void;
 }
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const [query, setQuery] = useState('');
@@ -28,18 +31,25 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
     queryFn: () => api.getHealth(),
   });
 
+  // Every distinct query key spawns a `wacli messages search` subprocess, so the
+  // key follows the typing rather than leading it.
+  const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
+  const settledQuery = debouncedQuery.trim();
+  const isTypingAhead = query.trim() !== settledQuery;
+
   const readsReady = isWacliReadyForReads(health);
   const readQueryOpts = wacliReadQueryOptions<{ query: string; fts: boolean; results: UnifiedMessage[] } | null>(
-    readsReady && Boolean(query.trim())
+    readsReady && Boolean(settledQuery)
   );
 
   const { data: searchResults, isFetching } = useQuery({
-    queryKey: ['search', query],
-    queryFn: () => (query.trim() ? api.searchMessages({ q: query.trim(), limit: 50 }) : null),
+    queryKey: ['search', settledQuery],
+    queryFn: () => (settledQuery ? api.searchMessages({ q: settledQuery, limit: 50 }) : null),
     ...readQueryOpts,
   });
 
   const results = searchResults?.results ?? [];
+  const isSearching = isFetching || isTypingAhead;
 
   const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
@@ -116,7 +126,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             placeholder="Full-text search across all messages (FTS5)..."
             className="flex-1 bg-transparent text-sm text-mc-text placeholder-mc-textMuted/60 focus:outline-none font-sans"
           />
-          {isFetching && <span className="text-xs font-mono text-mc-live animate-pulse">searching...</span>}
+          {isSearching && <span className="text-xs font-mono text-mc-live animate-pulse">searching...</span>}
           <button
             onClick={onClose}
             className="p-1 text-mc-textMuted hover:text-mc-text"
@@ -131,9 +141,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             <div className="p-8 text-center text-xs font-mono text-mc-textMuted">
               Type a word, phrase, or keyword to search the local FTS5 SQLite index.
             </div>
-          ) : results.length === 0 && !isFetching ? (
+          ) : results.length === 0 && !isSearching ? (
             <div className="p-8 text-center text-xs font-mono text-mc-textMuted">
-              No matching messages found for "{query}".
+              No matching messages found for "{settledQuery}".
             </div>
           ) : (
             results.map((msg, idx) => {
