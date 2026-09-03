@@ -8,6 +8,7 @@ import { StatusStrip } from './components/StatusStrip/StatusStrip.tsx';
 import { SendConfirmModal } from './components/SendConfirmModal/SendConfirmModal.tsx';
 import { SettingsModal } from './components/SettingsModal/SettingsModal.tsx';
 import { NewChatModal } from './components/NewChatModal/NewChatModal.tsx';
+import { ChatInfoModal } from './components/ChatInfoModal/ChatInfoModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
@@ -139,6 +140,7 @@ export const App: React.FC = () => {
       <SendConfirmModal />
       <SettingsModal />
       <NewChatModal />
+      <ChatInfoModal />
       {isSearchOpen && <SearchBar onClose={() => setIsSearchOpen(false)} />}
     </div>
   );

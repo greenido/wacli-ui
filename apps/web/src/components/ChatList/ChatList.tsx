@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useCallback } from 'react';
-import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
@@ -22,6 +22,8 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const setSearchQuery = useAppStore((s) => s.setSearchQuery);
   const chatFilter = useAppStore((s) => s.chatFilter);
   const setChatFilter = useAppStore((s) => s.setChatFilter);
+  const tagFilter = useAppStore((s) => s.tagFilter);
+  const setTagFilter = useAppStore((s) => s.setTagFilter);
   const presenceMap = useAppStore((s) => s.presenceMap);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const queryClient = useQueryClient();
@@ -54,8 +56,22 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     ...readQueryOpts,
   });
 
+  // Tags are Mission Control's own, so the rail filters on them here rather
+  // than asking wacli for a list it has no way to produce.
+  const { data: tagData } = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api.getTags(),
+  });
+
+  const availableTags = tagData?.tags ?? [];
+
   const filteredChats = useMemo(() => {
+    // Read the map inside the callback: `?? {}` outside would mint a new object
+    // every render and defeat the memo.
+    const tagsByJid = tagData?.byJid ?? {};
+
     return chats.filter((c) => {
+      if (tagFilter && !(tagsByJid[c.jid] ?? []).includes(tagFilter)) return false;
       if (chatFilter === 'all') return !c.archived;
       if (chatFilter === 'unread') return c.unread || c.unreadCount > 0;
       if (chatFilter === 'pinned') return c.pinned;
@@ -63,7 +79,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       if (chatFilter === 'muted') return c.mutedUntil > 0;
       return true;
     });
-  }, [chats, chatFilter]);
+  }, [chats, chatFilter, tagFilter, tagData]);
 
   const handleSelectChat = useCallback((chat: UnifiedChat) => {
     const chatToSelect = chatWithUnreadCleared(chat);
@@ -149,6 +165,30 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
             </button>
           ))}
         </div>
+
+        {availableTags.length > 0 && (
+          <div className="flex gap-1 items-center overflow-x-auto text-[11px] font-mono no-scrollbar">
+            <Tag size={11} className="text-mc-textMuted shrink-0" />
+            {availableTags.map((tag) => {
+              const isActive = tagFilter === tag;
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setTagFilter(isActive ? null : tag)}
+                  aria-pressed={isActive}
+                  title={`Show only chats tagged "${tag}"`}
+                  className={`px-2 py-0.5 rounded shrink-0 transition-colors ${
+                    isActive
+                      ? 'bg-mc-live/15 text-mc-live border border-mc-live/40 font-semibold'
+                      : 'text-mc-textMuted hover:text-mc-text border border-transparent hover:bg-mc-surfaceHover'
+                  }`}
+                >
+                  {tag}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Chat List */}

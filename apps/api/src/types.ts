@@ -59,6 +59,31 @@ export interface ChatCoverage {
   status: string;
 }
 
+export interface UnifiedContact {
+  jid: string;
+  phone: string;
+  /** The pushname WhatsApp supplies. */
+  name: string;
+  /** wacli's own local alias, which the operator can set. */
+  alias: string;
+  /** Imported from macOS Contacts by `wacli contacts import-system`. */
+  systemName: string;
+  updatedAt: string | null;
+  /** Mission Control's labels. Local to this machine; never sent to WhatsApp. */
+  tags: string[];
+  /** False when wacli has never synced this JID — an ordinary state, not an error. */
+  known?: boolean;
+}
+
+export interface UnifiedGroup {
+  jid: string;
+  name: string;
+  ownerJid: string;
+  createdAt: string | null;
+  leftAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface UnifiedDoctor {
   storeDir: string;
   lockHeld: boolean;
@@ -144,6 +169,24 @@ export interface RawChat {
   muted_until?: number;
   unread?: boolean;
   unread_count?: number;
+}
+
+export interface RawContact {
+  jid?: string;
+  phone?: string;
+  name?: string;
+  alias?: string;
+  system_name?: string;
+  updated_at?: string | null;
+}
+
+export interface RawGroup {
+  JID?: string;
+  Name?: string;
+  OwnerJID?: string;
+  CreatedAt?: string | null;
+  LeftAt?: string | null;
+  UpdatedAt?: string | null;
 }
 
 export interface RawChatCoverage {

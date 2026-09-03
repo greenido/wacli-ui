@@ -67,6 +67,28 @@ export interface ConversationExport {
   messages: UnifiedMessage[];
 }
 
+/** Mirrors `UnifiedContact` in `apps/api/src/types.ts`. */
+export interface UnifiedContact {
+  jid: string;
+  phone: string;
+  name: string;
+  alias: string;
+  systemName: string;
+  updatedAt: string | null;
+  /** Local to this machine; never sent to WhatsApp. */
+  tags: string[];
+  known?: boolean;
+}
+
+export interface UnifiedGroup {
+  jid: string;
+  name: string;
+  ownerJid: string;
+  createdAt: string | null;
+  leftAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface UnifiedDoctor {
   storeDir: string;
   lockHeld: boolean;

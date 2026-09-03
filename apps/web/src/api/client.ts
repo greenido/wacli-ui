@@ -2,6 +2,8 @@ import type {
   ChatCoverage,
   ConversationExport,
   UnifiedChat,
+  UnifiedContact,
+  UnifiedGroup,
   UnifiedMessage,
   MissionControlStatus,
   ScheduledMessage,
@@ -129,6 +131,45 @@ export const api = {
    */
   exportConversation: (params: { chat: string; limit?: number; before?: string; after?: string }) =>
     request<ConversationExport>('/api/messages/export', {}, params),
+
+  /** One contact's local metadata, including this machine's own tags. */
+  getContact: (params: { jid: string }) =>
+    request<UnifiedContact>('/api/contacts/show', {}, params),
+
+  getGroups: (params: { query?: string } = {}) =>
+    request<UnifiedGroup[]>('/api/groups', {}, params),
+
+  /**
+   * wacli's own local alias for a contact. Written to the wacli store, so safe
+   * read-only mode refuses it. An empty alias clears it.
+   */
+  setContactAlias: (data: { jid: string; alias: string }) =>
+    request<{ jid: string; alias: string }>('/api/contacts/alias', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify(data),
+    }),
+
+  /** Every tag in use, and which chats carry them. */
+  getTags: () =>
+    request<{ tags: string[]; byJid: Record<string, string[]> }>('/api/tags'),
+
+  /**
+   * Mission Control's own label. wacli can write a tag but has no command that
+   * reads one back, so these live here and never leave the host.
+   */
+  setChatTag: (data: { jid: string; tag: string; add: boolean }) =>
+    request<{ jid: string; tags: string[] }>('/api/tags', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify(data),
+    }),
 
   /** How far back the local archive reaches — what the thread can page to. */
   getHistoryCoverage: (params: { chat?: string } = {}) =>
