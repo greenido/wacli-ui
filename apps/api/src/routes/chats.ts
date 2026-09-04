@@ -11,10 +11,17 @@ import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
  * How many recent messages to scan for chat-rail previews. wacli's chat record
  * carries only `last_message_ts` — no body — so the preview has to come from the
  * message table. One unfiltered `messages list` covers every chat that has been
- * active recently, which is exactly the rows sitting at the top of the rail,
- * for the cost of a single extra subprocess.
+ * active recently, for the cost of a single extra subprocess.
+ *
+ * Sized against the rail, which asks for 100 chats: messages cluster heavily in
+ * a few busy threads, so 400 rows only reached ~37 distinct chats and the other
+ * two thirds of the rail rendered with no preview at all. ~3000 covers 100
+ * chats on a busy account and costs about 30ms more (~70ms, ~2MB) — cheap for a
+ * read that is cached for 5s and polled every 30s. `previewCoverage` in the
+ * `api` log reports what a scan actually reached, so this staying in step with
+ * the rail is observable rather than assumed.
  */
-const PREVIEW_SCAN_LIMIT = 400;
+const PREVIEW_SCAN_LIMIT = 3000;
 
 /**
  * That scan returns roughly 300 KB of JSON to keep one line per chat, and
@@ -47,6 +54,7 @@ async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
   }
 
   const previews = new Map<string, ChatPreview>();
+  const done = logger.time('api', 'Chat preview scan');
 
   try {
     const raw = await execWacli<RawMessagesListResponse | RawMessage[]>([
@@ -68,8 +76,9 @@ async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
 
       previews.set(msg.chatJid, { text, fromMe: msg.fromMe });
     }
+    done({ scanned: rawList.length, chatsCovered: previews.size }, 'DEBUG');
   } catch (err) {
-    logger.warn('api', `Chat previews unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn('api', 'Chat previews unavailable', { err });
     // A failed scan is not worth caching: the next request should try again.
     return previews;
   }
@@ -134,6 +143,24 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
       const chats: UnifiedChat[] = (Array.isArray(raw) ? raw : []).map((rawChat) =>
         normalizeChat(rawChat, previews.get(rawChat.jid))
       );
+
+      // A row with no preview renders as a subtitle with nothing to say, so
+      // coverage falling behind the page size is a visible defect rather than a
+      // missing nicety. Saying so out loud once it affects most of the rail is
+      // what turns "the list looks wrong" into a number worth acting on.
+      const covered = chats.filter((chat) => chat.lastMessage !== null).length;
+      const coverage = { chats: chats.length, covered, scanLimit: PREVIEW_SCAN_LIMIT };
+
+      // Archived and muted chats are inactive by definition, so their last
+      // messages sit outside any window of recent ones: thin coverage there is
+      // the filter working, not a defect. Only the primary rail is a signal.
+      const isPrimaryRail = !query && !pinned && !muted && !unread && archived !== 'true';
+
+      if (isPrimaryRail && chats.length > 0 && covered * 2 < chats.length) {
+        logger.warn('api', 'Most chat rows have no preview; raise PREVIEW_SCAN_LIMIT', coverage);
+      } else {
+        logger.debug('api', 'Chat list served', coverage);
+      }
 
       res.json({ success: true, data: chats, error: null });
     } catch (err) {

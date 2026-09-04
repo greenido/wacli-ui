@@ -255,8 +255,10 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                     </span>
                   </div>
 
-                  {/* What the conversation is about. The JID stays as the
-                      fallback for chats with nothing in the local archive. */}
+                  {/* What the conversation is about. When there is no preview
+                      to show, say that: the JID that used to sit here repeated
+                      the row above for unknown contacts and told the operator
+                      nothing for everyone else. */}
                   <div className="text-[11px] truncate">
                     {isTyping ? (
                       <span className="text-mc-live font-mono animate-pulse">typing...</span>
@@ -266,7 +268,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                         {chat.lastMessage}
                       </span>
                     ) : (
-                      <span className="text-mc-textMuted font-mono">{chat.jid.split('@')[0]}</span>
+                      <span className="text-mc-textMuted/60 italic">No preview available</span>
                     )}
                   </div>
                 </div>

@@ -29,7 +29,7 @@ function requireMutationPermission(req: Request, res: Response, next: NextFuncti
 
   // 2. Read-only global mode check
   if (modeManager.isReadOnly()) {
-    logger.warn('send', `Blocked send attempt while read-only safe mode active (${req.path})`);
+    logger.warn('send', 'Blocked send attempt; read-only safe mode is active', { route: req.path });
     res.status(403).json({
       success: false,
       data: null,
@@ -77,7 +77,7 @@ export function createSendRouter(): Router {
         args.push('--reply-to', replyTo);
       }
 
-      logger.info('send', `Dispatching text to ${to} (replyTo: ${replyTo || 'none'})`);
+      logger.info('send', 'Dispatching text', { to, replyTo: replyTo || undefined });
 
       const result = await execWacli<Record<string, unknown>>(args, {
         allowMutation: true,
@@ -156,7 +156,7 @@ export function createSendRouter(): Router {
           args.push('--reply-to', replyTo);
         }
 
-        logger.info('send', `Dispatching file ${file.originalname} (${file.size} bytes) to ${to}`);
+        logger.info('send', 'Dispatching file', { to, file: file.originalname, bytes: file.size });
 
         const result = await execWacli<Record<string, unknown>>(args, {
           allowMutation: true,
@@ -220,7 +220,7 @@ export function createSendRouter(): Router {
         args.push('--sender', sender);
       }
 
-      logger.info('send', `Dispatching reaction "${reaction ?? '👍'}" to msg ${id} in ${to}`);
+      logger.info('send', 'Dispatching reaction', { to, id, reaction: reaction ?? '👍' });
 
       const result = await execWacli<Record<string, unknown>>(args, {
         allowMutation: true,

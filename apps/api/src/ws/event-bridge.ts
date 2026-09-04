@@ -13,15 +13,15 @@ export class EventBridge {
     this.wss.on('connection', (ws, req) => {
       this.clients.add(ws);
       const ip = req.socket.remoteAddress;
-      logger.info('ws', `Client connected from ${ip}. Active clients: ${this.clients.size}`);
+      logger.info('ws', 'Client connected', { ip, clients: this.clients.size });
 
       ws.on('close', () => {
         this.clients.delete(ws);
-        logger.info('ws', `Client disconnected. Active clients: ${this.clients.size}`);
+        logger.info('ws', 'Client disconnected', { clients: this.clients.size });
       });
 
       ws.on('error', (err) => {
-        logger.warn('ws', `WebSocket client error: ${err.message}`);
+        logger.warn('ws', 'WebSocket client error', { err });
         this.clients.delete(ws);
       });
 
@@ -47,7 +47,7 @@ export class EventBridge {
         try {
           client.send(payload);
         } catch (err: unknown) {
-          logger.warn('ws', `Failed to send to client: ${err instanceof Error ? err.message : String(err)}`);
+          logger.warn('ws', 'Failed to send to client', { err });
         }
       }
     }

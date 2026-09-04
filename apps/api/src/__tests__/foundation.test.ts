@@ -10,7 +10,7 @@ import {
   normalizeWebhookMessage,
 } from '../wacli/normalize.js';
 import { ModeManager } from '../wacli/mode.js';
-import { LOG_RETENTION_DAYS, RunLogger } from '../logger.js';
+import { LOG_RETENTION_DAYS, parseLogLevel, RunLogger } from '../logger.js';
 import type { RawChat, RawMessage, UnifiedMessage } from '../types.js';
 
 describe('Normalize utilities', () => {
@@ -290,6 +290,135 @@ describe('RunLogger', () => {
     } finally {
       readdir.mockRestore();
     }
+  });
+});
+
+describe('RunLogger structured output', () => {
+  let tmpLogsDir: string;
+
+  beforeEach(() => {
+    tmpLogsDir = path.join(os.tmpdir(), `wacli-test-fields-${Date.now()}-${Math.random()}`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpLogsDir)) {
+      fs.rmSync(tmpLogsDir, { recursive: true, force: true });
+    }
+  });
+
+  /** Console output is noise under test; every case here reads the file. */
+  const make = (level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR') =>
+    new RunLogger(tmpLogsDir, { console: false, color: false, level });
+
+  const read = (logger: RunLogger) => fs.readFileSync(logger.getFilePath(), 'utf8');
+
+  it('renders fields as key=value alongside the message', () => {
+    const logger = make();
+    logger.info('api', 'Chat list served', { chats: 100, covered: 98 });
+
+    expect(read(logger)).toContain('[INFO] [api] Chat list served chats=100 covered=98');
+  });
+
+  it('quotes values that would otherwise blur into the next field', () => {
+    const logger = make();
+    logger.info('media', 'Media unavailable', { reason: 'expired on whatsapp', id: 'AC85DD9A' });
+
+    const contents = read(logger);
+    expect(contents).toContain('reason="expired on whatsapp"');
+    // A plain token stays bare, so the common case reads like prose.
+    expect(contents).toContain('id=AC85DD9A');
+  });
+
+  it('omits fields that are undefined rather than logging the word', () => {
+    const logger = make();
+    logger.info('send', 'Dispatching text', { to: '1555@s.whatsapp.net', replyTo: undefined });
+
+    const contents = read(logger);
+    expect(contents).toContain('to=1555@s.whatsapp.net');
+    expect(contents).not.toContain('replyTo');
+  });
+
+  it('drops lines below the configured level', () => {
+    const logger = make('INFO');
+    logger.debug('api', 'wacli command completed', { cmd: 'chats list' });
+
+    expect(read(logger)).not.toContain('wacli command completed');
+  });
+
+  it('emits debug lines once the level allows them', () => {
+    const logger = make('DEBUG');
+    logger.debug('api', 'wacli command completed', { cmd: 'chats list', durationMs: 41 });
+
+    expect(read(logger)).toContain('[DEBUG] [api] wacli command completed cmd="chats list" durationMs=41');
+  });
+
+  it('records an error with its message and a stack', () => {
+    const logger = make();
+    logger.error('api', 'Unhandled API error', { err: new TypeError('chat is not iterable') });
+
+    const contents = read(logger);
+    expect(contents).toContain('err="TypeError: chat is not iterable"');
+    // The frames follow the line, indented, so one event still reads as one entry.
+    expect(contents).toMatch(/\n {4}at /);
+  });
+
+  it('collapses a repeated line into a count instead of copying it', () => {
+    const logger = make();
+
+    // A thread of expired attachments reports the same failure per message.
+    for (let i = 0; i < 25; i++) {
+      logger.warn('media', 'Media unavailable', { id: `MSG-${i}` });
+    }
+    logger.info('api', 'Chat list served');
+
+    const contents = read(logger);
+    // The line itself, plus one tally naming it — not 25 near-identical rows.
+    expect(contents.match(/Media unavailable/g)).toHaveLength(2);
+    expect(contents).toContain('[WARN] [media] Media unavailable (repeated 24x more)');
+  });
+
+  it('flushes a pending repeat count on close', () => {
+    const logger = make();
+    logger.warn('ws', 'Failed to send to client');
+    logger.warn('ws', 'Failed to send to client');
+    logger.close();
+
+    expect(read(logger)).toContain('Failed to send to client (repeated 1x more)');
+  });
+
+  it('keeps every copy of a routine line, whose fields are the point', () => {
+    const logger = make();
+
+    // Two polls of the same endpoint are distinct events: collapsing them would
+    // throw away the status and duration that make the line worth having.
+    logger.info('http', 'GET /api/chats', { status: 200, durationMs: 203 });
+    logger.info('http', 'GET /api/chats', { status: 304, durationMs: 47 });
+
+    const contents = read(logger);
+    expect(contents).toContain('status=200 durationMs=203');
+    expect(contents).toContain('status=304 durationMs=47');
+    expect(contents).not.toContain('repeated');
+  });
+
+  it('puts the elapsed time on the line when work is timed', () => {
+    const logger = make();
+    const done = logger.time('api', 'Chat preview scan');
+    const durationMs = done({ chatsCovered: 100 });
+
+    expect(durationMs).toBeGreaterThanOrEqual(0);
+    expect(read(logger)).toMatch(/Chat preview scan chatsCovered=100 durationMs=\d+/);
+  });
+});
+
+describe('parseLogLevel', () => {
+  it('accepts a level in any casing', () => {
+    expect(parseLogLevel('debug')).toBe('DEBUG');
+    expect(parseLogLevel(' Warn ')).toBe('WARN');
+  });
+
+  it('falls back rather than silencing the log on a typo', () => {
+    expect(parseLogLevel('verbose')).toBe('INFO');
+    expect(parseLogLevel(undefined)).toBe('INFO');
   });
 });
 

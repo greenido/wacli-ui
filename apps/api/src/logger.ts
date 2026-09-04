@@ -154,6 +154,7 @@ export class RunLogger {
     key: string;
     level: LogLevel;
     category: LogCategory;
+    message: string;
     count: number;
     lastAt: number;
   } | null = null;
@@ -252,6 +253,16 @@ export class RunLogger {
   public write(level: LogLevel, category: LogCategory, message: string, fields?: LogFields): void {
     if (!this.isEnabled(level)) return;
 
+    // Collapsing costs the fields of every copy after the first, which is only
+    // a good trade for a flood — and floods are failures repeating. A routine
+    // INFO line recurring is a separate event whose status and duration are the
+    // reason it was logged at all, so those are always kept in full.
+    if (LEVEL_WEIGHT[level] < LEVEL_WEIGHT.WARN) {
+      this.flushRepeat();
+      this.emit(level, category, message, fields);
+      return;
+    }
+
     // Fields are excluded from the key on purpose: one failure per attachment
     // differs only by id, and collapsing those is the entire point.
     const key = `${level}|${category}|${message}`;
@@ -264,21 +275,23 @@ export class RunLogger {
     }
 
     this.flushRepeat();
-    this.repeat = { key, level, category, count: 0, lastAt: now };
+    this.repeat = { key, level, category, message, count: 0, lastAt: now };
     this.emit(level, category, message, fields);
   }
 
   /**
    * Reports the copies withheld while a line was repeating. Called before any
    * different line and on close, so a flood costs two lines instead of forty
-   * and nothing disappears silently.
+   * and nothing disappears silently. It restates the message rather than
+   * pointing at "the previous line", which is ambiguous the moment the tally
+   * lands next to something else.
    */
   private flushRepeat(): void {
     const pending = this.repeat;
     this.repeat = null;
     if (!pending || pending.count === 0) return;
 
-    this.emit(pending.level, pending.category, 'Previous line repeated', { times: pending.count });
+    this.emit(pending.level, pending.category, `${pending.message} (repeated ${pending.count}x more)`);
   }
 
   private emit(level: LogLevel, category: LogCategory, message: string, fields?: LogFields): void {

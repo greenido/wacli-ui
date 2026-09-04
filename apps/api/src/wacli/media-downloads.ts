@@ -126,7 +126,13 @@ export class MediaDownloadCoordinator {
       return null;
     }
 
-    logger.info('media', `Skipping download for ${key}; it failed recently: ${cached.message}`);
+    // The negative cache doing its job is not news, and it fires on every
+    // scroll past the same expired attachment.
+    logger.debug('media', 'Skipping download; it failed recently', {
+      key,
+      reason: cached.message,
+      ageMs: this.now() - cached.at,
+    });
     return cached;
   }
 

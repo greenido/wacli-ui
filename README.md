@@ -202,6 +202,8 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 | `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | Where local message bookmarks persist |
 | `WACLI_TAGS_FILE`| `~/.wacli-mission-control/tags.json` | Where local chat tags persist |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | Set to `1` to log full inbound webhook payloads. Off by default so message bodies and contact details stay out of log files |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR`. `DEBUG` adds per-command timings, subprocess failures and wacli's own stderr |
+| `NO_COLOR` | unset | Set to any value to disable ANSI colour in terminal log output |
 | `VITE_API_URL` | `http://127.0.0.1:3002` | API base URL configured in `apps/web` |
 
 ---
@@ -268,6 +270,31 @@ Supported event types: `message.created`, `receipt.updated`, `presence.updated`,
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.
 - **Run Logs Expire**: Each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone.
+
+---
+
+## Reading the Logs
+
+Every run writes `apps/api/logs/run-<timestamp>.log` and mirrors the same events to the terminal. Each line is one event, in a fixed shape:
+
+```
+[2026-09-04T20:20:25.976Z] [INFO] [http] GET /chats status=200 durationMs=155 query="limit=100&archived=false"
+[2026-09-04T20:20:23.203Z] [WARN] [process] Sync daemon exited reason="exited with code 1" code=1 signal=null
+```
+
+The message is constant for a given event and the details live in trailing `key=value` fields, which is what makes the file worth grepping:
+
+```bash
+grep 'durationMs=[0-9]\{4,\}' apps/api/logs/run-*.log
+```
+
+- **Categories** — `http` (one line per API call), `api`, `process` (the sync daemon), `ws`, `webhook`, `send`, `media`, `automation`.
+- **Levels** — `WARN` and above go to stderr, the rest to stdout. `ERROR` is a real failure; a routine outcome like media that expired on WhatsApp's servers is `DEBUG`, not an incident.
+- **Timings** — anything the operator waits on carries `durationMs`. A `wacli` command over 1s or a request over 1.5s is promoted to `WARN` on its own, so "it feels slow" becomes a line you can find.
+- **`LOG_LEVEL=DEBUG`** — adds per-command timings, the wacli invocation behind each failure, and wacli's own stderr. Start here when a read returns something you did not expect.
+- **Repeats collapse** — a warning that fires once per attachment in a thread is logged once and then tallied (`... (repeated 24x more)`) rather than copied down the page. Only `WARN` and `ERROR` collapse; routine lines keep every occurrence, because their fields differ.
+
+Secrets are kept out: the daemon's spawn line prints `--webhook-secret <redacted>`, and message bodies stay out of the file unless `WACLI_LOG_WEBHOOK_PAYLOADS=1`.
 
 ---
 

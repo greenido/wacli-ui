@@ -54,7 +54,7 @@ export class TagStore {
         if (clean.length > 0) this.byJid.set(jid, clean);
       }
     } catch (err) {
-      logger.warn('api', `Failed to load tags from ${this.filePath}: ${String(err)}`);
+      logger.warn('api', 'Failed to load tags', { file: this.filePath, err });
     }
   }
 
@@ -69,7 +69,7 @@ export class TagStore {
         mode: 0o600,
       });
     } catch (err) {
-      logger.warn('api', `Failed to persist tags: ${String(err)}`);
+      logger.warn('api', 'Failed to persist tags', { file: this.filePath, err });
     }
   }
 

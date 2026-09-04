@@ -54,7 +54,7 @@ export class BookmarkStore {
         }
       }
     } catch (err) {
-      logger.warn('api', `Failed to load bookmarks from ${this.filePath}: ${String(err)}`);
+      logger.warn('api', 'Failed to load bookmarks', { file: this.filePath, err });
     }
   }
 
@@ -69,7 +69,7 @@ export class BookmarkStore {
         mode: 0o600,
       });
     } catch (err) {
-      logger.warn('api', `Failed to persist bookmarks: ${String(err)}`);
+      logger.warn('api', 'Failed to persist bookmarks', { file: this.filePath, err });
     }
   }
 

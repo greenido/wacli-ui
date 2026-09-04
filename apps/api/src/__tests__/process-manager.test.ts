@@ -1,5 +1,26 @@
 import { describe, it, expect, vi } from 'vitest';
-import { WacliProcessManager } from '../wacli/process-manager.js';
+import { redactArgs, WacliProcessManager } from '../wacli/process-manager.js';
+
+describe('redactArgs', () => {
+  it('keeps the secret out of the spawn line while leaving the flags readable', () => {
+    const line = redactArgs([
+      'sync',
+      '--follow',
+      '--webhook',
+      'http://127.0.0.1:3002/internal/wacli/webhook',
+      '--webhook-secret',
+      '7b3ce35ad5693a826c2e809214129d73',
+    ]);
+
+    expect(line).not.toContain('7b3ce35ad5693a826c2e809214129d73');
+    expect(line).toContain('--webhook-secret <redacted>');
+    expect(line).toContain('--webhook http://127.0.0.1:3002/internal/wacli/webhook');
+  });
+
+  it('does not redact a value that merely looks like a flag name', () => {
+    expect(redactArgs(['sync', '--follow'])).toBe('sync --follow');
+  });
+});
 
 describe('WacliProcessManager', () => {
   it('generates random HMAC secret and starts in stopped state', () => {

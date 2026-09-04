@@ -56,9 +56,12 @@ export function createWebhookRouter(
     // Message bodies and contact details stay out of the log file by default;
     // set WACLI_LOG_WEBHOOK_PAYLOADS=1 when debugging locally.
     if (process.env.WACLI_LOG_WEBHOOK_PAYLOADS === '1') {
-      logger.info('webhook', `Received valid webhook event: ${JSON.stringify(payload)}`);
+      logger.info('webhook', 'Webhook event received', {
+        event: payload.EventType ?? 'message',
+        payload,
+      });
     } else {
-      logger.info('webhook', `Received valid webhook event: ${String(payload.EventType ?? 'message')}`);
+      logger.info('webhook', 'Webhook event received', { event: payload.EventType ?? 'message' });
     }
     const ts = new Date().toISOString();
 

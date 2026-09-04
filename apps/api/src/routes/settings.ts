@@ -19,7 +19,7 @@ export function createSettingsRouter(eventBridge?: EventBridge): Router {
     }
 
     modeManager.setReadOnly(readOnly);
-    logger.info('api', `Read-only mode switched to: ${readOnly}`);
+    logger.info('api', 'Read-only mode changed', { readOnly });
 
     if (eventBridge) {
       eventBridge.broadcast({

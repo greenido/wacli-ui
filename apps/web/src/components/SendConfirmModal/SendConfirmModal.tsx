@@ -227,6 +227,19 @@ export const SendConfirmModal: React.FC = () => {
     }
   };
 
+  const canSubmit = !isCommitted && !(isScheduled && !scheduleTime);
+
+  /**
+   * Enter confirms from the time field too, which is where a keyboard user ends
+   * up after picking a schedule - there is no form around this dialog, so the
+   * key would otherwise do nothing there.
+   */
+  const handleTimeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.repeat) return;
+    e.preventDefault();
+    if (canSubmit) void handleConfirmSend();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
@@ -345,8 +358,10 @@ export const SendConfirmModal: React.FC = () => {
 
               <input
                 type="datetime-local"
+                aria-label="Dispatch time"
                 value={scheduleTime}
                 onChange={(e) => setScheduleTime(e.target.value)}
+                onKeyDown={handleTimeKeyDown}
                 min={getPresetTime(1)}
                 className="w-full bg-mc-surface border border-mc-border rounded p-2 text-xs text-mc-text focus:outline-none focus:border-mc-live font-mono"
               />
@@ -410,41 +425,58 @@ export const SendConfirmModal: React.FC = () => {
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-mc-border bg-mc-bg/40 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => setActiveModal(null)}
-            className="px-3 py-1.5 rounded border border-mc-border text-mc-textMuted hover:text-mc-text hover:bg-mc-surface"
-          >
-            CANCEL
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirmSend}
-            disabled={isCommitted || (isScheduled && !scheduleTime)}
-            className={`px-4 py-1.5 rounded font-bold flex items-center gap-1.5 transition-all ${
-              isCommitted
-                ? 'bg-mc-live text-[#12151B]'
-                : 'bg-mc-live hover:bg-mc-live/90 text-[#12151B]'
-            }`}
-          >
-            {isCommitted ? (
-              <>
-                <CheckCircle2 size={14} className="animate-spin" />
-                <span>{isScheduled ? 'SCHEDULING...' : 'DISPATCHING...'}</span>
-              </>
-            ) : isScheduled ? (
-              <>
-                <Clock size={14} />
-                <span>SCHEDULE DISPATCH</span>
-              </>
-            ) : (
-              <>
-                <Send size={14} />
-                <span>CONFIRM & SEND</span>
-              </>
-            )}
-          </button>
+        <div className="p-4 border-t border-mc-border bg-mc-bg/40 flex items-center justify-between gap-3">
+          <div className="text-[10px] text-mc-textMuted hidden sm:flex items-center gap-1.5">
+            <kbd className="px-1.5 py-0.5 rounded border border-mc-border bg-mc-surface text-mc-text">
+              ENTER
+            </kbd>
+            <span>confirm</span>
+            <kbd className="px-1.5 py-0.5 rounded border border-mc-border bg-mc-surface text-mc-text">
+              ESC
+            </kbd>
+            <span>cancel</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveModal(null)}
+              className="px-3 py-1.5 rounded border border-mc-border text-mc-textMuted hover:text-mc-text hover:bg-mc-surface"
+            >
+              CANCEL
+            </button>
+            {/* data-autofocus: this button takes focus on open, so the Enter that
+                opened the dialog from the composer can be pressed once more to
+                dispatch. Without it focus lands on the first control - the close
+                button - and that same Enter discards the message instead. */}
+            <button
+              type="button"
+              onClick={handleConfirmSend}
+              disabled={!canSubmit}
+              data-autofocus
+              className={`px-4 py-1.5 rounded font-bold flex items-center gap-1.5 transition-all ${
+                isCommitted
+                  ? 'bg-mc-live text-[#12151B]'
+                  : 'bg-mc-live hover:bg-mc-live/90 text-[#12151B]'
+              }`}
+            >
+              {isCommitted ? (
+                <>
+                  <CheckCircle2 size={14} className="animate-spin" />
+                  <span>{isScheduled ? 'SCHEDULING...' : 'DISPATCHING...'}</span>
+                </>
+              ) : isScheduled ? (
+                <>
+                  <Clock size={14} />
+                  <span>SCHEDULE DISPATCH</span>
+                </>
+              ) : (
+                <>
+                  <Send size={14} />
+                  <span>CONFIRM & SEND</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

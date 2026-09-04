@@ -32,6 +32,21 @@ export const DEFAULT_RESPAWN_DEBOUNCE_MS = 750;
  * file built more than a handful of managers. One shared hook over this
  * registry keeps the count at three however many managers exist.
  */
+/** Flag values that are credentials rather than configuration. */
+const SECRET_FLAGS = new Set(['--webhook-secret']);
+
+/**
+ * The spawn line is worth logging — it is how you tell which daemon flags a run
+ * actually used — but the webhook secret is an HMAC key, and a log file is the
+ * first thing anyone pastes into a bug report. Keep the shape, drop the key.
+ */
+export function redactArgs(args: string[]): string {
+  const shown = args.map((arg, index) =>
+    index > 0 && SECRET_FLAGS.has(args[index - 1]) ? '<redacted>' : arg
+  );
+  return shown.join(' ');
+}
+
 const shutdownCleanups = new Set<() => void>();
 const SHUTDOWN_EVENTS = ['exit', 'SIGINT', 'SIGTERM'] as const;
 let shutdownHooksRegistered = false;
@@ -178,7 +193,7 @@ export class WacliProcessManager {
 
   private setState(state: ProcessState, reason?: string): void {
     this.state = state;
-    logger.info('process', `State transitioned to ${state}${reason ? `: ${reason}` : ''}`);
+    logger.info('process', 'Sync state changed', { state, reason });
     if (this.onStateChange) {
       this.onStateChange(state, reason);
     }
@@ -250,7 +265,7 @@ export class WacliProcessManager {
     }
 
     this.setState('starting');
-    logger.info('process', `Spawning ${bin} ${args.join(' ')}`);
+    logger.info('process', 'Spawning sync daemon', { bin, args: redactArgs(args) });
 
     // IMPORTANT: Never pass WACLI_READONLY to sync process!
     const env = { ...process.env };
@@ -284,14 +299,14 @@ export class WacliProcessManager {
         this.uptimeTimer = setTimeout(() => {
           if (this.state === 'running') {
             this.reconnectAttempts = 0;
-            logger.info('process', 'Sync process achieved 60s stable uptime; backoff reset.');
+            logger.info('process', 'Sync daemon stable for 60s; backoff reset');
           }
         }, 60000);
       });
 
       child.on('error', (err) => {
         this.lastError = err.message;
-        logger.error('process', `Spawn error: ${err.message}`);
+        logger.error('process', 'Sync daemon failed to spawn', { err });
         this.handleProcessExit(-1, null);
       });
 
@@ -318,7 +333,7 @@ export class WacliProcessManager {
 
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-      logger.info('process', `Event from sync: ${JSON.stringify(parsed)}`);
+      logger.debug('process', 'Sync lifecycle event', { event: parsed });
 
       if (parsed.event === 'connected') {
         this.daemonConnected = true;
@@ -330,10 +345,10 @@ export class WacliProcessManager {
       } else if (parsed.event === 'error') {
         const data = parsed.data as { message?: string } | undefined;
         this.lastError = data?.message || JSON.stringify(parsed.data || parsed);
-        logger.error('process', `Sync process error event: ${this.lastError}`);
+        logger.error('process', 'Sync daemon reported an error', { reason: this.lastError });
       } else if (parsed.event === 'disconnected') {
         this.daemonConnected = false;
-        logger.warn('process', `Sync process disconnected event: ${JSON.stringify(parsed)}`);
+        logger.warn('process', 'Sync daemon disconnected', { event: parsed });
       }
 
       if (this.onLifecycleEvent) {
@@ -345,7 +360,7 @@ export class WacliProcessManager {
       if (lower.includes('error') || lower.includes('fatal') || lower.includes('panic') || lower.includes('locked')) {
         this.lastError = trimmed;
       }
-      logger.info('process', `wacli stderr: ${trimmed}`);
+      logger.debug('process', 'wacli stderr', { line: trimmed });
     }
   }
 
@@ -363,13 +378,13 @@ export class WacliProcessManager {
     }
 
     if (this.state === 'logged_out') {
-      logger.warn('process', 'Sync process terminated due to logged_out event; not restarting.');
+      logger.warn('process', 'Sync daemon logged out; not restarting');
       return;
     }
 
     const baseReason = signal ? `killed by ${signal}` : `exited with code ${code}`;
     const reason = this.lastError ? `${baseReason} (${this.lastError})` : baseReason;
-    logger.warn('process', `Sync process exited: ${reason}`);
+    logger.warn('process', 'Sync daemon exited', { reason, code, signal });
 
     // Schedule backoff restart
     this.reconnectAttempts += 1;
@@ -446,7 +461,7 @@ export class WacliProcessManager {
       // failure than the thrash this guard exists to prevent.
       await prevMutex;
 
-      logger.info('process', 'Pausing sync process for exclusive lock action');
+      logger.info('process', 'Pausing sync daemon for exclusive store access');
       this.cancelPendingRespawn();
       this.isPaused = true;
       if (this.restartTimer) {

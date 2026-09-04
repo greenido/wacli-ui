@@ -91,7 +91,7 @@ export function createHistoryRouter(processManager: WacliProcessManager): Router
         ? Math.min(Math.max(Math.trunc(requested), 1), BACKFILL_MAX_COUNT)
         : BACKFILL_DEFAULT_COUNT;
 
-      logger.info('api', `Requesting ${messageCount} older messages for ${chat} from the primary device`);
+      logger.info('api', 'Requesting older messages from the primary device', { chat, messageCount });
 
       const result = await processManager.executeExclusive(async () =>
         execWacli<Record<string, unknown>>(

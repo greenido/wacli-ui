@@ -88,7 +88,7 @@ export class Scheduler {
         }
       }
     } catch (err) {
-      logger.warn('send', `Failed to load scheduled messages from ${this.filePath}: ${String(err)}`);
+      logger.warn('send', 'Failed to load scheduled messages', { file: this.filePath, err });
     }
   }
 
@@ -104,7 +104,7 @@ export class Scheduler {
         mode: 0o600,
       });
     } catch (err) {
-      logger.warn('send', `Failed to persist scheduled messages: ${String(err)}`);
+      logger.warn('send', 'Failed to persist scheduled messages', { file: this.filePath, err });
     }
   }
 
@@ -135,7 +135,7 @@ export class Scheduler {
 
     this.items.set(id, item);
     this.save();
-    logger.info('send', `Scheduled message ${id} to ${item.to} for ${item.scheduledAt}`);
+    logger.info('send', 'Message scheduled', { id, to: item.to, scheduledAt: item.scheduledAt });
 
     this.broadcastUpdate(item);
 
@@ -150,7 +150,7 @@ export class Scheduler {
 
     item.status = 'cancelled';
     this.save();
-    logger.info('send', `Cancelled scheduled message ${id}`);
+    logger.info('send', 'Scheduled message cancelled', { id });
 
     this.broadcastUpdate(item);
 
@@ -216,11 +216,11 @@ export class Scheduler {
     this.broadcastUpdate(item);
 
     if (!sendNow) {
-      logger.info('send', `Requeued failed message ${id} to ${item.to} for ${dueAt}`);
+      logger.info('send', 'Failed message requeued', { id, to: item.to, dueAt });
       return { ok: true, item: this.decorate(item) };
     }
 
-    logger.info('send', `Operator resend of ${id} to ${item.to} (resend #${item.resendCount})`);
+    logger.info('send', 'Operator resend', { id, to: item.to, resendCount: item.resendCount });
     try {
       await this.dispatch(item);
     } finally {
@@ -254,7 +254,7 @@ export class Scheduler {
 
     this.items.delete(id);
     this.save();
-    logger.info('send', `Discarded failed scheduled message ${id}`);
+    logger.info('send', 'Failed scheduled message discarded', { id });
     this.broadcastUpdate(item);
 
     return true;
@@ -344,7 +344,7 @@ export class Scheduler {
     item.status = 'failed';
     item.error = error;
     this.save();
-    logger.error('send', `Scheduled message ${item.id} to ${item.to} failed: ${error}`);
+    logger.error('send', 'Scheduled message failed', { id: item.id, to: item.to, reason: error });
     this.broadcastUpdate(item);
   }
 
@@ -358,7 +358,7 @@ export class Scheduler {
   }
 
   private async dispatch(item: ScheduledMessage): Promise<void> {
-    logger.info('send', `Executing due scheduled dispatch ${item.id} to ${item.to}`);
+    logger.info('send', 'Dispatching due scheduled message', { id: item.id, to: item.to });
 
     try {
       let result: Record<string, unknown>;
@@ -401,7 +401,7 @@ export class Scheduler {
       item.status = 'sent';
       item.sentMessageId = (result?.messageId as string) || `out-${Date.now()}`;
       this.save();
-      logger.info('send', `Scheduled message ${item.id} sent successfully`);
+      logger.info('send', 'Scheduled message sent', { id: item.id });
 
       this.broadcastUpdate(item);
 

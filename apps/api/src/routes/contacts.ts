@@ -126,7 +126,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
         ? ['contacts', 'alias', 'set', '--jid', jid, '--alias', trimmed]
         : ['contacts', 'alias', 'rm', '--jid', jid];
 
-      logger.info('api', `${trimmed ? 'Setting' : 'Clearing'} local alias for ${jid}`);
+      logger.info('api', trimmed ? 'Setting local alias' : 'Clearing local alias', { jid });
 
       await processManager.executeExclusive(async () => {
         await execWacli(args, { allowMutation: true });

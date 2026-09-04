@@ -11,8 +11,10 @@ const FOCUSABLE_SELECTOR = [
 
 /**
  * Wires up the keyboard contract a dialog owes its user: Escape closes it, Tab
- * stays inside it, focus lands in it on open and returns where it came from on
- * close. Returns the ref to attach to the dialog container.
+ * stays inside it, a held Enter cannot auto-fire the control it opened onto,
+ * and focus lands in it on open and returns where it came from on close. Mark
+ * the control that should take focus with `data-autofocus`, otherwise the first
+ * focusable one does. Returns the ref to attach to the dialog container.
  */
 export function useModalDialog<T extends HTMLElement = HTMLDivElement>(
   isOpen: boolean,
@@ -51,6 +53,16 @@ export function useModalDialog<T extends HTMLElement = HTMLDivElement>(
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A dialog that opens on Enter (the composer sends on it, and any button
+      // is activated by it) is focused on its primary action, so the auto-repeat
+      // of a leaned-on Enter would land on that action a frame later. Only the
+      // repeats are dropped; a deliberate second press still goes through.
+      if (e.key === 'Enter' && e.repeat) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
