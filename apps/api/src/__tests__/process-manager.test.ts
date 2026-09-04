@@ -69,3 +69,148 @@ describe('WacliProcessManager', () => {
     expect(spawnSpy).toHaveBeenCalled();
   });
 });
+
+describe('WacliProcessManager exclusive-command respawn', () => {
+  /** A manager whose daemon spawn is a spy, so no real wacli is ever started. */
+  function makeManager(respawnDebounceMs = 0) {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+    return { pm, spawn };
+  }
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  it('respawns the daemon once after a burst, not once per command', async () => {
+    const { pm, spawn } = makeManager();
+
+    // Five commands queued together, as a thread view opening produces.
+    await Promise.all(
+      Array.from({ length: 5 }, () => pm.executeExclusive(async () => 'ok'))
+    );
+    await tick();
+
+    // The bug this guards: one spawn per command, each killed microseconds
+    // later by the next caller, so the daemon never survives to connect.
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not respawn while another exclusive command is still queued', async () => {
+    const { pm, spawn } = makeManager();
+
+    let releaseFirst: () => void = () => {};
+    const firstRunning = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = pm.executeExclusive(async () => {
+      await firstRunning;
+      return 'first';
+    });
+    const second = pm.executeExclusive(async () => 'second');
+
+    expect(pm.hasPendingExclusiveWork()).toBe(true);
+
+    releaseFirst();
+    await first;
+    // The second command is still queued here, so the daemon must stay down.
+    expect(spawn).not.toHaveBeenCalled();
+
+    await second;
+    await tick();
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a pending respawn when a new command arrives inside the debounce', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager(750);
+
+      await pm.executeExclusive(async () => 'one');
+      // Respawn is scheduled but has not fired yet.
+      vi.advanceTimersByTime(300);
+      expect(spawn).not.toHaveBeenCalled();
+
+      // A command landing mid-window must cancel it, or it would kill a daemon
+      // that had no time to connect.
+      const second = pm.executeExclusive(async () => 'two');
+      await vi.advanceTimersByTimeAsync(0);
+      await second;
+
+      vi.advanceTimersByTime(749);
+      expect(spawn).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tracks the daemon connection from its own events', () => {
+    const { pm } = makeManager();
+    const internals = pm as unknown as {
+      handleStderrLine: (l: string) => void;
+      child: unknown;
+    };
+    // Stand in for a spawned daemon; isDaemonConnected requires a live child.
+    internals.child = {};
+
+    expect(pm.isDaemonConnected()).toBe(false);
+
+    internals.handleStderrLine(JSON.stringify({ event: 'connected', ts: Date.now() }));
+    expect(pm.isDaemonConnected()).toBe(true);
+    expect(pm.getState()).toBe('running');
+
+    internals.handleStderrLine(JSON.stringify({ event: 'disconnected', ts: Date.now() }));
+    expect(pm.isDaemonConnected()).toBe(false);
+
+    // A dead child is never "connected", whatever the last event said.
+    internals.handleStderrLine(JSON.stringify({ event: 'connected', ts: Date.now() }));
+    expect(pm.isDaemonConnected()).toBe(true);
+    internals.child = null;
+    expect(pm.isDaemonConnected()).toBe(false);
+  });
+});
+
+describe('WacliProcessManager exclusive-command failures', () => {
+  it('still brings the daemon back when an exclusive command throws', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs: 0 });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+
+    await expect(
+      pm.executeExclusive(async () => {
+        throw new Error('mark-read failed');
+      })
+    ).rejects.toThrow('mark-read failed');
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // A failed command must not leave the store permanently daemon-less.
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(pm.hasPendingExclusiveWork()).toBe(false);
+  });
+
+  it('recovers the waiter count when one command in a queue fails', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs: 0 });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+
+    const results = await Promise.allSettled([
+      pm.executeExclusive(async () => 'ok'),
+      pm.executeExclusive(async () => {
+        throw new Error('boom');
+      }),
+      pm.executeExclusive(async () => 'ok'),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
+    expect(pm.hasPendingExclusiveWork()).toBe(false);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+});

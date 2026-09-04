@@ -5,6 +5,7 @@ import os from 'node:os';
 import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { logger } from '../logger.js';
+import { mediaDownloads } from '../wacli/media-downloads.js';
 
 interface RawMediaDownloadResponse {
   path?: string;
@@ -157,9 +158,13 @@ export function createMediaRouter(): Router {
       logger.info('media', `Downloading media for msg ${id} in ${chat}`);
       const outputDir = getMediaOutputDir();
       const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
-      const result = await execWacli<RawMediaDownloadResponse>(args, {
-        timeoutMs: 60000,
-      });
+      // An explicit retry from the operator always reaches wacli; replaying a
+      // remembered failure would make the Retry button look broken.
+      const result = await mediaDownloads.run(
+        `${chat}:${id}`,
+        () => execWacli<RawMediaDownloadResponse>(args, { timeoutMs: 60000 }),
+        { ignoreFailureCache: true }
+      );
 
       const localPath =
         (typeof result === 'object' && result !== null
@@ -211,9 +216,11 @@ export function createMediaRouter(): Router {
         try {
           const outputDir = getMediaOutputDir();
           const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
-          const result = await execWacli<RawMediaDownloadResponse>(args, {
-            timeoutMs: 60000,
-          });
+          // Every attachment in a freshly opened thread lands here at once, so
+          // this is the path that has to be capped, deduped and cached.
+          const result = await mediaDownloads.run(`${chat}:${id}`, () =>
+            execWacli<RawMediaDownloadResponse>(args, { timeoutMs: 60000 })
+          );
 
           if (result && typeof result === 'object') {
             const downloaded = result.path || result.local_path || result.file_path;

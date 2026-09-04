@@ -83,7 +83,17 @@ async function request<T>(
 }
 
 export const api = {
-  getHealth: () => request<MissionControlStatus>('/api/health'),
+  /**
+   * Pass `fresh` to bypass the server's short-lived `wacli doctor` cache. Used
+   * by the manual RE-CHECK, which must actually re-probe rather than replay a
+   * cached answer.
+   */
+  getHealth: (params?: { fresh?: boolean }) =>
+    request<MissionControlStatus>(
+      '/api/health',
+      {},
+      params?.fresh ? { fresh: '1' } : undefined
+    ),
 
   getMode: () => request<{ readOnly: boolean }>('/api/mode'),
 

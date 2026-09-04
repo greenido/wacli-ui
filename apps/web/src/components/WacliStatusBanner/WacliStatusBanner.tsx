@@ -36,6 +36,9 @@ export const WacliStatusBanner: React.FC = () => {
   });
 
   const handleRecheck = async () => {
+    // Force a real probe first so the refetch below cannot be served the
+    // server's cached doctor result.
+    await api.getHealth({ fresh: true }).catch(() => {});
     await queryClient.invalidateQueries({ queryKey: ['health'] });
     await queryClient.invalidateQueries({ queryKey: ['chats'] });
   };

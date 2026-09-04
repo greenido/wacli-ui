@@ -6,10 +6,66 @@ import { isStoreLockMessage, parseLockHolderPid } from '../wacli/store-lock.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { MissionControlStatus, UnifiedDoctor } from '../types.js';
 
+/** How long a `wacli doctor` result is reused before probing the store again. */
+export const DOCTOR_CACHE_TTL_MS = 10_000;
+
 export function createHealthRouter(processManager: WacliProcessManager): Router {
   const router = Router();
 
-  router.get('/health', async (_req, res) => {
+  // `wacli doctor` opens the store, so every health poll competes with the sync
+  // daemon for the lock — and each open tab polls on its own timer. Caching the
+  // result, and collapsing simultaneous polls into one probe, keeps a wall of
+  // dashboards from generating a wall of store access.
+  let doctorCache: { at: number; doctor: UnifiedDoctor } | null = null;
+  let doctorInFlight: Promise<UnifiedDoctor> | null = null;
+
+  async function probeDoctor(fresh: boolean): Promise<UnifiedDoctor> {
+    if (fresh) {
+      doctorCache = null;
+    } else if (doctorCache && Date.now() - doctorCache.at < DOCTOR_CACHE_TTL_MS) {
+      return doctorCache.doctor;
+    }
+
+    if (doctorInFlight) {
+      return doctorInFlight;
+    }
+
+    doctorInFlight = (async () => {
+      try {
+        const rawDoctor = await execWacli<Record<string, unknown>>(['doctor']);
+        const normalized = normalizeDoctor(rawDoctor);
+        doctorCache = { at: Date.now(), doctor: normalized };
+        return normalized;
+      } finally {
+        doctorInFlight = null;
+      }
+    })();
+
+    return doctorInFlight;
+  }
+
+  /**
+   * A doctor probe run alongside our own daemon is refused by that daemon's
+   * store lock and reports `locked_by_other_process` — a statement about the
+   * probe, not about the daemon. When the lock belongs to us, the daemon's own
+   * connected/disconnected events are the authority.
+   */
+  function reconcileWithDaemon(doctor: UnifiedDoctor): UnifiedDoctor {
+    if (doctor.connectionState !== 'locked_by_other_process') {
+      return doctor;
+    }
+    if (processManager.getPid() === null) {
+      // Nothing of ours is running, so somebody else really does hold it.
+      return doctor;
+    }
+    if (processManager.isDaemonConnected()) {
+      return { ...doctor, connected: true, connectionState: 'connected' };
+    }
+    return { ...doctor, connected: false, connectionState: 'connecting' };
+  }
+
+  router.get('/health', async (req, res) => {
+    const fresh = req.query.fresh === '1' || req.query.fresh === 'true';
     const installStatus = await checkWacliInstalled();
     let doctor: UnifiedDoctor | null = null;
     let doctorError: string | null = null;
@@ -24,8 +80,7 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
       statusMessage = installStatus.error || 'wacli CLI binary is not installed or not in PATH.';
     } else {
       try {
-        const rawDoctor = await execWacli<Record<string, unknown>>(['doctor']);
-        doctor = normalizeDoctor(rawDoctor);
+        doctor = reconcileWithDaemon(await probeDoctor(fresh));
 
         if (!doctor.authenticated) {
           wacliWorking = false;

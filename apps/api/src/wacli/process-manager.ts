@@ -14,7 +14,16 @@ export interface ProcessManagerOptions {
   apiPort: number;
   onStateChange?: (state: ProcessState, reason?: string) => void;
   onLifecycleEvent?: (event: Record<string, unknown>) => void;
+  /**
+   * How long to wait after an exclusive command before bringing the sync
+   * daemon back. The daemon needs roughly 600ms to reach "connected", so
+   * respawning the instant a command finishes means a command arriving just
+   * afterwards kills a daemon that never got to connect.
+   */
+  respawnDebounceMs?: number;
 }
+
+export const DEFAULT_RESPAWN_DEBOUNCE_MS = 750;
 
 export class WacliProcessManager {
   private child: ChildProcess | null = null;
@@ -27,11 +36,18 @@ export class WacliProcessManager {
   private lastError: string | null = null;
   private isPaused = false;
   private pauseMutex = Promise.resolve();
+  /** Exclusive actions queued or running; the daemon stays down until it hits 0. */
+  private exclusiveWaiters = 0;
+  private respawnTimer: NodeJS.Timeout | null = null;
+  private respawnDebounceMs: number;
+  /** Last connection state the daemon reported about itself. */
+  private daemonConnected = false;
   private onStateChange?: (state: ProcessState, reason?: string) => void;
   private onLifecycleEvent?: (event: Record<string, unknown>) => void;
 
   constructor(options: ProcessManagerOptions) {
     this.apiPort = options.apiPort;
+    this.respawnDebounceMs = options.respawnDebounceMs ?? DEFAULT_RESPAWN_DEBOUNCE_MS;
     this.webhookSecret = crypto.randomBytes(32).toString('hex');
     this.onStateChange = options.onStateChange;
     this.onLifecycleEvent = options.onLifecycleEvent;
@@ -75,6 +91,21 @@ export class WacliProcessManager {
     return this.reconnectAttempts;
   }
 
+  /**
+   * Whether our own sync daemon reports itself connected to WhatsApp. This is
+   * the only trustworthy answer while the daemon holds the store lock, because
+   * a `wacli doctor` probe run alongside it is refused by that very lock and
+   * reports "locked_by_other_process" about a process that is working fine.
+   */
+  public isDaemonConnected(): boolean {
+    return this.daemonConnected && this.child !== null;
+  }
+
+  /** Exposed for the health route's "is a command holding the daemon down" check. */
+  public hasPendingExclusiveWork(): boolean {
+    return this.exclusiveWaiters > 0;
+  }
+
   public getHeartbeatAgeSeconds(): number | null {
     const settings = modeManager.getSettings();
     const defaultStore = process.platform === 'linux'
@@ -111,7 +142,32 @@ export class WacliProcessManager {
     }
 
     this.isPaused = false;
+    this.cancelPendingRespawn();
     this.spawnSyncProcess();
+  }
+
+  /**
+   * Brings the daemon back after the exclusive queue drains, but only once it
+   * has stayed drained for the debounce window. Any exclusive action starting
+   * in the meantime cancels it, so a burst of commands produces one respawn at
+   * the end instead of one per command.
+   */
+  private scheduleRespawn(): void {
+    this.cancelPendingRespawn();
+    this.respawnTimer = setTimeout(() => {
+      this.respawnTimer = null;
+      if (this.isPaused || this.exclusiveWaiters > 0 || this.child) {
+        return;
+      }
+      this.spawnSyncProcess();
+    }, this.respawnDebounceMs);
+  }
+
+  private cancelPendingRespawn(): void {
+    if (this.respawnTimer) {
+      clearTimeout(this.respawnTimer);
+      this.respawnTimer = null;
+    }
   }
 
   private spawnSyncProcess(): void {
@@ -217,15 +273,18 @@ export class WacliProcessManager {
       logger.info('process', `Event from sync: ${JSON.stringify(parsed)}`);
 
       if (parsed.event === 'connected') {
+        this.daemonConnected = true;
         this.setState('running', 'Connected to WhatsApp');
         this.lastError = null;
       } else if (parsed.event === 'logged_out' || parsed.type === 'logged_out') {
+        this.daemonConnected = false;
         this.setState('logged_out', 'WhatsApp session was logged out or revoked');
       } else if (parsed.event === 'error') {
         const data = parsed.data as { message?: string } | undefined;
         this.lastError = data?.message || JSON.stringify(parsed.data || parsed);
         logger.error('process', `Sync process error event: ${this.lastError}`);
       } else if (parsed.event === 'disconnected') {
+        this.daemonConnected = false;
         logger.warn('process', `Sync process disconnected event: ${JSON.stringify(parsed)}`);
       }
 
@@ -244,6 +303,7 @@ export class WacliProcessManager {
 
   private handleProcessExit(code: number | null, signal: NodeJS.Signals | null): void {
     this.child = null;
+    this.daemonConnected = false;
     if (this.uptimeTimer) {
       clearTimeout(this.uptimeTimer);
       this.uptimeTimer = null;
@@ -277,6 +337,7 @@ export class WacliProcessManager {
 
   public async stop(): Promise<void> {
     this.isPaused = true;
+    this.cancelPendingRespawn();
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
@@ -319,16 +380,26 @@ export class WacliProcessManager {
   }
 
   public async executeExclusive<T>(action: () => Promise<T>): Promise<T> {
+    // Counted before awaiting the mutex so a caller still queueing already
+    // blocks the respawn below. Without that, the daemon is spawned the instant
+    // one command finishes and killed microseconds later by the next one in
+    // line, and it never survives the ~600ms it needs to connect.
+    this.exclusiveWaiters += 1;
+
     const prevMutex = this.pauseMutex;
     let releaseMutex: () => void;
     this.pauseMutex = new Promise<void>((resolve) => {
       releaseMutex = resolve;
     });
 
-    await prevMutex;
-
     try {
+      // Inside the try so a rejection here still runs the finally. A leaked
+      // waiter count would keep the daemon down permanently, which is a worse
+      // failure than the thrash this guard exists to prevent.
+      await prevMutex;
+
       logger.info('process', 'Pausing sync process for exclusive lock action');
+      this.cancelPendingRespawn();
       this.isPaused = true;
       if (this.restartTimer) {
         clearTimeout(this.restartTimer);
@@ -365,8 +436,13 @@ export class WacliProcessManager {
       const result = await action();
       return result;
     } finally {
-      this.isPaused = false;
-      this.spawnSyncProcess();
+      this.exclusiveWaiters -= 1;
+      // Stay paused while more exclusive work is queued: the next caller would
+      // only have to kill the daemon again.
+      if (this.exclusiveWaiters === 0) {
+        this.isPaused = false;
+        this.scheduleRespawn();
+      }
       releaseMutex!();
     }
   }
