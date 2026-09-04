@@ -46,6 +46,13 @@ export interface WacliInstallStatus {
 const INSTALLED_TTL_MS = 60_000;
 const MISSING_TTL_MS = 5_000;
 
+/**
+ * A read the operator is waiting on should not take this long. Past it the
+ * command names itself in the log without anyone having to raise the level
+ * first — the rail feeling sluggish is otherwise a hunch with no evidence.
+ */
+const SLOW_COMMAND_MS = 1_000;
+
 let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
 
 export function resetWacliInstallCache(): void {
@@ -161,6 +168,8 @@ async function execWacliOnce<T>(
 
   const timeout = options.timeoutMs ?? 30000;
   const commandLabel = `${bin} ${args.join(' ')}`;
+  const cmd = args.join(' ');
+  const startedAt = Date.now();
 
   try {
     const { stdout, stderr } = await execFileAsync(bin, fullArgs, {
@@ -169,7 +178,18 @@ async function execWacliOnce<T>(
       maxBuffer: 10 * 1024 * 1024, // 10MB
     });
 
+    const durationMs = Date.now() - startedAt;
     const output = stdout.trim() || stderr.trim();
+
+    // Every read spawns a subprocess against SQLite, so this is where the app's
+    // latency actually goes. At DEBUG it is the trace that names the slow read;
+    // past the threshold it is worth saying out loud without being asked.
+    if (durationMs >= SLOW_COMMAND_MS) {
+      logger.warn('api', 'wacli command was slow', { cmd, durationMs, bytes: output.length });
+    } else {
+      logger.debug('api', 'wacli command completed', { cmd, durationMs, bytes: output.length });
+    }
+
     if (!output) {
       throw new WacliCommandError('Empty output from wacli command', undefined, undefined, commandLabel);
     }
@@ -198,9 +218,18 @@ async function execWacliOnce<T>(
     }
   } catch (err: unknown) {
     const cmdErr = classifyCommandError(err, commandLabel);
-    if (!isStoreLockMessage(cmdErr.message)) {
-      logger.error('api', `Command failed [${commandLabel}]: ${cmdErr.message}`);
-    }
+
+    // Only the caller knows whether a failure is expected — expired media, a
+    // chat with no rows — so the severity is theirs to choose. Logging it as an
+    // ERROR here too is what used to write every failure to the log twice, once
+    // at a severity that made routine outcomes look like incidents.
+    logger.debug('api', 'wacli command failed', {
+      cmd,
+      durationMs: Date.now() - startedAt,
+      exitCode: cmdErr.exitCode,
+      err: cmdErr,
+    });
+
     throw cmdErr;
   }
 }
@@ -222,10 +251,12 @@ export async function execWacli<T>(
       const isLastAttempt = attempt >= maxAttempts;
 
       if (isLock && !isLastAttempt) {
-        logger.warn(
-          'api',
-          `Store lock on [${commandLabel}] (attempt ${attempt}/${maxAttempts}); retrying in ${retryDelayMs}ms`
-        );
+        logger.warn('api', 'Store locked; retrying', {
+          cmd: args.join(' '),
+          attempt,
+          maxAttempts,
+          retryInMs: retryDelayMs,
+        });
         await sleep(retryDelayMs);
         continue;
       }

@@ -69,6 +69,59 @@ export function findWebDistDir(): string | null {
   return null;
 }
 
+/**
+ * A request the operator is waiting on should not take this long. Past it the
+ * line is promoted so a slow read stands out without raising the log level.
+ */
+const SLOW_REQUEST_MS = 1_500;
+
+/** Query params are usually the only thing separating two identical lines. */
+function formatQuery(query: Request['query']): string | undefined {
+  const entries = Object.entries(query);
+  if (entries.length === 0) return undefined;
+
+  return entries
+    .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(',') : String(value)}`)
+    .join('&');
+}
+
+/**
+ * One line per API call: verb, path, query, status, duration. This is the log
+ * that answers "did the UI even ask for that, and what came back?" — where most
+ * debugging starts, and the one thing the console had no record of at all.
+ *
+ * Static assets are skipped: they are the same handful of files on every reload
+ * and would bury the calls that carry meaning.
+ */
+function requestLogger(req: Request, res: Response, next: NextFunction): void {
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/internal')) {
+    next();
+    return;
+  }
+
+  const startedAt = Date.now();
+
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt;
+    const fields = {
+      status: res.statusCode,
+      durationMs,
+      query: formatQuery(req.query),
+    };
+    const message = `${req.method} ${req.path}`;
+
+    if (res.statusCode >= 500) {
+      logger.error('http', message, fields);
+    } else if (res.statusCode >= 400 || durationMs >= SLOW_REQUEST_MS) {
+      logger.warn('http', message, fields);
+    } else {
+      logger.info('http', message, fields);
+    }
+  });
+
+  next();
+}
+
 export function createApp(
   processManager: WacliProcessManager,
   bridge: EventBridge = eventBridge
@@ -96,6 +149,8 @@ export function createApp(
       callback(new Error('Origin is not allowed by CORS.'));
     },
   }));
+
+  app.use(requestLogger);
 
   // Raw body parser specifically for internal webhook HMAC verification
   app.use('/internal/wacli', express.raw({
@@ -135,9 +190,13 @@ export function createApp(
   }
 
   // Global Error Handler
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    // The route that failed is the first thing you want to know, and the only
+    // thing the error itself cannot tell you.
+    const route = `${req.method} ${req.path}`;
+
     if (err instanceof StoreLockedError) {
-      logger.warn('api', `Store locked: ${err.message}`);
+      logger.warn('api', 'Store locked', { route, lockHolderPid: err.lockHolderPid, err });
       res.status(503).json({
         success: false,
         data: null,
@@ -149,7 +208,7 @@ export function createApp(
     }
 
     const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.error('api', `Unhandled API error: ${errorMsg}`);
+    logger.error('api', 'Unhandled API error', { route, err });
     res.status(500).json({ success: false, data: null, error: errorMsg });
   });
 
@@ -189,20 +248,28 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
   scheduler.start();
 
   server.listen(port, host, () => {
-    logger.info('api', `wacli Mission Control API listening on http://${host}:${port}`);
+    // Where the log lives and how loud it is, said once at the top of every run
+    // — otherwise finding the file is its own small investigation.
+    logger.info('api', 'Mission Control API listening', {
+      url: `http://${host}:${port}`,
+      logFile: logger.getFilePath(),
+      logLevel: logger.getLevel(),
+    });
     if (process.env.WACLI_DISABLE_SYNC !== '1') {
       pm.start();
     }
   });
 
   const gracefulShutdown = async (signal: string) => {
-    logger.info('api', `Received ${signal}. Shutting down gracefully...`);
+    logger.info('process', 'Shutting down gracefully', { signal });
     try {
       await pm.stop();
-    } catch {
-      // ignore
+    } catch (err) {
+      logger.debug('process', 'Sync daemon did not stop cleanly', { err });
     }
     server.close(() => {
+      // Flush the tail of any collapsed repeat before the process is gone.
+      logger.close();
       process.exit(0);
     });
   };

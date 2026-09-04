@@ -25,6 +25,40 @@ export interface ProcessManagerOptions {
 
 export const DEFAULT_RESPAWN_DEBOUNCE_MS = 750;
 
+/**
+ * Cleanups of every live manager, run when this process goes down. The hooks
+ * used to be registered per instance, which added three process listeners per
+ * construction and tripped Node's MaxListenersExceededWarning as soon as a test
+ * file built more than a handful of managers. One shared hook over this
+ * registry keeps the count at three however many managers exist.
+ */
+const shutdownCleanups = new Set<() => void>();
+const SHUTDOWN_EVENTS = ['exit', 'SIGINT', 'SIGTERM'] as const;
+let shutdownHooksRegistered = false;
+
+/** Named so tests can pick it out of the process's other listeners. */
+function wacliShutdownHook(): void {
+  for (const cleanup of shutdownCleanups) {
+    cleanup();
+  }
+}
+
+function registerShutdownHooks(): void {
+  if (shutdownHooksRegistered) return;
+  shutdownHooksRegistered = true;
+  for (const event of SHUTDOWN_EVENTS) {
+    process.once(event, wacliShutdownHook);
+  }
+}
+
+function unregisterShutdownHooks(): void {
+  if (!shutdownHooksRegistered) return;
+  shutdownHooksRegistered = false;
+  for (const event of SHUTDOWN_EVENTS) {
+    process.off(event, wacliShutdownHook);
+  }
+}
+
 export class WacliProcessManager {
   private child: ChildProcess | null = null;
   private state: ProcessState = 'stopped';
@@ -44,6 +78,16 @@ export class WacliProcessManager {
   private daemonConnected = false;
   private onStateChange?: (state: ProcessState, reason?: string) => void;
   private onLifecycleEvent?: (event: Record<string, unknown>) => void;
+  /** SIGINTs the daemon if this process goes down; held so dispose() can drop it. */
+  private readonly shutdownCleanup = (): void => {
+    if (this.child && !this.child.killed) {
+      try {
+        this.child.kill('SIGINT');
+      } catch {
+        // ignore
+      }
+    }
+  };
 
   constructor(options: ProcessManagerOptions) {
     this.apiPort = options.apiPort;
@@ -57,18 +101,22 @@ export class WacliProcessManager {
   }
 
   private registerProcessHooks(): void {
-    const cleanup = () => {
-      if (this.child && !this.child.killed) {
-        try {
-          this.child.kill('SIGINT');
-        } catch {
-          // ignore
-        }
-      }
-    };
-    process.once('exit', cleanup);
-    process.once('SIGINT', cleanup);
-    process.once('SIGTERM', cleanup);
+    shutdownCleanups.add(this.shutdownCleanup);
+    registerShutdownHooks();
+  }
+
+  /**
+   * Detaches this manager from the process-wide shutdown hooks. Production keeps
+   * one manager for the life of the process and never needs this; tests build
+   * many, and each one left registered holds its child-kill closure - and the
+   * manager with it - alive. Only the hook is dropped: stop() the daemon first
+   * if one is running, or nothing will be left to shut it down.
+   */
+  public dispose(): void {
+    shutdownCleanups.delete(this.shutdownCleanup);
+    if (shutdownCleanups.size === 0) {
+      unregisterShutdownHooks();
+    }
   }
 
   public getWebhookSecret(): string {

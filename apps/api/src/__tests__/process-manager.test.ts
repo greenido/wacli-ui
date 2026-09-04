@@ -275,3 +275,87 @@ describe('WacliProcessManager respawn cancellation', () => {
     }
   });
 });
+
+describe('WacliProcessManager shutdown hooks', () => {
+  /** A fresh module copy, so the hook registry starts empty whatever ran before. */
+  async function loadFreshModule() {
+    vi.resetModules();
+    return import('../wacli/process-manager.js');
+  }
+
+  const listenerCounts = () => ({
+    exit: process.listenerCount('exit'),
+    SIGINT: process.listenerCount('SIGINT'),
+    SIGTERM: process.listenerCount('SIGTERM'),
+  });
+
+  /**
+   * The hook the module copy under test registered, identified by diffing the
+   * process's listeners around its first construction. Tests invoke it directly:
+   * emitting a real SIGINT would also reach vitest's own handler and tear the
+   * run down.
+   */
+  function shutdownHookAddedBy(before: readonly unknown[]): () => void {
+    const added = process.listeners('SIGINT').filter((l) => !before.includes(l));
+    expect(added, 'exactly one shutdown hook was registered').toHaveLength(1);
+    return added[0] as () => void;
+  }
+
+  it('registers one listener per signal however many managers exist', async () => {
+    const { WacliProcessManager: Manager } = await loadFreshModule();
+    const before = listenerCounts();
+
+    // Twelve managers, as a single test file easily builds. Registering the
+    // hooks per instance put 36 listeners on the process here and produced
+    // "MaxListenersExceededWarning: 11 exit listeners added to [process]".
+    const managers = Array.from({ length: 12 }, () => new Manager({ apiPort: 3002 }));
+
+    expect(listenerCounts()).toEqual({
+      exit: before.exit + 1,
+      SIGINT: before.SIGINT + 1,
+      SIGTERM: before.SIGTERM + 1,
+    });
+
+    for (const pm of managers) pm.dispose();
+    expect(listenerCounts()).toEqual(before);
+  });
+
+  it('SIGINTs the daemon of every live manager when the process goes down', async () => {
+    const { WacliProcessManager: Manager } = await loadFreshModule();
+    const before = process.listeners('SIGINT');
+    const first = new Manager({ apiPort: 3002 });
+    const second = new Manager({ apiPort: 3003 });
+    const firstKill = vi.fn();
+    const secondKill = vi.fn();
+    (first as unknown as { child: unknown }).child = { killed: false, kill: firstKill };
+    (second as unknown as { child: unknown }).child = { killed: false, kill: secondKill };
+
+    shutdownHookAddedBy(before)();
+
+    expect(firstKill).toHaveBeenCalledWith('SIGINT');
+    expect(secondKill).toHaveBeenCalledWith('SIGINT');
+
+    first.dispose();
+    second.dispose();
+  });
+
+  it('leaves a disposed manager out of the shutdown', async () => {
+    const { WacliProcessManager: Manager } = await loadFreshModule();
+    const before = process.listeners('SIGINT');
+    const disposed = new Manager({ apiPort: 3002 });
+    const live = new Manager({ apiPort: 3003 });
+    const disposedKill = vi.fn();
+    const liveKill = vi.fn();
+    (disposed as unknown as { child: unknown }).child = { killed: false, kill: disposedKill };
+    (live as unknown as { child: unknown }).child = { killed: false, kill: liveKill };
+
+    const hook = shutdownHookAddedBy(before);
+    disposed.dispose();
+    hook();
+
+    expect(disposedKill).not.toHaveBeenCalled();
+    expect(liveKill).toHaveBeenCalledWith('SIGINT');
+
+    live.dispose();
+  });
+});
