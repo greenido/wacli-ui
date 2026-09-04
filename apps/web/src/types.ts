@@ -146,6 +146,12 @@ export interface ScheduledMessage {
   status: 'pending' | 'sent' | 'cancelled' | 'failed';
   error?: string;
   sentMessageId?: string;
+  /** How many times the operator has manually resent this after a failure. */
+  resendCount?: number;
+  /** When the last manual resend was requested. */
+  lastAttemptAt?: string;
+  /** Server-derived: the attachment is gone, so a resend goes out as text. */
+  attachmentMissing?: boolean;
 }
 
 export type MissionControlEvent =

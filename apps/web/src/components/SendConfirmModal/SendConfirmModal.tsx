@@ -5,23 +5,8 @@ import { api } from '../../api/client.ts';
 import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { getPresetTime, getTomorrowMorning } from '../../lib/scheduleTime.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
-
-// Preset time helper
-const getPresetTime = (minutesOffset: number) => {
-  const d = new Date(Date.now() + minutesOffset * 60 * 1000);
-  // Format for datetime-local input YYYY-MM-DDTHH:mm
-  const pad = (n: number) => (n < 10 ? `0${n}` : n);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-const getTomorrowMorning = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(9, 0, 0, 0);
-  const pad = (n: number) => (n < 10 ? `0${n}` : n);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00`;
-};
 
 export const SendConfirmModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);

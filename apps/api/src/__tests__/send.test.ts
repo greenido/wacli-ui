@@ -105,4 +105,80 @@ describe('Send Endpoints & Guardrails', () => {
     expect(cancelRes.status).toBe(200);
     expect(cancelRes.body.data.cancelled).toBe(true);
   });
+
+  /** Queues a pending message through the API and hands back its id. */
+  async function schedulePending(): Promise<string> {
+    modeManager.setReadOnly(false);
+    const res = await request(app)
+      .post('/api/send/schedule')
+      .set('X-Mission-Control-Request', '1')
+      .send({
+        to: '15550001111@s.whatsapp.net',
+        message: 'Queued',
+        scheduledAt: new Date(Date.now() + 3600000).toISOString(),
+        confirm: true,
+      });
+    return res.body.data.item.id as string;
+  }
+
+  it('POST resend rejects a request without confirm: true (400)', async () => {
+    const id = await schedulePending();
+
+    const res = await request(app)
+      .post(`/api/send/scheduled/${id}/resend`)
+      .set('X-Mission-Control-Request', '1')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('confirm: true');
+  });
+
+  it('POST resend is blocked while safe read-only mode is active (403)', async () => {
+    const id = await schedulePending();
+    modeManager.setReadOnly(true);
+
+    const res = await request(app)
+      .post(`/api/send/scheduled/${id}/resend`)
+      .set('X-Mission-Control-Request', '1')
+      .send({ confirm: true });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Safe read-only mode is active');
+  });
+
+  it('POST resend refuses a message that has not failed (409)', async () => {
+    const id = await schedulePending();
+
+    const res = await request(app)
+      .post(`/api/send/scheduled/${id}/resend`)
+      .set('X-Mission-Control-Request', '1')
+      .send({ confirm: true });
+
+    // The guard that makes a double send impossible, seen from the API.
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toContain('Only a failed message can be resent');
+  });
+
+  it('POST resend reports an unknown id rather than inventing one (409)', async () => {
+    modeManager.setReadOnly(false);
+
+    const res = await request(app)
+      .post('/api/send/scheduled/sched-does-not-exist/resend')
+      .set('X-Mission-Control-Request', '1')
+      .send({ confirm: true });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('not found');
+  });
+
+  it('POST discard refuses a pending message', async () => {
+    const id = await schedulePending();
+
+    const res = await request(app).post(`/api/send/scheduled/${id}/discard`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.discarded).toBe(false);
+    expect(res.body.error).toContain('not in failed state');
+  });
 });

@@ -1,10 +1,23 @@
 import React, { useState, useMemo } from 'react';
-import { Activity, Settings, ShieldCheck, ShieldAlert, AlertTriangle, Clock, Trash2, RotateCw } from 'lucide-react';
+import {
+  Activity,
+  Settings,
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  Clock,
+  Trash2,
+  RotateCw,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+} from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedChat } from '../../types.ts';
+import { ResendConfirmModal } from './ResendConfirmModal.tsx';
+import type { ScheduledMessage, UnifiedChat } from '../../types.ts';
 
 const LIST_PAGE_SIZE = 100;
 
@@ -25,6 +38,12 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const [activeTab, setActiveTab] = useState<'activity' | 'scheduled'>('activity');
   const [activityVisibleCount, setActivityVisibleCount] = useState(LIST_PAGE_SIZE);
   const [scheduledVisibleCount, setScheduledVisibleCount] = useState(LIST_PAGE_SIZE);
+  // A failed message has nothing to show in the thread, so its detail has to
+  // open here instead of sending the operator to a conversation that is missing
+  // the very message they clicked.
+  const [expandedScheduledId, setExpandedScheduledId] = useState<string | null>(null);
+  const [resendTarget, setResendTarget] = useState<ScheduledMessage | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   const sortedSendLogs = useMemo(
     () =>
@@ -95,6 +114,28 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.cancelScheduled(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
+  });
+
+  const resendMutation = useMutation({
+    mutationFn: ({ id, scheduledAt }: { id: string; scheduledAt?: string }) =>
+      api.resendScheduled(id, scheduledAt ? { scheduledAt } : {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+      setResendTarget(null);
+      setResendError(null);
+    },
+    onError: (err: unknown) => {
+      // Includes the server's own refusals (already sent, already in flight,
+      // safe mode), which the operator needs to read rather than have swallowed.
+      setResendError(err instanceof Error ? err.message : String(err));
+    },
+  });
+
+  const discardMutation = useMutation({
+    mutationFn: (id: string) => api.discardScheduled(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled'] });
     },
@@ -402,74 +443,177 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               <>
               {visibleScheduledItems.map((item) => {
                 const isSelected = selectedChat?.jid === item.to;
+                const isFailed = item.status === 'failed';
+                const isExpanded = isFailed && expandedScheduledId === item.id;
+                // A failed message was never delivered, so there is nothing in
+                // the thread to jump to. Opening the row in place is the only
+                // click that can actually tell the operator anything.
+                const handleActivate = () => {
+                  if (isFailed) {
+                    setExpandedScheduledId(isExpanded ? null : item.id);
+                  }
+                  handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId);
+                };
+
                 return (
-                  <div
-                    key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId);
+                  <div key={item.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isFailed ? isExpanded : undefined}
+                      onClick={handleActivate}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleActivate();
+                        }
+                      }}
+                      className={`p-2 bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+                        isExpanded ? 'rounded-t' : 'rounded'
+                      } ${
+                        isFailed
+                          ? 'border-mc-danger/50'
+                          : isSelected
+                          ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                          : 'border-mc-border/70'
+                      }`}
+                      title={
+                        isFailed
+                          ? 'Not delivered. Click for the failure detail and resend options.'
+                          : 'Click to view conversation in main chat area'
                       }
-                    }}
-                    className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
-                      isSelected
-                        ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
-                        : 'border-mc-border/70'
-                    }`}
-                    title="Click to view conversation in main chat area"
-                  >
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-mc-live font-semibold flex items-center gap-1">
-                        <Clock size={10} />
-                        {new Date(item.scheduledAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
-                        {new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <span
-                        className={`font-semibold uppercase ${
-                          item.status === 'sent'
-                            ? 'text-mc-live'
-                            : item.status === 'pending'
-                            ? 'text-mc-safe'
-                            : item.status === 'failed'
-                            ? 'text-mc-danger'
-                            : 'text-mc-textMuted'
-                        }`}
-                      >
-                        {item.status}
-                      </span>
-                    </div>
-                    <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
-                      <span className="truncate">{item.recipientName || item.to}</span>
-                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
-                        OPEN →
-                      </span>
-                    </div>
-                    <div className="text-mc-textMuted truncate">
-                      {item.fileName ? `[File: ${item.fileName}] ` : ''}
-                      {item.message}
-                    </div>
-                    {item.status === 'pending' && (
-                      <div className="pt-1 flex justify-end">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cancelMutation.mutate(item.id);
-                          }}
-                          disabled={cancelMutation.isPending}
-                          className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors"
-                          title="Cancel scheduled dispatch"
+                    >
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-mc-live font-semibold flex items-center gap-1">
+                          <Clock size={10} />
+                          {new Date(item.scheduledAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
+                          {new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span
+                          className={`font-semibold uppercase ${
+                            item.status === 'sent'
+                              ? 'text-mc-live'
+                              : item.status === 'pending'
+                              ? 'text-mc-safe'
+                              : isFailed
+                              ? 'text-mc-danger'
+                              : 'text-mc-textMuted'
+                          }`}
                         >
-                          <Trash2 size={10} />
-                          <span>CANCEL</span>
-                        </button>
+                          {item.status}
+                        </span>
                       </div>
-                    )}
-                    {item.error && (
-                      <div className="text-[10px] text-mc-danger leading-snug break-words pt-0.5">
-                        {item.error}
+                      <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
+                        <span className="truncate">{item.recipientName || item.to}</span>
+                        {isFailed ? (
+                          <span className="text-[9px] text-mc-danger font-mono opacity-90 shrink-0 flex items-center gap-0.5">
+                            {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                            <span>DETAILS</span>
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                            OPEN →
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-mc-textMuted truncate">
+                        {item.fileName ? `[File: ${item.fileName}] ` : ''}
+                        {item.message}
+                      </div>
+                      {item.status === 'pending' && (
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              cancelMutation.mutate(item.id);
+                            }}
+                            disabled={cancelMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors"
+                            title="Cancel scheduled dispatch"
+                          >
+                            <Trash2 size={10} />
+                            <span>CANCEL</span>
+                          </button>
+                        </div>
+                      )}
+                      {item.error && !isExpanded && (
+                        <div className="text-[10px] text-mc-danger leading-snug break-words pt-0.5 line-clamp-2">
+                          {item.error}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Failure detail. Rendered as a sibling of the clickable
+                        summary rather than inside it, so these controls are not
+                        buttons nested in a role="button". */}
+                    {isExpanded && (
+                      <div className="border border-t-0 border-mc-danger/50 rounded-b bg-mc-bg/60 p-2 space-y-2 text-[10px]">
+                        <div className="text-mc-danger leading-snug break-words">
+                          <span className="font-bold uppercase">Not delivered: </span>
+                          {item.error || 'No reason recorded.'}
+                        </div>
+
+                        <div className="text-mc-textMuted leading-snug">
+                          <span className="uppercase">Message: </span>
+                          <span className="text-mc-text break-words whitespace-pre-wrap">
+                            {item.message || '(no text)'}
+                          </span>
+                        </div>
+
+                        {item.fileName && (
+                          <div
+                            className={`leading-snug break-words ${
+                              item.attachmentMissing ? 'text-mc-danger' : 'text-mc-textMuted'
+                            }`}
+                          >
+                            <span className="uppercase">Attachment: </span>
+                            {item.fileName}
+                            {item.attachmentMissing && ' — no longer on disk'}
+                          </div>
+                        )}
+
+                        {typeof item.resendCount === 'number' && item.resendCount > 0 && (
+                          <div className="text-mc-safe">
+                            Resent {item.resendCount} {item.resendCount === 1 ? 'time' : 'times'}
+                            {item.lastAttemptAt
+                              ? `, last at ${new Date(item.lastAttemptAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}`
+                              : ''}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            onClick={() => {
+                              setResendError(null);
+                              setResendTarget(item);
+                            }}
+                            disabled={resendMutation.isPending || discardMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] text-mc-live hover:text-mc-text border border-mc-live/40 hover:border-mc-live px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Send this message again, now or at a new time"
+                          >
+                            {resendMutation.isPending && resendTarget?.id === item.id ? (
+                              <Loader2 size={10} className="animate-spin" />
+                            ) : (
+                              <RotateCw size={10} />
+                            )}
+                            <span>RESEND</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setExpandedScheduledId(null);
+                              discardMutation.mutate(item.id);
+                            }}
+                            disabled={resendMutation.isPending || discardMutation.isPending}
+                            className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Remove this failed message from the queue"
+                          >
+                            <Trash2 size={10} />
+                            <span>DISCARD</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -488,6 +632,20 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           </div>
         )}
       </div>
+
+      {resendTarget && (
+        <ResendConfirmModal
+          item={resendTarget}
+          isReadOnly={isReadOnly}
+          isPending={resendMutation.isPending}
+          errorMessage={resendError}
+          onClose={() => {
+            setResendTarget(null);
+            setResendError(null);
+          }}
+          onConfirm={(scheduledAt) => resendMutation.mutate({ id: resendTarget.id, scheduledAt })}
+        />
+      )}
     </aside>
   );
 };

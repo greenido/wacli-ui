@@ -265,6 +265,32 @@ export const api = {
       },
     }),
 
+  /**
+   * Retries a failed scheduled message on the same record. Omit scheduledAt to
+   * dispatch immediately; pass one to requeue it for later. The server rejects
+   * anything that is not still in the failed state, so a double click cannot
+   * put the message out twice.
+   */
+  resendScheduled: (id: string, data: { scheduledAt?: string } = {}) =>
+    request<{ resent: boolean; item: ScheduledMessage }>(`/api/send/scheduled/${id}/resend`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify({ ...data, confirm: true }),
+    }),
+
+  discardScheduled: (id: string) =>
+    request<{ discarded: boolean }>(`/api/send/scheduled/${id}/discard`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify({}),
+    }),
+
   downloadMedia: (data: { chat: string; id: string }) =>
     request<{ downloaded: boolean; localPath?: string; details?: unknown }>('/api/media/download', {
       method: 'POST',

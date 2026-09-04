@@ -397,6 +397,78 @@ export function createSendRouter(): Router {
     });
   });
 
+  // POST resend a failed scheduled message. requireMutationPermission already
+  // turns this away in safe read-only mode; the scheduler re-checks anyway so
+  // the guarantee does not depend on which door the request came through.
+  router.post(
+    ['/scheduled/:id/resend', '/send/scheduled/:id/resend'],
+    requireMutationPermission,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const rawId = req.params.id;
+        const id = Array.isArray(rawId) ? rawId[0] : rawId;
+        const { confirm, scheduledAt } = req.body as {
+          confirm?: boolean;
+          scheduledAt?: string;
+        };
+
+        if (confirm !== true) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: 'Explicit "confirm: true" parameter required in request body.',
+          });
+          return;
+        }
+
+        if (!id) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: 'Scheduled message id is required.',
+          });
+          return;
+        }
+
+        const outcome = await scheduler.resend(id, scheduledAt ? { scheduledAt } : {});
+
+        if (!outcome.ok) {
+          // A rejected resend is the guard doing its job, not a server fault:
+          // 409 so the UI can show the reason instead of a generic failure.
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: outcome.error,
+          });
+          return;
+        }
+
+        res.json({
+          success: true,
+          data: {
+            resent: outcome.item.status === 'sent',
+            item: outcome.item,
+          },
+          error: null,
+        });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST discard a failed scheduled message (drops the record for good)
+  router.post(['/scheduled/:id/discard', '/send/scheduled/:id/discard'], (req: Request, res: Response) => {
+    const rawId = req.params.id;
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    const discarded = id ? scheduler.discard(id) : false;
+    res.json({
+      success: true,
+      data: { discarded },
+      error: discarded ? null : 'Scheduled message not found or not in failed state.',
+    });
+  });
+
   router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], (req: Request, res: Response) => {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
