@@ -6,6 +6,26 @@ import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { logger } from '../logger.js';
 import { mediaDownloads } from '../wacli/media-downloads.js';
+import { isStoreLockMessage } from '../wacli/store-lock.js';
+
+/**
+ * Why a download failed, in the operator's terms.
+ *
+ * WhatsApp expires media on its servers, and an old thread routinely holds
+ * messages the local store never backfilled. Both are the normal outcome of
+ * scrolling back, not incidents — reporting them at ERROR is what turned an
+ * ordinary scroll into pages of red. The message stays constant so a thread
+ * full of expired attachments collapses into one line and a count.
+ */
+function describeDownloadFailure(err: unknown): { reason: string; expected: boolean } {
+  const message = err instanceof Error ? err.message : String(err);
+
+  if (message.includes('403')) return { reason: 'expired-on-whatsapp', expected: true };
+  if (message.includes('no rows in result set')) return { reason: 'not-in-local-store', expected: true };
+  if (isStoreLockMessage(message)) return { reason: 'store-locked', expected: true };
+
+  return { reason: 'unknown', expected: false };
+}
 
 interface RawMediaDownloadResponse {
   path?: string;
@@ -155,7 +175,7 @@ export function createMediaRouter(): Router {
         return;
       }
 
-      logger.info('media', `Downloading media for msg ${id} in ${chat}`);
+      logger.info('media', 'Downloading media', { chat, id });
       const outputDir = getMediaOutputDir();
       const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
       // An explicit retry from the operator always reaches wacli; replaying a
@@ -200,7 +220,7 @@ export function createMediaRouter(): Router {
       if (requestedPath) {
         const safePath = resolveMediaPath(requestedPath);
         if (!safePath) {
-          logger.warn('media', `Rejected out-of-store media path request: ${requestedPath}`);
+          logger.warn('media', 'Rejected out-of-store media path', { requestedPath });
           res.status(403).json({
             success: false,
             data: null,
@@ -229,7 +249,14 @@ export function createMediaRouter(): Router {
             }
           }
         } catch (downloadErr) {
-          logger.warn('media', `Failed auto-download for ${id}: ${String(downloadErr)}`);
+          const { reason, expected } = describeDownloadFailure(downloadErr);
+          const fields = { chat, id, reason, err: downloadErr };
+
+          if (expected) {
+            logger.debug('media', 'Media unavailable', fields);
+          } else {
+            logger.warn('media', 'Auto-download failed', fields);
+          }
         }
       }
 
