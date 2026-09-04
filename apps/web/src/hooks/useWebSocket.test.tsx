@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useWebSocket } from './useWebSocket.ts';
 import { NOTIFICATIONS_STORAGE_KEY } from '../lib/notifications.ts';
 import { useAppStore } from '../store/appStore.ts';
+import { MARK_READ_DEBOUNCE_MS } from '../lib/chatRead.ts';
 import type { MissionControlEvent, UnifiedChat, UnifiedMessage } from '../types.ts';
 
 const markChatRead = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -164,11 +165,45 @@ describe('useWebSocket chat rail reconciliation', () => {
       socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
     });
 
+    // The badge clears at once: that half is local and free.
     const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
     expect(rail[0].unreadCount).toBe(0);
     expect(rail[0].unread).toBe(false);
     expect(rail[0].lastMessage).toBe('the newest line');
+
+    // The receipt waits, because sending it kills and respawns the sync daemon.
+    expect(markChatRead).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
     await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+
+    unmount();
+  });
+
+  it('sends one receipt for a burst of messages, not one per message', async () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat({ unreadCount: 2, unread: true })]);
+    useAppStore.setState({ selectedChat: chat() });
+    const { socket, unmount } = mount();
+
+    // A lively group: six messages inside the debounce window.
+    for (let i = 0; i < 6; i++) {
+      act(() => {
+        socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+    }
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+
+    // Six receipts meant six daemon teardown/respawn cycles, each one shelling
+    // out to a wacli that then had to dial WhatsApp from cold.
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
 
     unmount();
   });

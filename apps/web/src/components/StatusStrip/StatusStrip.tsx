@@ -10,8 +10,7 @@ import {
   RotateCw,
   ChevronDown,
   ChevronRight,
-  Loader2,
-} from 'lucide-react';
+  Loader2, LifeBuoy } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
@@ -82,9 +81,10 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
       // ignore
     }
 
-    if (msgId) {
-      setHighlightedMessageId(msgId);
-    }
+    // Always assign, never only on a hit. Leaving the previous target set sent
+    // the newly opened thread hunting for a message from the chat before it,
+    // which it then reported as missing from the local archive.
+    setHighlightedMessageId(msgId ?? null);
   };
 
   const { data: health } = useQuery({
@@ -177,13 +177,24 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           <Activity size={15} className="text-mc-live" />
           <span className="font-semibold text-mc-text tracking-wider">SYSTEM STATUS</span>
         </div>
-        <button
-          onClick={() => setActiveModal('settings')}
-          className="p-1 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
-          title="Open Settings & Diagnostics"
-        >
-          <Settings size={15} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setActiveModal('help')}
+            aria-label="Help and keyboard shortcuts"
+            className="p-1 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
+            title="Help & keyboard shortcuts  ( ? )"
+          >
+            <LifeBuoy size={15} />
+          </button>
+          <button
+            onClick={() => setActiveModal('settings')}
+            aria-label="Settings and diagnostics"
+            className="p-1 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
+            title="Open Settings & Diagnostics"
+          >
+            <Settings size={15} />
+          </button>
+        </div>
       </div>
 
       {/* State Blocks */}
@@ -377,11 +388,11 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     key={log.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => handleSelectMessageChat(log.to, log.chatName)}
+                    onClick={() => handleSelectMessageChat(log.to, log.chatName, log.messageId)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        handleSelectMessageChat(log.to, log.chatName);
+                        handleSelectMessageChat(log.to, log.chatName, log.messageId);
                       }
                     }}
                     className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
@@ -389,7 +400,11 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                         ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
                         : 'border-mc-border/70'
                     }`}
-                    title="Click to view conversation in main chat area"
+                    title={
+                      log.messageId
+                        ? 'Click to open the conversation and focus this message'
+                        : 'Click to view conversation in main chat area'
+                    }
                   >
                     <div className="flex items-center justify-between text-[10px]">
                       <span className="text-mc-textMuted">

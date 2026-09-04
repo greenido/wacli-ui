@@ -4,6 +4,7 @@ import os from 'node:os';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
+import { sentMessageIdFrom } from './normalize.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 
 export interface ScheduledMessage {
@@ -399,7 +400,16 @@ export class Scheduler {
       }
 
       item.status = 'sent';
-      item.sentMessageId = (result?.messageId as string) || `out-${Date.now()}`;
+      // Only a real WhatsApp ID goes on the record. The old fallback stamped
+      // every sent item with `out-<now>`, so clicking the row in LATER asked
+      // the thread to focus an ID the archive could never hold — and the
+      // operator was told the message was not in the local archive when it
+      // plainly was. No ID is better than an invented one: the thread then
+      // just opens the conversation.
+      const sentId = sentMessageIdFrom(result);
+      if (sentId) {
+        item.sentMessageId = sentId;
+      }
       this.save();
       logger.info('send', 'Scheduled message sent', { id: item.id });
 
@@ -411,7 +421,10 @@ export class Scheduler {
           data: {
             chatJid: item.to,
             chatName: item.recipientName || item.to,
-            msgId: item.sentMessageId,
+            // The optimistic bubble needs some key; when wacli reported no ID
+            // a local one keeps React from collapsing rows, and the next
+            // refetch replaces it with the archive's own row.
+            msgId: sentId ?? `out-${item.id}`,
             senderJid: '',
             senderName: 'Me',
             ts: new Date().toISOString(),

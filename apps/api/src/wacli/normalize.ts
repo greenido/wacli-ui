@@ -200,3 +200,37 @@ export function normalizeDoctor(raw: Record<string, unknown>): UnifiedDoctor {
     },
   };
 }
+
+/**
+ * The WhatsApp message ID that a `wacli send ...` result reports.
+ *
+ * wacli names it `id`; the field has also been seen as `messageId`/`msg_id`
+ * across versions, and some subcommands nest the payload one level down. The
+ * ID is what lets Mission Control jump to a message it sent, so guessing wrong
+ * is not free: a fabricated stand-in points the thread at a row the archive
+ * will never contain, and the operator is told the message is not there.
+ * Returning null when nothing usable came back is the honest answer.
+ */
+export function sentMessageIdFrom(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+
+  const record = result as Record<string, unknown>;
+  const keys = ['id', 'ID', 'messageId', 'messageID', 'MessageID', 'msgId', 'msgID', 'MsgID', 'msg_id'];
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  for (const nested of ['details', 'message', 'data']) {
+    const child = record[nested];
+    if (child && typeof child === 'object') {
+      const found = sentMessageIdFrom(child);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}

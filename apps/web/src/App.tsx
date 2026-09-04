@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner/ReadOnlyBanner.tsx';
 import { WacliStatusBanner } from './components/WacliStatusBanner/WacliStatusBanner.tsx';
 import { ChatList } from './components/ChatList/ChatList.tsx';
@@ -9,10 +9,13 @@ import { SendConfirmModal } from './components/SendConfirmModal/SendConfirmModal
 import { SettingsModal } from './components/SettingsModal/SettingsModal.tsx';
 import { NewChatModal } from './components/NewChatModal/NewChatModal.tsx';
 import { ChatInfoModal } from './components/ChatInfoModal/ChatInfoModal.tsx';
+import { HelpModal } from './components/HelpModal/HelpModal.tsx';
+import { ModeConfirmModal } from './components/ModeConfirmModal/ModeConfirmModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
 import { useWebSocket } from './hooks/useWebSocket.ts';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 
 const DEFAULT_CHAT_LIST_WIDTH = 320;
 const DEFAULT_STATUS_STRIP_WIDTH = 256;
@@ -81,17 +84,11 @@ export const App: React.FC = () => {
     handleStatusStripResize(DEFAULT_STATUS_STRIP_WIDTH);
   };
 
-  // Global shortcut Cmd+K or Ctrl+K to open search
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const toggleSearch = useCallback(() => setIsSearchOpen((prev) => !prev), []);
+
+  // The console's whole keyboard layer, catalogued in lib/shortcuts.ts and
+  // documented by the same list the help modal renders.
+  useKeyboardShortcuts({ isSearchOpen, onToggleSearch: toggleSearch });
 
   return (
     <div className="flex flex-col h-screen w-screen bg-mc-bg text-mc-text font-sans overflow-hidden select-none">
@@ -141,6 +138,8 @@ export const App: React.FC = () => {
       <SettingsModal />
       <NewChatModal />
       <ChatInfoModal />
+      <ModeConfirmModal />
+      <HelpModal />
       {isSearchOpen && <SearchBar onClose={() => setIsSearchOpen(false)} />}
     </div>
   );

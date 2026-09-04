@@ -70,6 +70,22 @@ describe('Store lock contention through the routes', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
   });
 
+  it('caps how long a read receipt may hold the daemon down', async () => {
+    const app = createApp(pm);
+
+    await request(app)
+      .post('/api/chats/mark-read')
+      .send({ chat: '15551234567@s.whatsapp.net' });
+    await settle();
+
+    // The default 30s is a downtime budget here, not a patience setting: the
+    // daemon is dead for the whole of it, so the console receives nothing.
+    expect(execWacliMock).toHaveBeenCalledWith(
+      ['chats', 'mark-read', '--chat', '15551234567@s.whatsapp.net'],
+      expect.objectContaining({ allowMutation: true, timeoutMs: 10_000 })
+    );
+  });
+
   it('still respawns when the exclusive command fails', async () => {
     execWacliMock.mockRejectedValue(new Error('wacli chats mark-read failed'));
     const app = createApp(pm);
@@ -79,7 +95,13 @@ describe('Store lock contention through the routes', () => {
       .send({ chat: '15551234567@s.whatsapp.net' });
     await settle();
 
-    expect(res.status).toBeGreaterThanOrEqual(500);
+    // A receipt that did not land is reported, not raised: the badge is already
+    // cleared in the UI and nothing reads this response. It used to be a 500,
+    // which filed every slow WhatsApp connect as an unhandled server error.
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ marked: false });
+    expect(res.body.data.reason).toContain('mark-read failed');
+
     // A failed command must never leave the store without a daemon.
     expect(spawn).toHaveBeenCalledTimes(1);
     expect(pm.hasPendingExclusiveWork()).toBe(false);

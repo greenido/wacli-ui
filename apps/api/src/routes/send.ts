@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { scheduler } from '../wacli/scheduler.js';
+import { sentMessageIdFrom } from '../wacli/normalize.js';
 import { logger } from '../logger.js';
 
 const upload = multer({
@@ -88,6 +89,10 @@ export function createSendRouter(): Router {
         success: true,
         data: {
           sent: true,
+          // Hoisted out of the raw result so the console can jump to what it
+          // just sent. Buried inside `details` it was never read, and the send
+          // log had no id to point the thread at.
+          messageId: sentMessageIdFrom(result),
           details: result,
         },
         error: null,
@@ -167,6 +172,7 @@ export function createSendRouter(): Router {
           success: true,
           data: {
             sent: true,
+            messageId: sentMessageIdFrom(result),
             details: result,
           },
           error: null,
@@ -231,6 +237,7 @@ export function createSendRouter(): Router {
         success: true,
         data: {
           sent: true,
+          messageId: sentMessageIdFrom(result),
           details: result,
         },
         error: null,

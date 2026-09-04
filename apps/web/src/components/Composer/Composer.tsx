@@ -3,6 +3,7 @@ import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
+import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -30,6 +31,7 @@ export const Composer: React.FC = () => {
   const composerFile = useAppStore((s) => s.composerFiles[chatJid] ?? null);
   const setComposerFile = useAppStore((s) => s.setComposerFile);
   const focusComposerTrigger = useAppStore((s) => s.focusComposerTrigger);
+  const chatFocusIntent = useAppStore((s) => s.chatFocusIntent);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,12 +56,48 @@ export const Composer: React.FC = () => {
 
   const isReadOnly = modeData?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
 
-  // Auto-focus composer when selected chat changes or when trigger is fired
+  // Opening a chat by clicking it means you intend to write, so the caret
+  // follows. Stepping through the rail on the keyboard does not: a composer
+  // that grabbed focus there would swallow the next navigation key.
   useEffect(() => {
-    if (selectedChat && textareaRef.current) {
-      textareaRef.current.focus();
+    if (selectedChat && chatFocusIntent === 'composer') {
+      textareaRef.current?.focus();
     }
-  }, [selectedChat, focusComposerTrigger]);
+  }, [selectedChat, chatFocusIntent]);
+
+  // An explicit ask — the `c` shortcut, or a chat just created from the modal.
+  useEffect(() => {
+    if (focusComposerTrigger > 0) {
+      textareaRef.current?.focus();
+    }
+  }, [focusComposerTrigger]);
+
+  /** Hands the draft to the confirmation step; nothing is sent from here. */
+  const stageForConfirm = (scheduleMode: boolean) => {
+    if (!selectedChat) return;
+    if (!composerDraft.trim() && !composerFile) return;
+
+    setSendConfirmData({
+      toJid: selectedChat.jid,
+      recipientName: selectedChat.name,
+      messageText: composerDraft.trim(),
+      replyToId: replyingTo?.msgId,
+      replyToPreview: replyingTo ? describeReplyTarget(replyingTo) : undefined,
+      fileAttachment: composerFile ?? undefined,
+      scheduleMode,
+    });
+    setActiveModal('send-confirm');
+  };
+
+  useUiCommand('composer:attach', () => {
+    if (!selectedChat || isReadOnly) return;
+    fileInputRef.current?.click();
+  });
+
+  useUiCommand('composer:send-later', () => {
+    if (isReadOnly) return;
+    stageForConfirm(true);
+  });
 
   if (!selectedChat) {
     return null;
@@ -92,44 +130,31 @@ export const Composer: React.FC = () => {
 
   const handleTriggerSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!composerDraft.trim() && !composerFile) {
-      return;
-    }
-
-    setSendConfirmData({
-      toJid: selectedChat.jid,
-      recipientName: selectedChat.name,
-      messageText: composerDraft.trim(),
-      replyToId: replyingTo?.msgId,
-      replyToPreview: replyingTo ? describeReplyTarget(replyingTo) : undefined,
-      fileAttachment: composerFile ?? undefined,
-      scheduleMode: false,
-    });
-    setActiveModal('send-confirm');
+    stageForConfirm(false);
   };
 
   const handleTriggerSendLater = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!composerDraft.trim() && !composerFile) {
-      return;
-    }
-
-    setSendConfirmData({
-      toJid: selectedChat.jid,
-      recipientName: selectedChat.name,
-      messageText: composerDraft.trim(),
-      replyToId: replyingTo?.msgId,
-      replyToPreview: replyingTo ? describeReplyTarget(replyingTo) : undefined,
-      fileAttachment: composerFile ?? undefined,
-      scheduleMode: true,
-    });
-    setActiveModal('send-confirm');
+    stageForConfirm(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      handleTriggerSend(e);
+      stageForConfirm(false);
+      return;
+    }
+
+    // Escape backs out one step at a time: drop the reply target first, and
+    // only then leave the composer so the single-key shortcuts come alive.
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (replyingTo) {
+        setReplyingTo(chatJid, null);
+        return;
+      }
+      textareaRef.current?.blur();
     }
   };
 

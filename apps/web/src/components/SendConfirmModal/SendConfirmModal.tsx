@@ -152,7 +152,9 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
           });
         }
 
-        updateSendLog(logId, { status: 'success' });
+        // The id travels with the log entry so the ACTIVITY rail can focus this
+        // message later, not just reopen the conversation.
+        updateSendLog(logId, { status: 'success', messageId: sentResult?.messageId });
 
         // Optimistic message append in active thread
         const optimisticMsg: UnifiedMessage = {

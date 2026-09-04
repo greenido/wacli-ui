@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatList } from './ChatList.tsx';
@@ -131,5 +131,77 @@ describe('ChatList tag filter', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.queryByText('Bob')).not.toBeInTheDocument();
     expect(screen.queryByText('Carol')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatList keyboard navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getHealth.mockResolvedValue({
+      wacliInstalled: true,
+      wacliWorking: true,
+      processState: 'running',
+      statusSummary: 'ok',
+    });
+    getChats.mockResolvedValue([ALICE, BOB]);
+    getTags.mockResolvedValue({ tags: [], byJid: {} });
+    markChatRead.mockResolvedValue({});
+    useAppStore.setState({
+      selectedChat: null,
+      chatFilter: 'all',
+      tagFilter: null,
+      searchQuery: '',
+      uiCommand: null,
+      chatFocusIntent: 'composer',
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, uiCommand: null });
+  });
+
+  it('walks the rail on chat:next and wraps at the end', async () => {
+    renderList();
+    // The rail opens on the first chat by itself.
+    await screen.findByText('Alice');
+    expect(useAppStore.getState().selectedChat?.jid).toBe(ALICE.jid);
+
+    act(() => useAppStore.getState().runCommand('chat:next'));
+    expect(useAppStore.getState().selectedChat?.jid).toBe(BOB.jid);
+
+    act(() => useAppStore.getState().runCommand('chat:next'));
+    expect(useAppStore.getState().selectedChat?.jid).toBe(ALICE.jid);
+
+    act(() => useAppStore.getState().runCommand('chat:prev'));
+    expect(useAppStore.getState().selectedChat?.jid).toBe(BOB.jid);
+  });
+
+  it('keeps focus out of the composer when the rail is driven by key', async () => {
+    renderList();
+    await screen.findByText('Alice');
+
+    act(() => useAppStore.getState().runCommand('chat:next'));
+
+    // Anything else would let the composer swallow the next navigation key.
+    expect(useAppStore.getState().chatFocusIntent).toBe('rail');
+  });
+
+  it('sends the operator to the composer when a chat is clicked', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(await screen.findByText('Bob'));
+
+    expect(useAppStore.getState().selectedChat?.jid).toBe(BOB.jid);
+    expect(useAppStore.getState().chatFocusIntent).toBe('composer');
+  });
+
+  it('puts the caret in the filter box on chatlist:focus-filter', async () => {
+    renderList();
+    await screen.findByText('Alice');
+
+    act(() => useAppStore.getState().runCommand('chatlist:focus-filter'));
+
+    expect(screen.getByLabelText('Filter chats by name or JID')).toHaveFocus();
   });
 });
