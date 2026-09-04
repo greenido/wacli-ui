@@ -142,3 +142,87 @@ describe('Health doctor probe', () => {
     expect(doctorCalls.length).toBe(1);
   });
 });
+
+describe('Health doctor cache freshness', () => {
+  let installedSpy: ReturnType<typeof vi.spyOn>;
+  let execSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    installedSpy = vi.spyOn(commands, 'checkWacliInstalled').mockResolvedValue({
+      installed: true,
+      version: 'wacli 0.17.1',
+      binPath: 'wacli',
+      error: null,
+    });
+    execSpy = vi.spyOn(commands, 'execWacli');
+  });
+
+  afterEach(() => {
+    installedSpy.mockRestore();
+    execSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('picks up a state change once the cache expires', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    execSpy.mockResolvedValue({ ...lockedDoctor, authenticated: true });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    vi.spyOn(pm, 'getPid').mockReturnValue(4242);
+    vi.spyOn(pm, 'isDaemonConnected').mockReturnValue(true);
+    vi.spyOn(pm, 'getState').mockReturnValue('running');
+    const app = createApp(pm);
+
+    const before = await request(app).get('/api/health');
+    expect(before.body.data.doctor.authenticated).toBe(true);
+
+    // The store logs out while the cached answer still says otherwise.
+    execSpy.mockResolvedValue({ ...lockedDoctor, authenticated: false });
+    const cached = await request(app).get('/api/health');
+    expect(cached.body.data.doctor.authenticated).toBe(true);
+
+    // A cache that never expires would hide this forever.
+    vi.setSystemTime(Date.now() + 11_000);
+    const after = await request(app).get('/api/health');
+    expect(after.body.data.doctor.authenticated).toBe(false);
+    expect(after.body.data.statusSummary).toBe('not_authenticated');
+  });
+
+  it('does not cache a failed probe', async () => {
+    execSpy.mockRejectedValueOnce(new Error('wacli doctor exploded'));
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const app = createApp(pm);
+
+    const failed = await request(app).get('/api/health');
+    expect(failed.body.data.statusSummary).toBe('error');
+    expect(failed.body.data.lastError).toContain('exploded');
+
+    // The next poll must actually retry rather than replay the error.
+    execSpy.mockResolvedValue({ ...lockedDoctor, connection_state: 'connected', connected: true });
+    const recovered = await request(app).get('/api/health');
+    expect(recovered.body.data.statusSummary).toBe('ok');
+    expect(recovered.body.data.doctor.connected).toBe(true);
+  });
+
+  it('leaves a normal doctor result untouched', async () => {
+    execSpy.mockResolvedValue({
+      ...lockedDoctor,
+      connected: true,
+      connection_state: 'connected',
+    });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    vi.spyOn(pm, 'getPid').mockReturnValue(4242);
+    vi.spyOn(pm, 'isDaemonConnected').mockReturnValue(false);
+    vi.spyOn(pm, 'getState').mockReturnValue('running');
+    const app = createApp(pm);
+
+    const res = await request(app).get('/api/health?fresh=1');
+
+    // Reconciliation only rewrites locked_by_other_process; it must never
+    // downgrade a doctor result that already answered cleanly.
+    expect(res.body.data.doctor.connected).toBe(true);
+    expect(res.body.data.doctor.connectionState).toBe('connected');
+  });
+});

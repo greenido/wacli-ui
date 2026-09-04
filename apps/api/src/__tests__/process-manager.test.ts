@@ -214,3 +214,64 @@ describe('WacliProcessManager exclusive-command failures', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('WacliProcessManager respawn cancellation', () => {
+  function makeManager(respawnDebounceMs = 750) {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+    return { pm, spawn };
+  }
+
+  it('does not respawn after a deliberate stop', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+
+      await pm.executeExclusive(async () => 'done');
+      // A respawn is now pending inside the debounce window.
+      await pm.stop();
+      vi.advanceTimersByTime(5000);
+
+      // Stopping must win: a queued respawn firing afterwards would resurrect
+      // a daemon the operator explicitly shut down.
+      expect(spawn).not.toHaveBeenCalled();
+      expect(pm.getState()).toBe('stopped');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not double-spawn when start() lands inside the debounce window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+
+      await pm.executeExclusive(async () => 'done');
+      pm.start();
+      vi.advanceTimersByTime(5000);
+
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips the respawn when a daemon is somehow already running', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+      const internals = pm as unknown as { child: unknown };
+
+      await pm.executeExclusive(async () => 'done');
+      // A restart timer beat the debounce to it.
+      internals.child = {};
+      vi.advanceTimersByTime(5000);
+
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
