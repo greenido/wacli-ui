@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAppStore } from './appStore.ts';
-import type { UnifiedMessage } from '../types.ts';
+import type { UnifiedChat, UnifiedMessage } from '../types.ts';
 
 const ALICE = 'alice@s.whatsapp.net';
 const BOB = 'bob@s.whatsapp.net';
@@ -91,5 +91,51 @@ describe('composer state is scoped to a conversation', () => {
     store.setComposerDraft(ALICE, '');
 
     expect(ALICE in useAppStore.getState().composerDrafts).toBe(false);
+  });
+});
+
+describe('a jump target belongs to one conversation', () => {
+  function chat(jid: string): UnifiedChat {
+    return {
+      jid,
+      name: jid.split('@')[0],
+      kind: 'dm',
+      lastMessageTs: null,
+      lastMessage: null,
+      lastMessageFromMe: false,
+      archived: false,
+      pinned: false,
+      mutedUntil: 0,
+      unread: false,
+      unreadCount: 0,
+    };
+  }
+
+  beforeEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('drops a pending highlight when the operator moves to another chat', () => {
+    const store = useAppStore.getState();
+    store.setSelectedChat(chat(ALICE));
+    store.setHighlightedMessageId('MSG-A1');
+
+    useAppStore.getState().setSelectedChat(chat(BOB));
+
+    // A highlight that outlived its chat made the newly opened thread hunt for
+    // a message that was never in it, and then report the archive as missing it.
+    expect(useAppStore.getState().highlightedMessageId).toBeNull();
+  });
+
+  it('keeps the highlight when the same chat is re-selected', () => {
+    const store = useAppStore.getState();
+    store.setSelectedChat(chat(ALICE));
+    store.setHighlightedMessageId('MSG-A1');
+
+    // The rails hand back a freshly built object for the chat they clicked, so
+    // identity cannot be the test — the JID has to be.
+    useAppStore.getState().setSelectedChat({ ...chat(ALICE), unreadCount: 3 });
+
+    expect(useAppStore.getState().highlightedMessageId).toBe('MSG-A1');
   });
 });

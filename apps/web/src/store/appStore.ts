@@ -1,6 +1,23 @@
 import { create } from 'zustand';
 import { TYPING_TTL_MS } from '../lib/presence.ts';
+import type { UiCommand } from '../lib/shortcuts.ts';
 import type { UnifiedChat, UnifiedMessage, SendLogEntry } from '../types.ts';
+
+export type ActiveModal =
+  | 'send-confirm'
+  | 'settings'
+  | 'new-chat'
+  | 'chat-info'
+  | 'help'
+  | 'mode-confirm';
+
+/**
+ * Where focus belongs once a chat opens. Clicking a conversation means you
+ * intend to write, so the composer takes the caret; stepping through the rail
+ * on the keyboard does not, and a composer that grabbed focus there would
+ * swallow the very next navigation key.
+ */
+export type ChatFocusIntent = 'composer' | 'rail';
 
 const presenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -38,7 +55,15 @@ interface AppState {
   presenceMap: Record<string, { state: 'composing' | 'paused'; sender: string }>;
   sendLogs: SendLogEntry[];
   highlightedMessageId: string | null;
-  activeModal: 'send-confirm' | 'settings' | 'new-chat' | 'chat-info' | null;
+  activeModal: ActiveModal | null;
+  chatFocusIntent: ChatFocusIntent;
+  /**
+   * A one-shot signal to whichever pane owns a shortcut's behaviour: the rail
+   * knows the filtered chat order, the thread knows its loaded messages, and
+   * neither belongs in a key handler at the app root. The sequence number is
+   * what makes it fire, so the same command twice running is still two events.
+   */
+  uiCommand: { name: UiCommand; seq: number } | null;
   composerDrafts: Record<string, string>;
   composerFiles: Record<string, File>;
   focusComposerTrigger: number;
@@ -54,7 +79,7 @@ interface AppState {
     scheduledAt?: string;
   } | null;
 
-  setSelectedChat: (chat: UnifiedChat | null) => void;
+  setSelectedChat: (chat: UnifiedChat | null, focusIntent?: ChatFocusIntent) => void;
   setSearchQuery: (query: string) => void;
   setChatFilter: (filter: 'all' | 'unread' | 'pinned' | 'archived' | 'muted') => void;
   setTagFilter: (tag: string | null) => void;
@@ -64,7 +89,8 @@ interface AppState {
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
   setHighlightedMessageId: (id: string | null) => void;
-  setActiveModal: (modal: 'send-confirm' | 'settings' | 'new-chat' | 'chat-info' | null) => void;
+  setActiveModal: (modal: ActiveModal | null) => void;
+  runCommand: (name: UiCommand) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
   setComposerDraft: (chatJid: string, draft: string) => void;
   setComposerFile: (chatJid: string, file: File | null) => void;
@@ -89,12 +115,23 @@ export const useAppStore = create<AppState>((set) => ({
   sendLogs: [],
   highlightedMessageId: null,
   activeModal: null,
+  chatFocusIntent: 'composer',
+  uiCommand: null,
   composerDrafts: {},
   composerFiles: {},
   focusComposerTrigger: 0,
   sendConfirmData: null,
 
-  setSelectedChat: (chat) => set({ selectedChat: chat }),
+  // Moving to another conversation drops any pending jump target. A highlight
+  // that outlived its chat made the new thread announce that the message was
+  // "not in the local archive" — a message that was never in this chat to
+  // begin with. Callers that jump to a message set the id after the chat.
+  setSelectedChat: (chat, focusIntent = 'composer') =>
+    set((s) =>
+      s.selectedChat?.jid === chat?.jid
+        ? { selectedChat: chat, chatFocusIntent: focusIntent }
+        : { selectedChat: chat, chatFocusIntent: focusIntent, highlightedMessageId: null }
+    ),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setChatFilter: (filter) => set({ chatFilter: filter }),
   setTagFilter: (tag) => set({ tagFilter: tag }),
@@ -156,6 +193,8 @@ export const useAppStore = create<AppState>((set) => ({
     })),
   setHighlightedMessageId: (id) => set({ highlightedMessageId: id }),
   setActiveModal: (modal) => set({ activeModal: modal }),
+  runCommand: (name) =>
+    set((s) => ({ uiCommand: { name, seq: (s.uiCommand?.seq ?? 0) + 1 } })),
   setSendConfirmData: (data) => set({ sendConfirmData: data }),
   setComposerDraft: (chatJid, draft) =>
     set((s) => ({

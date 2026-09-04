@@ -485,3 +485,55 @@ describe('Scheduler resend', () => {
     expect(scheduler.discard(item.id)).toBe(true);
   });
 });
+
+describe('Scheduler records only a real message ID', () => {
+  let tmpSchedFile: string;
+
+  const dueMessage = {
+    to: '15551234567@s.whatsapp.net',
+    message: 'Due now',
+    scheduledAt: new Date(Date.now() - 1000).toISOString(),
+  };
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-sentid-${Date.now()}-${Math.random()}.json`);
+    execWacliMock.mockReset();
+    modeManager.setReadOnly(false);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpSchedFile)) {
+      fs.unlinkSync(tmpSchedFile);
+    }
+  });
+
+  it('keeps the ID wacli reports under its own name for the field', async () => {
+    // wacli calls it `id`; the code only ever looked for `messageId`, so every
+    // real send fell through to the fabricated fallback below.
+    execWacliMock.mockResolvedValue({ sent: true, to: dueMessage.to, id: '3EB0A1B2C3' });
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    scheduler.schedule(dueMessage);
+    await scheduler.checkDueMessages();
+
+    const item = scheduler.getList()[0];
+    expect(item.status).toBe('sent');
+    expect(item.sentMessageId).toBe('3EB0A1B2C3');
+  });
+
+  it('leaves the ID unset rather than inventing one wacli never gave', async () => {
+    execWacliMock.mockResolvedValue({ sent: true, to: dueMessage.to });
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    scheduler.schedule(dueMessage);
+    await scheduler.checkDueMessages();
+
+    const item = scheduler.getList()[0];
+    expect(item.status).toBe('sent');
+    // The old fallback stamped every sent item with `out-<now>`. Clicking the
+    // row in LATER then asked the thread to focus an ID the archive could never
+    // hold, and the operator was told the message was not in the local archive
+    // when it plainly was.
+    expect(item.sentMessageId).toBeUndefined();
+  });
+});

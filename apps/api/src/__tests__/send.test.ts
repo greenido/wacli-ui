@@ -217,3 +217,40 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.body.error).toContain('not in failed state');
   });
 });
+
+describe('Send responses carry the ID the console needs to jump', () => {
+  const pm = new WacliProcessManager({ apiPort: 3002 });
+  const app = createApp(pm);
+
+  beforeEach(() => {
+    modeManager.setReadOnly(false);
+    execWacliMock.mockReset();
+  });
+
+  it('hoists wacli\'s message ID out of the raw result', async () => {
+    execWacliMock.mockResolvedValue({ sent: true, to: '15551234567@s.whatsapp.net', id: '3EB0A1B2C3' });
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', message: 'Hello', confirm: true });
+
+    expect(res.status).toBe(200);
+    // Buried in `details` this was never read, so the ACTIVITY rail had no ID
+    // to focus and could only reopen the conversation.
+    expect(res.body.data.messageId).toBe('3EB0A1B2C3');
+  });
+
+  it('reports no ID rather than a placeholder when wacli gave none', async () => {
+    execWacliMock.mockResolvedValue({ sent: true, to: '15551234567@s.whatsapp.net' });
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', message: 'Hello', confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.sent).toBe(true);
+    expect(res.body.data.messageId).toBeNull();
+  });
+});

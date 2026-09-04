@@ -75,6 +75,11 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - Instant cross-chat message search powered by SQLite FTS5.
 - Displays matching message snippets, timestamp, sender, and target chat with one-click navigation.
 
+### ❓ Built-in Help (`?`)
+- A **Help** panel reachable from the lifebuoy in the status strip header, or by pressing <kbd>?</kbd> anywhere outside a text box.
+- **Using Mission Control**: what the console is, what each pane does, how safe mode and the confirmation step work, where history stops and how to reach past it, which flags are local and which reach WhatsApp, and what to check when something looks wrong.
+- **Keyboard**: the whole shortcut table, rendered from the same catalogue the key handler dispatches from (`apps/web/src/lib/shortcuts.ts`), so a binding cannot drift away from its documentation.
+
 ### ⏱️ Send Later / Scheduled Messages
 - Built-in in-memory scheduler for delayed messaging and replies.
 - Dedicated chat banner displaying pending scheduled messages with one-click cancellation.
@@ -176,12 +181,44 @@ npm run preview
 
 ## Keyboard Shortcuts
 
+Press <kbd>?</kbd> in the app for this table in context. The console can be driven end to end without the mouse.
+
+### Works anywhere
+
+These carry a modifier, so they fire even mid-sentence in the composer. <kbd>Cmd</kbd> on macOS, <kbd>Ctrl</kbd> elsewhere.
+
 | Shortcut | Action |
 | :--- | :--- |
-| <kbd>Cmd</kbd> + <kbd>K</kbd> / <kbd>Ctrl</kbd> + <kbd>K</kbd> | Open / close global message search |
-| <kbd>Enter</kbd> | Send message from composer (when not multi-line) |
-| <kbd>Shift</kbd> + <kbd>Enter</kbd> | Insert newline in composer |
-| <kbd>Esc</kbd> | Close active modal, search palette, or emoji reaction drawer |
+| <kbd>Cmd</kbd> + <kbd>K</kbd> | Open / close global message search |
+| <kbd>Cmd</kbd> + <kbd>↓</kbd> / <kbd>Cmd</kbd> + <kbd>↑</kbd> | Next / previous chat in the rail |
+| <kbd>Cmd</kbd> + <kbd>U</kbd> | Attach a file to this message |
+| <kbd>Enter</kbd> | Send — opens the confirmation step |
+| <kbd>Shift</kbd> + <kbd>Enter</kbd> | New line in the composer |
+| <kbd>Cmd</kbd> + <kbd>Enter</kbd> | Send later — schedule this message |
+| <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | Switch between SAFE (read-only) and LIVE sending — asks first |
+| <kbd>Esc</kbd> | Close a dialog, clear the reply pill, or step out of the composer |
+
+### Single keys — when you are not typing
+
+The composer takes focus whenever you open a chat. <kbd>Esc</kbd> steps out of it and these come alive; <kbd>C</kbd> drops back in.
+
+| Shortcut | Action |
+| :--- | :--- |
+| <kbd>?</kbd> | Open the help panel |
+| <kbd>J</kbd> / <kbd>↓</kbd> | Next chat |
+| <kbd>K</kbd> / <kbd>↑</kbd> | Previous chat |
+| <kbd>1</kbd> … <kbd>5</kbd> | Rail filter: All · Unread · Pinned · Muted · Archived |
+| <kbd>/</kbd> | Jump to the chat filter box |
+| <kbd>C</kbd> | Back into the composer |
+| <kbd>N</kbd> | Start a new chat |
+| <kbd>,</kbd> | Settings & diagnostics |
+| <kbd>R</kbd> | Reply to the newest incoming message |
+| <kbd>I</kbd> | Chat info — contact, alias, and tags |
+| <kbd>E</kbd> | Export this conversation |
+| <kbd>O</kbd> | Load older messages |
+| <kbd>G</kbd> | Jump to the newest message |
+
+Unlocking live sends is the one guardrail a stray chord could drop, so <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> opens a confirmation rather than flipping the switch.
 
 ---
 

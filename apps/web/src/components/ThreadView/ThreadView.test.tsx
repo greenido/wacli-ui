@@ -13,6 +13,7 @@ const bookmarkMessage = vi.hoisted(() => vi.fn());
 const getHistoryCoverage = vi.hoisted(() => vi.fn());
 const backfillHistory = vi.hoisted(() => vi.fn());
 const exportConversation = vi.hoisted(() => vi.fn());
+const sendReact = vi.hoisted(() => vi.fn());
 const getMediaUrl = vi.hoisted(() =>
   vi.fn((_params: { chat?: string; id?: string; path?: string }) => '')
 );
@@ -27,6 +28,7 @@ vi.mock('../../api/client.ts', () => ({
     backfillHistory,
     exportConversation,
     getMediaUrl,
+    sendReact,
   },
   ApiClientError: class extends Error {},
 }));
@@ -405,5 +407,233 @@ describe('ThreadView media across a chat switch', () => {
     expect(getMediaUrl).not.toHaveBeenCalledWith(
       expect.objectContaining({ chat: OTHER_CHAT.jid, id: 'MEDIA-1' })
     );
+  });
+});
+
+describe('ThreadView jump across a chat switch', () => {
+  const BOB: UnifiedChat = { ...CHAT, jid: 'bob@s.whatsapp.net', name: 'Bob' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('does not accuse the archive while the previous chat is still on screen', async () => {
+    let deliverBob: ((page: { messages: UnifiedMessage[]; hasMore: boolean }) => void) | undefined;
+    getMessages.mockImplementation(({ chat }: { chat: string }) =>
+      chat === CHAT.jid
+        ? Promise.resolve({ messages: [message(1)], hasMore: false })
+        : new Promise((resolve) => {
+            deliverBob = resolve;
+          })
+    );
+    renderThread();
+    await screen.findByText('message body 1');
+
+    // Opening a message from another conversation: the selection changes at
+    // once, but `keepPreviousData` keeps Alice's thread rendered until Bob's
+    // arrives. Judging the target against Alice's messages is what produced the
+    // "not in the local archive" notice for a message that was in Bob's.
+    act(() => {
+      useAppStore.getState().setSelectedChat(BOB);
+      useAppStore.getState().setHighlightedMessageId('MSG-7');
+    });
+
+    await waitFor(() =>
+      expect(getMessages).toHaveBeenCalledWith(expect.objectContaining({ chat: BOB.jid }))
+    );
+    expect(screen.queryByText(/not in the local archive/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/older than the history loaded here/i)).not.toBeInTheDocument();
+
+    const bobsMessage = { ...message(7), chatJid: BOB.jid, chatName: 'Bob' };
+    await act(async () => {
+      deliverBob?.({ messages: [bobsMessage], hasMore: false });
+    });
+
+    expect(await screen.findByText('message body 7')).toBeInTheDocument();
+    expect(screen.queryByText(/not in the local archive/i)).not.toBeInTheDocument();
+  });
+
+});
+
+describe('ThreadView keeps the operator where a jump put them', () => {
+  const scrollTopWrites: number[] = [];
+  let originalScrollTop: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    scrollTopWrites.length = 0;
+    originalScrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+    // jsdom lays nothing out, so a scroll-to-bottom is only observable as the
+    // write itself.
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: () => 0,
+      set: (value: number) => {
+        scrollTopWrites.push(value);
+      },
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalScrollTop) {
+      Object.defineProperty(Element.prototype, 'scrollTop', originalScrollTop);
+    }
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('opens a thread at the newest message when nothing was jumped to', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: false });
+    renderThread();
+
+    await screen.findByText('message body 2');
+    await waitFor(() => expect(scrollTopWrites.length).toBeGreaterThan(0));
+  });
+
+  it('does not throw the thread back to the newest message when the highlight fades', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: false });
+    useAppStore.setState({ highlightedMessageId: 'MSG-1' });
+    renderThread();
+
+    await screen.findByText('message body 1');
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    scrollTopWrites.length = 0;
+
+    // The highlight is deliberately short-lived. Clearing it used to fall
+    // through to the scroll-to-newest branch, so the operator was shown the
+    // message they asked for and then yanked away from it seconds later.
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+
+    expect(useAppStore.getState().highlightedMessageId).toBeNull();
+    expect(scrollTopWrites).toEqual([]);
+  });
+});
+
+describe('ThreadView reactions', () => {
+  function reactionRow(over: Partial<UnifiedMessage> = {}): UnifiedMessage {
+    return {
+      ...message(9),
+      msgId: 'RX-1',
+      text: '',
+      displayText: '',
+      fromMe: true,
+      senderJid: '',
+      senderName: 'Me',
+      reactionToId: 'MSG-1',
+      reactionEmoji: '\u{1F44D}',
+      ...over,
+    };
+  }
+
+  /** Opens the drawer on the only message on screen and picks a quick emoji. */
+  async function react(user: ReturnType<typeof userEvent.setup>, emoji: string) {
+    await user.click(await screen.findByTitle('React with emoji'));
+    await user.click(await screen.findByTitle(emoji));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: false });
+    sendReact.mockResolvedValue({ sent: true });
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('shows the emoji on click rather than a wacli round trip later', async () => {
+    const user = userEvent.setup();
+    // Never settles: anything on screen is there because the click put it there.
+    sendReact.mockReturnValue(new Promise(() => {}));
+    renderThread();
+
+    await screen.findByText('message body 1');
+    await react(user, '\u{1F44D}');
+
+    // Sending costs a wacli spawn, the store lock and a post-send wait, and the
+    // row only reaches the thread on the poll after that — up to half a minute
+    // of a click looking like it did nothing.
+    expect(await screen.findByText('\u{1F44D}')).toBeInTheDocument();
+    expect(sendReact).toHaveBeenCalledWith(
+      expect.objectContaining({ to: CHAT.jid, id: 'MSG-1', reaction: '\u{1F44D}', confirm: true })
+    );
+  });
+
+  it('asks for the thread again instead of waiting out the poll', async () => {
+    const user = userEvent.setup();
+    renderThread();
+
+    await screen.findByText('message body 1');
+    getMessages.mockClear();
+    await react(user, '\u{1F44D}');
+
+    await waitFor(() => expect(getMessages).toHaveBeenCalled());
+  });
+
+  it('shows one emoji, not two, once the archive reports the same reaction', async () => {
+    const user = userEvent.setup();
+    renderThread();
+    await screen.findByText('message body 1');
+
+    // The refetch a successful reaction triggers carries wacli's own row, which
+    // has a real message id and cannot be matched to the optimistic one by id.
+    getMessages.mockResolvedValue({ messages: [message(1), reactionRow()], hasMore: false });
+    await react(user, '\u{1F44D}');
+
+    await waitFor(() => expect(getMessages).toHaveBeenCalledTimes(2));
+    expect(await screen.findAllByText('\u{1F44D}')).toHaveLength(1);
+  });
+
+  it('takes the emoji back and says why when the send is refused', async () => {
+    const user = userEvent.setup();
+    sendReact.mockRejectedValue(new Error('Safe read-only mode is active.'));
+    renderThread();
+
+    await screen.findByText('message body 1');
+    await react(user, '\u{1F525}');
+
+    // Showing a reaction before it lands is only honest if a refusal undoes it.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Safe read-only mode is active/i);
+    await waitFor(() => expect(screen.queryByText('\u{1F525}')).not.toBeInTheDocument());
+  });
+
+  it('keeps one reaction per person, newest first', async () => {
+    getMessages.mockResolvedValue({
+      messages: [
+        message(1),
+        reactionRow({ msgId: 'RX-OLD', reactionEmoji: '\u{1F44D}', ts: '2026-09-01T10:00:00Z' }),
+        reactionRow({ msgId: 'RX-NEW', reactionEmoji: '❤️', ts: '2026-09-01T11:00:00Z' }),
+      ],
+      hasMore: false,
+    });
+    renderThread();
+
+    await screen.findByText('message body 1');
+    // Changing a reaction replaces it on WhatsApp; appending every row left the
+    // old emoji sitting next to the new one.
+    expect(await screen.findAllByText('❤️')).toHaveLength(1);
+    expect(screen.queryByText('\u{1F44D}')).not.toBeInTheDocument();
   });
 });

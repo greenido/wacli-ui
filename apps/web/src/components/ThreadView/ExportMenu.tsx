@@ -8,6 +8,7 @@ import {
   formatExportJson,
   formatTranscript,
 } from '../../lib/conversationExport.ts';
+import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import type { ConversationExport } from '../../types.ts';
 
 type ExportFormat = 'transcript' | 'json';
@@ -67,6 +68,11 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({ chatJid, chatName }) => 
     }, NOTICE_TTL_MS);
     return () => clearTimeout(timer);
   }, [error, truncated]);
+
+  useUiCommand('thread:export', () => {
+    setError(null);
+    setIsOpen((prev) => !prev);
+  });
 
   useEffect(() => {
     if (!isOpen) return;

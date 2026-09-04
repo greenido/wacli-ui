@@ -195,3 +195,77 @@ describe('StatusStrip scheduled failures', () => {
     expect(screen.queryByRole('button', { name: /RESEND/i })).not.toBeInTheDocument();
   });
 });
+
+describe('StatusStrip jumps to the message a row stands for', () => {
+  const sentItem: ScheduledMessage = {
+    ...failedItem,
+    id: 'sched-2',
+    status: 'sent',
+    error: undefined,
+    sentMessageId: 'wamid.SENT',
+  };
+
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getScheduled.mockResolvedValue([]);
+    useAppStore.setState({ selectedChat: null, sendLogs: [], highlightedMessageId: null });
+  });
+
+  it('focuses the message an ACTIVITY row logged, not just its conversation', async () => {
+    useAppStore.setState({
+      sendLogs: [
+        {
+          id: 'send-1',
+          timestamp: new Date('2026-09-04T10:00:00Z').toISOString(),
+          to: failedItem.to,
+          chatName: 'Alice',
+          message: 'the wire went out',
+          status: 'success',
+          // The id the send returned. Until it was carried here the row could
+          // only reopen the chat, which read as the click having done nothing.
+          messageId: 'wamid.LOGGED',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByTitle(/focus this message/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(failedItem.to);
+    expect(state.highlightedMessageId).toBe('wamid.LOGGED');
+  });
+
+  it('focuses the message a sent LATER row produced', async () => {
+    getScheduled.mockResolvedValue([sentItem]);
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+    await user.click(await screen.findByTitle(/Click to view conversation/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(sentItem.to);
+    expect(state.highlightedMessageId).toBe('wamid.SENT');
+  });
+
+  it('clears a stale highlight when the row it opens has no message of its own', async () => {
+    // A pending item was never delivered, so there is nothing to focus. Leaving
+    // the previous target set sent the newly opened thread looking for another
+    // chat's message, and it answered that the archive did not have it.
+    getScheduled.mockResolvedValue([
+      { ...failedItem, id: 'sched-3', status: 'pending', error: undefined },
+    ]);
+    useAppStore.setState({ highlightedMessageId: 'wamid.FROM-ANOTHER-CHAT' });
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+    await user.click(await screen.findByTitle(/Click to view conversation/i));
+
+    expect(useAppStore.getState().highlightedMessageId).toBeNull();
+  });
+});

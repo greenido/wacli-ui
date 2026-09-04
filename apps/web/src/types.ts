@@ -171,4 +171,10 @@ export interface SendLogEntry {
   message: string;
   status: 'pending' | 'success' | 'error';
   error?: string;
+  /**
+   * WhatsApp's id for the message this send produced, once the server reports
+   * one. It is what lets an ACTIVITY row focus the message it logged instead of
+   * only opening the conversation.
+   */
+  messageId?: string;
 }

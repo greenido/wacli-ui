@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useCallback } from 'react';
+import React, { useMemo, useEffect, useCallback, useRef } from 'react';
 import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
@@ -6,7 +6,9 @@ import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
+import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import type { ChatFocusIntent } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
 interface ChatListProps {
@@ -27,6 +29,8 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const presenceMap = useAppStore((s) => s.presenceMap);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const queryClient = useQueryClient();
+  const filterInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -81,9 +85,9 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     });
   }, [chats, chatFilter, tagFilter, tagData]);
 
-  const handleSelectChat = useCallback((chat: UnifiedChat) => {
+  const handleSelectChat = useCallback((chat: UnifiedChat, focusIntent: ChatFocusIntent = 'composer') => {
     const chatToSelect = chatWithUnreadCleared(chat);
-    setSelectedChat(chatToSelect);
+    setSelectedChat(chatToSelect, focusIntent);
     if (chat.unread || chat.unreadCount > 0) {
       void markChatAsRead(queryClient, chat.jid);
     }
@@ -102,6 +106,44 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       handleSelectChat(found);
     }
   }, [filteredChats, selectedChat, handleSelectChat]);
+
+  // Keyboard stepping through the rail. The list order lives here, so this is
+  // where the shortcut lands; `rail` keeps focus out of the composer, which
+  // would otherwise swallow the next navigation key.
+  const stepChat = useCallback(
+    (delta: number) => {
+      if (filteredChats.length === 0) return;
+      const current = filteredChats.findIndex((c) => c.jid === selectedChat?.jid);
+      const next =
+        current === -1
+          ? delta > 0
+            ? 0
+            : filteredChats.length - 1
+          : (current + delta + filteredChats.length) % filteredChats.length;
+      handleSelectChat(filteredChats[next], 'rail');
+    },
+    [filteredChats, selectedChat?.jid, handleSelectChat]
+  );
+
+  useUiCommand('chat:next', () => stepChat(1));
+  useUiCommand('chat:prev', () => stepChat(-1));
+  useUiCommand('chatlist:focus-filter', () => {
+    // Focus explicitly: select() alone moves the caret in a browser but not the
+    // focus ring, and does neither under jsdom.
+    filterInputRef.current?.focus();
+    filterInputRef.current?.select();
+  });
+
+  // A selection reached by keyboard can easily be off-screen in a long rail.
+  useEffect(() => {
+    if (!selectedChat) return;
+    const row = listRef.current?.querySelector<HTMLElement>(
+      `[data-chat-jid="${selectedChat.jid}"]`
+    );
+    // Optional call: jsdom has no scrollIntoView, and neither do very old
+    // browsers. Failing to scroll is not worth throwing over.
+    row?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedChat]);
 
   const formatTimestamp = (ts: string | null) => {
     if (!ts) return '';
@@ -141,10 +183,12 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-2.5 text-mc-textMuted" />
           <input
+            ref={filterInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search chats or contacts..."
+            placeholder="Search chats or contacts...  ( / )"
+            aria-label="Filter chats by name or JID"
             className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-1.5 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live font-sans"
           />
         </div>
@@ -192,7 +236,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       </div>
 
       {/* Chat List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-mc-border/40">
+      <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-mc-border/40">
         {isLoading || (isFetching && chats.length === 0 && !readsReady) ? (
           <div className="p-6 text-center text-xs font-mono text-mc-textMuted">
             {readsReady ? 'Loading chats...' : 'Waiting for sync daemon...'}
@@ -238,6 +282,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
             return (
               <button
                 key={chat.jid}
+                data-chat-jid={chat.jid}
                 onClick={() => handleSelectChat(chat)}
                 className={`w-full text-left p-3 flex items-start justify-between gap-2 transition-colors ${
                   isSelected

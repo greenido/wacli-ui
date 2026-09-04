@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { api } from '../../api/client.ts';
 import { POLL_MESSAGES_MS, POLL_SCHEDULED_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
+import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
@@ -31,6 +32,33 @@ interface MessagePage {
   messages: UnifiedMessage[];
   hasMore: boolean;
 }
+
+interface ThreadReaction {
+  emoji: string;
+  fromMe: boolean;
+  sender: string;
+}
+
+/**
+ * WhatsApp allows one reaction per person per message. Our own reactions fold
+ * under a fixed key because an outbound row carries no sender JID.
+ */
+const MY_REACTION_KEY = '@me';
+
+/** A reaction sent from here that the local archive has not caught up with. */
+interface PendingReaction {
+  /** What we sent. */
+  emoji: string;
+  /**
+   * What the archive said our reaction to that message was at the moment we
+   * clicked. The stand-in stops applying as soon as the archive says something
+   * else — which is how it retires itself, with no timer and no bookkeeping.
+   */
+  was: string;
+}
+
+/** Stable empty map, so switching chats does not churn the fold's dependencies. */
+const NO_PENDING_REACTIONS: Record<string, PendingReaction> = {};
 
 /** How many messages the thread opens with, and each "load older" step adds. */
 const MESSAGE_WINDOW_STEP = 200;
@@ -63,9 +91,37 @@ export const ThreadView: React.FC = () => {
   const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
+  const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  // Reactions sent from here, held on screen until the archive catches up, and
+  // keyed by the message reacted to — all one reaction of ours can be. Sending
+  // one costs a wacli spawn, the store lock, the send itself and a post-send
+  // wait, and the row only reaches the thread on the poll after that, which is
+  // why a click used to sit there doing nothing for most of a minute.
+  //
+  // Which chat it was decided for is part of the state, the same way the
+  // history window is: reading it back through the current selection is what
+  // scopes it to one conversation without an effect to keep the two in step.
+  const [reactionState, setReactionState] = useState<{
+    jid: string | null;
+    pending: Record<string, PendingReaction>;
+    error: string | null;
+  }>({ jid: null, pending: NO_PENDING_REACTIONS, error: null });
+
+  const reactionsAreForThisChat = reactionState.jid === (selectedChat?.jid ?? null);
+  const pendingReactions = reactionsAreForThisChat ? reactionState.pending : NO_PENDING_REACTIONS;
+  const reactionError = reactionsAreForThisChat ? reactionState.error : null;
+
+  const dismissReactionError = () =>
+    setReactionState((prev) => (prev.error ? { ...prev, error: null } : prev));
+
+  // A jump we actually performed. Clearing the highlight afterwards must not
+  // fall through to the scroll-to-newest branch: that yanked the operator away
+  // from the message they had just been sent to, seconds after arriving.
+  const jumpedToRef = useRef<string | null>(null);
 
   // How much history is loaded, and which chat that was decided for. Deriving
   // the size from the pair means moving to another conversation starts from the
@@ -100,6 +156,7 @@ export const ThreadView: React.FC = () => {
     data: messagesData,
     isLoading,
     isFetching,
+    isPlaceholderData,
   } = useQuery({
     queryKey: ['messages', selectedChat?.jid, windowSize],
     queryFn: () =>
@@ -176,44 +233,100 @@ export const ThreadView: React.FC = () => {
     },
   });
 
-  // Reaction folding: map reactions onto target messages
-  const { messages, reactionsMap } = useMemo(() => {
+  // Reaction folding: map reactions onto target messages. Folding by reactor
+  // rather than appending is what lets an optimistic reaction sit in the same
+  // slot the archive's own row will occupy, instead of doubling the emoji up
+  // the moment the real one arrives.
+  const { messages, reactionsMap, myArchivedReactions } = useMemo(() => {
     const rawMessages = messagesData?.messages ?? [];
-    const rxMap = new Map<string, Array<{ emoji: string; fromMe: boolean; sender: string }>>();
+    const byTarget = new Map<string, Map<string, ThreadReaction & { at: number }>>();
     const visibleMsgs: UnifiedMessage[] = [];
 
     for (const msg of rawMessages) {
       if (msg.reactionToId) {
-        if (msg.reactionEmoji) {
-          const existing = rxMap.get(msg.reactionToId) || [];
-          existing.push({
-            emoji: msg.reactionEmoji,
+        const reactor = msg.fromMe ? MY_REACTION_KEY : msg.senderJid || msg.senderName || msg.msgId;
+        const parsed = new Date(msg.ts).getTime();
+        const at = Number.isNaN(parsed) ? 0 : parsed;
+        const perTarget = byTarget.get(msg.reactionToId) ?? new Map();
+        const seen = perTarget.get(reactor);
+        // An empty emoji is a reaction being taken back, so it has to be able
+        // to win too — it is only dropped once the newest one per reactor is known.
+        if (!seen || at >= seen.at) {
+          perTarget.set(reactor, {
+            emoji: msg.reactionEmoji ?? '',
             fromMe: msg.fromMe,
             sender: msg.senderName || msg.senderJid,
+            at,
           });
-          rxMap.set(msg.reactionToId, existing);
         }
+        byTarget.set(msg.reactionToId, perTarget);
       } else {
         visibleMsgs.push(msg);
       }
     }
 
+    // What the archive currently believes we reacted with, before our own
+    // unconfirmed clicks are laid over it. That is the comparison that retires
+    // a pending reaction.
+    const mine = new Map<string, string>();
+    for (const [target, perTarget] of byTarget) {
+      mine.set(target, perTarget.get(MY_REACTION_KEY)?.emoji ?? '');
+    }
+
+    for (const [target, pending] of Object.entries(pendingReactions)) {
+      // The archive has moved on: it has either caught up with this reaction or
+      // learned of a newer one from another device. Either way it is now the
+      // better answer, and the stand-in steps aside.
+      if ((mine.get(target) ?? '') !== pending.was) continue;
+      const perTarget = byTarget.get(target) ?? new Map();
+      perTarget.set(MY_REACTION_KEY, {
+        emoji: pending.emoji,
+        fromMe: true,
+        sender: 'Me',
+        at: Number.MAX_SAFE_INTEGER,
+      });
+      byTarget.set(target, perTarget);
+    }
+
+    const rxMap = new Map<string, ThreadReaction[]>();
+    for (const [target, perTarget] of byTarget) {
+      const folded = [...perTarget.values()]
+        .filter((rx) => rx.emoji)
+        .map(({ emoji, fromMe, sender }) => ({ emoji, fromMe, sender }));
+      if (folded.length > 0) {
+        rxMap.set(target, folded);
+      }
+    }
+
     // Sort chronologically ascending for display
     visibleMsgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
-    return { messages: visibleMsgs, reactionsMap: rxMap };
-  }, [messagesData?.messages]);
+    return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
+  }, [messagesData?.messages, pendingReactions]);
 
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
+  // `isPlaceholderData` carries as much weight as `isFetching`: while a chat
+  // switch is in flight the thread on screen is still the previous
+  // conversation's, and measuring the target against it accused the archive of
+  // losing a message it had never been asked to hold.
   const highlightMissed =
     Boolean(highlightedMessageId) &&
     !isFetching &&
+    !isPlaceholderData &&
     messages.length > 0 &&
     !messages.some((m) => m.msgId === highlightedMessageId);
 
   // Auto-scroll to the newest message, unless we are navigating to a specific one.
   useEffect(() => {
     if (!highlightedMessageId) {
+      // The highlight we just honoured has expired. Scrolling to the newest
+      // message here is what made a jump look like it never worked: the
+      // operator landed on the message, then five seconds later the thread
+      // threw them back to the bottom.
+      if (jumpedToRef.current) {
+        jumpedToRef.current = null;
+        return;
+      }
       if (scrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
@@ -222,6 +335,7 @@ export const ThreadView: React.FC = () => {
 
     const el = document.getElementById(`msg-${highlightedMessageId}`);
     if (el) {
+      jumpedToRef.current = highlightedMessageId;
       const raf = requestAnimationFrame(() => {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
@@ -245,19 +359,49 @@ export const ThreadView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [selectedChat?.jid, messages, highlightedMessageId, setHighlightedMessageId]);
 
-  const handleReact = async (msg: UnifiedMessage, emoji: string) => {
-    setActiveReactionMsgId(null);
-    try {
-      await api.sendReact({
+  const reactMutation = useMutation({
+    mutationFn: ({ msg, emoji }: { msg: UnifiedMessage; emoji: string }) =>
+      api.sendReact({
         to: selectedChat!.jid,
         id: msg.msgId,
         reaction: emoji,
         sender: msg.senderJid || undefined,
         confirm: true,
+      }),
+    onError: (err, { msg }) => {
+      // Showing the emoji before the send lands is only honest if a refusal
+      // takes it away again and says why.
+      setReactionState((prev) => {
+        const { [msg.msgId]: _rolledBack, ...rest } = prev.pending;
+        return {
+          ...prev,
+          pending: rest,
+          error: err instanceof Error ? err.message : 'The reaction did not go out.',
+        };
       });
-    } catch {
-      // ignore
-    }
+    },
+    onSuccess: (_data, { msg }) => {
+      // Ask for the archive's own row now rather than waiting out the poll, so
+      // the optimistic emoji is a stand-in for a second or two, not half a minute.
+      void queryClient.invalidateQueries({
+        queryKey: ['messages', msg.chatJid || selectedChat?.jid],
+      });
+    },
+  });
+
+  const handleReact = (msg: UnifiedMessage, emoji: string) => {
+    if (!selectedChat) return;
+    setActiveReactionMsgId(null);
+    setReactionState({
+      jid: selectedChat.jid,
+      // What the archive says right now is the mark this stand-in watches for.
+      pending: {
+        ...pendingReactions,
+        [msg.msgId]: { emoji, was: myArchivedReactions.get(msg.msgId) ?? '' },
+      },
+      error: null,
+    });
+    reactMutation.mutate({ msg, emoji });
   };
 
   const handleCopyText = async (msg: UnifiedMessage) => {
@@ -281,6 +425,30 @@ export const ThreadView: React.FC = () => {
       bookmarked: !msg.bookmarked,
     });
   };
+
+  // Shortcuts that need the loaded thread. The key handler at the app root
+  // publishes a command; the pane holding the messages is what acts on it.
+  useUiCommand('thread:reply-latest', () => {
+    if (!selectedChat || messages.length === 0) return;
+    // The newest message from someone else: quoting your own last line back
+    // into the thread is almost never what "reply" is reaching for.
+    const target =
+      [...messages].reverse().find((m) => !m.fromMe) ?? messages[messages.length - 1];
+    setReplyingTo(selectedChat.jid, target);
+    triggerFocusComposer();
+  });
+
+  useUiCommand('thread:load-older', () => {
+    if (!canLoadOlder || isFetching) return;
+    loadOlderMessages();
+  });
+
+  useUiCommand('thread:jump-newest', () => {
+    setHighlightedMessageId(null);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  });
 
   if (!selectedChat) {
     if (health?.wacliInstalled === false) {
@@ -431,6 +599,22 @@ export const ThreadView: React.FC = () => {
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {/* Older history. wacli keeps the full archive locally; the thread just
             has to ask for more of it. */}
+        {reactionError && (
+          <div
+            role="alert"
+            className="mb-1 p-2 rounded bg-mc-surface border border-mc-danger/40 text-[11px] font-mono text-mc-danger flex items-center gap-2"
+          >
+            <AlertTriangle size={13} className="shrink-0" />
+            <span className="flex-1 break-words">Reaction not sent: {reactionError}</span>
+            <button
+              onClick={dismissReactionError}
+              className="shrink-0 px-1.5 py-0.5 rounded border border-mc-danger/40 hover:bg-mc-surfaceHover transition-colors"
+            >
+              DISMISS
+            </button>
+          </div>
+        )}
+
         {highlightMissed && (
           <div className="mb-1 p-2 rounded bg-mc-surface border border-mc-safe/40 text-[11px] font-mono text-mc-safe flex items-center gap-2">
             <AlertTriangle size={13} className="shrink-0" />
