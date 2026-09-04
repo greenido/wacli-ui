@@ -8,10 +8,26 @@ import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { getPresetTime, getTomorrowMorning } from '../../lib/scheduleTime.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
 
+type SendConfirmRequest = NonNullable<ReturnType<typeof useAppStore.getState>['sendConfirmData']>;
+
+/**
+ * Mounts the dialog only while a dispatch is actually pending confirmation.
+ * The dialog below keeps state the caller decides - scheduling above all - and
+ * a component that is mounted for the life of the app carries that state from
+ * one opening to the next: this is what makes each opening a fresh one.
+ */
 export const SendConfirmModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);
-  const setActiveModal = useAppStore((s) => s.setActiveModal);
   const sendConfirmData = useAppStore((s) => s.sendConfirmData);
+
+  if (activeModal !== 'send-confirm' || !sendConfirmData) return null;
+  return <SendConfirmDialog sendConfirmData={sendConfirmData} />;
+};
+
+const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
+  sendConfirmData,
+}) => {
+  const setActiveModal = useAppStore((s) => s.setActiveModal);
   const setSendConfirmData = useAppStore((s) => s.setSendConfirmData);
   const clearComposer = useAppStore((s) => s.clearComposer);
   const addSendLog = useAppStore((s) => s.addSendLog);
@@ -21,10 +37,10 @@ export const SendConfirmModal: React.FC = () => {
   const [isCommitted, setIsCommitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const isOpen = activeModal === 'send-confirm' && Boolean(sendConfirmData);
-  const dialogRef = useModalDialog<HTMLDivElement>(isOpen, () => setActiveModal(null));
+  const dialogRef = useModalDialog<HTMLDivElement>(true, () => setActiveModal(null));
 
-  const [isScheduled, setIsScheduled] = useState(() => Boolean(sendConfirmData?.scheduleMode));
+  // Only ever read at mount, which is the opening this dialog is for.
+  const [isScheduled, setIsScheduled] = useState(sendConfirmData.scheduleMode ?? false);
   const [scheduleTime, setScheduleTime] = useState(() => getPresetTime(30));
 
   const { data: modeData } = useQuery({
@@ -58,8 +74,6 @@ export const SendConfirmModal: React.FC = () => {
   const scheduleFileMutation = useMutation({
     mutationFn: (formData: FormData) => api.scheduleFile(formData),
   });
-
-  if (activeModal !== 'send-confirm' || !sendConfirmData) return null;
 
   const handleConfirmSend = async () => {
     setErrorMessage(null);

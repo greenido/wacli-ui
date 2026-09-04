@@ -112,6 +112,39 @@ describe('SendConfirmModal keyboard flow', () => {
     await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
   });
 
+  it('opens on the scheduling flow when the composer asks for LATER', async () => {
+    const user = userEvent.setup();
+    renderConsole();
+
+    await user.type(composerBox(), 'later');
+    await user.click(screen.getByRole('button', { name: 'LATER' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('SCHEDULE OUTBOUND DISPATCH');
+    expect(within(dialog).getByLabelText('Dispatch time')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /SCHEDULE DISPATCH/i })).toHaveFocus();
+  });
+
+  it('does not carry a previous opening\'s scheduling into the next send', async () => {
+    const user = userEvent.setup();
+    renderConsole();
+
+    // The dialog is mounted for the life of the app, so state from the LATER
+    // opening is still there when the next, immediate send opens it.
+    await user.type(composerBox(), 'later');
+    await user.click(screen.getByRole('button', { name: 'LATER' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+    composerBox().focus();
+    await user.keyboard('{Enter}');
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('CONFIRM OUTBOUND DISPATCH');
+    expect(within(dialog).queryByLabelText('Dispatch time')).not.toBeInTheDocument();
+  });
+
   it('cancels on Escape and keeps the draft', async () => {
     const user = userEvent.setup();
     renderConsole();
