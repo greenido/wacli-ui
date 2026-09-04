@@ -121,12 +121,24 @@ async function probeWacliInstalled(bin: string): Promise<WacliInstallStatus> {
   }
 }
 
-function classifyCommandError(err: unknown, commandLabel: string): WacliCommandError {
+function classifyCommandError(
+  err: unknown,
+  commandLabel: string,
+  timeoutMs?: number
+): WacliCommandError {
   if (err instanceof WacliCommandError) {
     return err;
   }
-  const execErr = err as { code?: number; message?: string; stdout?: string; stderr?: string };
+  const execErr = err as {
+    code?: number | string;
+    killed?: boolean;
+    signal?: string;
+    message?: string;
+    stdout?: string;
+    stderr?: string;
+  };
   const rawOut = (execErr.stdout || '') + (execErr.stderr || '');
+  const exitCode = typeof execErr.code === 'number' ? execErr.code : undefined;
 
   // `rawOutput` keeps whatever wacli actually printed; the message is compacted
   // because it is what gets logged and classified, and a 250-character media URL
@@ -135,7 +147,7 @@ function classifyCommandError(err: unknown, commandLabel: string): WacliCommandE
     try {
       const parsed = JSON.parse(rawOut.trim()) as RawWacliResponse<unknown>;
       if (parsed.error) {
-        return new WacliCommandError(compactUrls(parsed.error), execErr.code, rawOut, commandLabel);
+        return new WacliCommandError(compactUrls(parsed.error), exitCode, rawOut, commandLabel);
       }
     } catch (pErr) {
       if (pErr instanceof WacliCommandError) {
@@ -144,9 +156,25 @@ function classifyCommandError(err: unknown, commandLabel: string): WacliCommandE
     }
   }
 
+  // execFile kills the child once `timeout` elapses, and the error it raises
+  // then says only `Command failed: <cmd>` — the process was stopped before it
+  // could print a reason, so there is nothing in the output to classify. Naming
+  // it here is the difference between a log line that says what happened and
+  // one that says a command failed, somehow, after thirty seconds.
+  if (execErr.killed || execErr.code === 'ETIMEDOUT') {
+    const budget = timeoutMs ? ` after ${timeoutMs}ms` : '';
+    const signal = execErr.signal ? ` (killed with ${execErr.signal})` : '';
+    return new WacliCommandError(
+      `Command timed out${budget}${signal}: ${commandLabel}`,
+      exitCode,
+      rawOut,
+      commandLabel
+    );
+  }
+
   return new WacliCommandError(
     compactUrls(execErr.message || 'Unknown execution error'),
-    execErr.code,
+    exitCode,
     rawOut,
     commandLabel
   );
@@ -186,6 +214,15 @@ async function execWacliOnce<T>(
   }
 
   const timeout = options.timeoutMs ?? 30000;
+
+  // wacli's own --timeout defaults to five minutes, so our execFile timer always
+  // won and killed it with SIGTERM: no JSON error to report, and a command
+  // stopped mid-flight rather than unwound. A deadline inside ours lets wacli
+  // give up on its own terms, print a reason, and release the store lock.
+  if (!fullArgs.includes('--timeout')) {
+    fullArgs.push('--timeout', `${Math.max(1, Math.round((timeout * 0.8) / 1000))}s`);
+  }
+
   const commandLabel = `${bin} ${args.join(' ')}`;
   const cmd = args.join(' ');
   const startedAt = Date.now();
@@ -236,7 +273,7 @@ async function execWacliOnce<T>(
       );
     }
   } catch (err: unknown) {
-    const cmdErr = classifyCommandError(err, commandLabel);
+    const cmdErr = classifyCommandError(err, commandLabel, timeout);
 
     // Only the caller knows whether a failure is expected — expired media, a
     // chat with no rows — so the severity is theirs to choose. Logging it as an

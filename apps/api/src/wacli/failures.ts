@@ -50,6 +50,9 @@ const TRANSIENT_PATTERNS = [
   /tls handshake timeout/i,
   /i\/o timeout/i,
   /connection (?:reset|refused)/i,
+  // Our own execFile deadline, as classifyCommandError words it. A command we
+  // stopped says nothing about whether it would have worked given longer.
+  /command timed out/i,
   /no such host/i,
   /network is (?:unreachable|down)/i,
   /broken pipe/i,
