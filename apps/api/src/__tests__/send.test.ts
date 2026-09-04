@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
+
+const execWacliMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../wacli/commands.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../wacli/commands.js')>();
+  return { ...actual, execWacli: execWacliMock };
+});
+
 import { createApp } from '../index.js';
+import { POST_SEND_WAIT } from '../wacli/commands.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { modeManager } from '../wacli/mode.js';
 
@@ -10,6 +19,8 @@ describe('Send Endpoints & Guardrails', () => {
 
   beforeEach(() => {
     modeManager.setReadOnly(true);
+    execWacliMock.mockReset();
+    execWacliMock.mockResolvedValue({ id: 'msg-1' });
   });
 
   it('rejects send requests when read-only mode is active (403)', async () => {
@@ -42,6 +53,30 @@ describe('Send Endpoints & Guardrails', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('confirm: true');
+  });
+
+  /**
+   * wacli send holds its connection open for --post-send-wait after the message
+   * is on the wire, and its 2s default was two thirds of the latency of a send
+   * the operator sits watching. Dropping the flag again would put it straight
+   * back without anything failing, so the args are asserted rather than trusted.
+   */
+  it('passes an explicit --post-send-wait so a send does not idle on the default', async () => {
+    modeManager.setReadOnly(false);
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({
+        to: '15551234567@s.whatsapp.net',
+        message: 'Hello',
+        confirm: true,
+      });
+
+    expect(res.status).toBe(200);
+    const args = execWacliMock.mock.calls[0][0] as string[];
+    expect(args).toContain('--post-send-wait');
+    expect(args[args.indexOf('--post-send-wait') + 1]).toBe(POST_SEND_WAIT);
   });
 
   it('rejects file send when no file is uploaded (400)', async () => {

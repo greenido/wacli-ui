@@ -252,7 +252,7 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
     // — otherwise finding the file is its own small investigation.
     logger.info('api', 'Mission Control API listening', {
       url: `http://${host}:${port}`,
-      logFile: logger.getFilePath(),
+      logFile: logger.getFilePath() ?? undefined,
       logLevel: logger.getLevel(),
     });
     if (process.env.WACLI_DISABLE_SYNC !== '1') {

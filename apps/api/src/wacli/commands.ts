@@ -53,6 +53,21 @@ const MISSING_TTL_MS = 5_000;
  */
 const SLOW_COMMAND_MS = 1_000;
 
+/**
+ * `wacli send` holds its connection open for --post-send-wait after the message
+ * is on the wire (default 2s) so a retry receipt can be served. With the sync
+ * daemon up, sends are delegated to it over the store's .send.sock and that
+ * connection stays alive regardless, so the default is dead time on every send:
+ * it was the whole gap between a message acked at 1.8s and a POST /send/text
+ * that only returned at 3.4s.
+ *
+ * Short rather than 0, because the delegate socket is not always there. While
+ * an exclusive command holds the daemon down, or during a reconnect, the CLI
+ * dials its own connection, and hanging up the instant the send lands would
+ * leave an immediate retry receipt unanswered.
+ */
+export const POST_SEND_WAIT = process.env.WACLI_POST_SEND_WAIT ?? '500ms';
+
 let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
 
 export function resetWacliInstallCache(): void {

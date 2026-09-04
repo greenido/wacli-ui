@@ -260,4 +260,4 @@ export type MissionControlEvent =
 2. **Double-Guard on Mutation**: Sending requires both UI confirmation modal and backend `confirm: true` + `X-Mission-Control-Request: 1` header.
 3. **Canonical Recipient Resolution**: Sends are dispatched only to fully qualified JIDs (e.g. `15551234567@s.whatsapp.net` or `...@g.us`), never ambiguous names.
 4. **Isolated Process Space**: Sync process runs with dedicated arguments and loopback-only webhook forwarding.
-5. **Plain-Text Audit Log**: Every outbound send, process state change, and webhook event is written to `apps/api/logs/run-<timestamp>.log`.
+5. **Plain-Text Audit Log**: When started with `LOG=1`, every outbound send, process state change, and webhook event is written to `apps/api/logs/run-<timestamp>.log`. Without that flag, events mirror to the terminal only.

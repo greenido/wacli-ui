@@ -140,14 +140,25 @@ export interface RunLoggerOptions {
   console?: boolean;
   /** ANSI colour. Defaults to "the terminal is a TTY and `$NO_COLOR` is unset". */
   color?: boolean;
+  /**
+   * Write `run-*.log` to disk. Defaults to `$LOG=1`; otherwise console only.
+   * Opt in when diagnosing — run logs can carry chat JIDs and other local data.
+   */
+  file?: boolean;
+}
+
+/** Disk logging is opt-in: start with `LOG=1` (or pass `file: true`). */
+export function isDiskLoggingEnabled(raw: string | undefined = process.env.LOG): boolean {
+  return raw === '1';
 }
 
 export class RunLogger {
-  private logFilePath: string;
+  private logFilePath: string | null = null;
   private logsDir: string;
   private level: LogLevel;
   private consoleEnabled: boolean;
   private useColor: boolean;
+  private fileEnabled: boolean;
 
   /** The line currently repeating, and how many copies have been withheld. */
   private repeat: {
@@ -162,10 +173,13 @@ export class RunLogger {
   constructor(customLogsDir?: string, options: RunLoggerOptions = {}) {
     this.logsDir = customLogsDir ?? path.resolve(__dirname, '../logs');
     this.level = options.level ?? parseLogLevel(process.env.LOG_LEVEL);
+    this.fileEnabled = options.file ?? isDiskLoggingEnabled();
 
     const underTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
     this.consoleEnabled = options.console ?? !underTest;
     this.useColor = options.color ?? (Boolean(process.stdout.isTTY) && !process.env.NO_COLOR);
+
+    if (!this.fileEnabled) return;
 
     if (!fs.existsSync(this.logsDir)) {
       fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o755 });
@@ -200,6 +214,8 @@ export class RunLogger {
    * failure here is not worth refusing to start over, so it stays quiet.
    */
   private pruneExpiredLogs(): void {
+    if (!this.fileEnabled) return;
+
     const cutoff = Date.now() - LOG_RETENTION_DAYS * DAY_MS;
     let removed = 0;
 
@@ -233,7 +249,8 @@ export class RunLogger {
     }
   }
 
-  public getFilePath(): string {
+  /** Absolute path of this run's log file, or null when disk logging is off. */
+  public getFilePath(): string | null {
     return this.logFilePath;
   }
 
@@ -305,6 +322,8 @@ export class RunLogger {
   }
 
   private appendToFile(text: string): void {
+    if (!this.fileEnabled || !this.logFilePath) return;
+
     try {
       if (!fs.existsSync(this.logsDir)) {
         fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o755 });

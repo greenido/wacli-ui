@@ -3,7 +3,7 @@ import multer from 'multer';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { execWacli } from '../wacli/commands.js';
+import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { scheduler } from '../wacli/scheduler.js';
 import { logger } from '../logger.js';
@@ -72,7 +72,7 @@ export function createSendRouter(): Router {
         return;
       }
 
-      const args = ['send', 'text', '--to', to, '--message', message];
+      const args = ['send', 'text', '--to', to, '--message', message, '--post-send-wait', POST_SEND_WAIT];
       if (replyTo) {
         args.push('--reply-to', replyTo);
       }
@@ -148,7 +148,7 @@ export function createSendRouter(): Router {
       }
 
       try {
-        const args = ['send', 'file', '--to', to, '--file', file.path, '--filename', file.originalname];
+        const args = ['send', 'file', '--to', to, '--file', file.path, '--filename', file.originalname, '--post-send-wait', POST_SEND_WAIT];
         if (caption) {
           args.push('--caption', caption);
         }
@@ -215,7 +215,7 @@ export function createSendRouter(): Router {
         return;
       }
 
-      const args = ['send', 'react', '--to', to, '--id', id, '--reaction', reaction ?? '👍'];
+      const args = ['send', 'react', '--to', to, '--id', id, '--reaction', reaction ?? '👍', '--post-send-wait', POST_SEND_WAIT];
       if (sender) {
         args.push('--sender', sender);
       }

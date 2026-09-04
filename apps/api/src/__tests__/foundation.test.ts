@@ -10,7 +10,7 @@ import {
   normalizeWebhookMessage,
 } from '../wacli/normalize.js';
 import { ModeManager } from '../wacli/mode.js';
-import { LOG_RETENTION_DAYS, parseLogLevel, RunLogger } from '../logger.js';
+import { isDiskLoggingEnabled, LOG_RETENTION_DAYS, parseLogLevel, RunLogger } from '../logger.js';
 import type { RawChat, RawMessage, UnifiedMessage } from '../types.js';
 
 describe('Normalize utilities', () => {
@@ -168,13 +168,17 @@ describe('ModeManager', () => {
 
 describe('RunLogger', () => {
   let tmpLogsDir: string;
+  const previousLog = process.env.LOG;
 
   beforeEach(() => {
     tmpLogsDir = path.join(os.tmpdir(), `wacli-test-logs-${Date.now()}`);
+    delete process.env.LOG;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    if (previousLog === undefined) delete process.env.LOG;
+    else process.env.LOG = previousLog;
     if (fs.existsSync(tmpLogsDir)) {
       fs.rmSync(tmpLogsDir, { recursive: true, force: true });
     }
@@ -188,8 +192,27 @@ describe('RunLogger', () => {
     return path.join(tmpLogsDir, name);
   };
 
+  it('does not write a run log to disk unless LOG=1 or file logging is enabled', () => {
+    const defaultDir = path.join(tmpLogsDir, 'default');
+    const logger = new RunLogger(defaultDir, { console: false });
+    logger.info('process', 'console only');
+
+    expect(logger.getFilePath()).toBeNull();
+    expect(fs.existsSync(defaultDir)).toBe(false);
+  });
+
+  it('writes a run log to disk when LOG=1', () => {
+    process.env.LOG = '1';
+    const logger = new RunLogger(tmpLogsDir, { console: false });
+    logger.info('process', 'disk enabled');
+
+    const filePath = logger.getFilePath();
+    expect(filePath).not.toBeNull();
+    expect(fs.readFileSync(filePath!, 'utf8')).toContain('[INFO] [process] disk enabled');
+  });
+
   it('creates log file and writes structured lines', async () => {
-    const logger = new RunLogger(tmpLogsDir);
+    const logger = new RunLogger(tmpLogsDir, { file: true });
     logger.info('process', 'Process started');
     logger.warn('api', 'Rate limit near');
     logger.error('send', 'Send failed');
@@ -211,7 +234,7 @@ describe('RunLogger', () => {
     const stale = seed(runLogName('2026-06-11T12:00:00.000Z')); // 4 days old
     const fresh = seed(runLogName('2026-06-13T12:00:00.000Z')); // 2 days old
 
-    new RunLogger(tmpLogsDir);
+    new RunLogger(tmpLogsDir, { file: true });
 
     expect(fs.existsSync(stale)).toBe(false);
     expect(fs.existsSync(fresh)).toBe(true);
@@ -223,7 +246,7 @@ describe('RunLogger', () => {
 
     const boundary = seed(runLogName('2026-06-12T12:00:00.000Z')); // exactly 3 days
 
-    new RunLogger(tmpLogsDir);
+    new RunLogger(tmpLogsDir, { file: true });
 
     expect(fs.existsSync(boundary)).toBe(true);
   });
@@ -242,7 +265,7 @@ describe('RunLogger', () => {
       seed('run-2020-01-01T00-00-00-000Z.log.bak'),
     ];
 
-    new RunLogger(tmpLogsDir);
+    new RunLogger(tmpLogsDir, { file: true });
 
     for (const file of bystanders) {
       expect(fs.existsSync(file)).toBe(true);
@@ -252,16 +275,16 @@ describe('RunLogger', () => {
   it('never deletes the log the current run is writing to', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
-    const first = new RunLogger(tmpLogsDir);
+    const first = new RunLogger(tmpLogsDir, { file: true });
 
     // A later run, far enough ahead that the earlier log has expired.
     vi.setSystemTime(new Date('2026-06-24T12:00:00.000Z'));
-    const second = new RunLogger(tmpLogsDir);
+    const second = new RunLogger(tmpLogsDir, { file: true });
     second.info('process', 'still running');
 
-    expect(fs.existsSync(first.getFilePath())).toBe(false);
-    expect(fs.existsSync(second.getFilePath())).toBe(true);
-    expect(fs.readFileSync(second.getFilePath(), 'utf8')).toContain('still running');
+    expect(fs.existsSync(first.getFilePath()!)).toBe(false);
+    expect(fs.existsSync(second.getFilePath()!)).toBe(true);
+    expect(fs.readFileSync(second.getFilePath()!, 'utf8')).toContain('still running');
   });
 
   it('records the prune in the new run log', () => {
@@ -271,9 +294,9 @@ describe('RunLogger', () => {
     seed(runLogName('2026-06-01T09:00:00.000Z'));
     seed(runLogName('2026-06-02T09:00:00.000Z'));
 
-    const logger = new RunLogger(tmpLogsDir);
+    const logger = new RunLogger(tmpLogsDir, { file: true });
 
-    expect(fs.readFileSync(logger.getFilePath(), 'utf8')).toContain(
+    expect(fs.readFileSync(logger.getFilePath()!, 'utf8')).toContain(
       `Pruned 2 run logs older than ${LOG_RETENTION_DAYS} days`
     );
   });
@@ -284,12 +307,22 @@ describe('RunLogger', () => {
     });
 
     try {
-      const logger = new RunLogger(tmpLogsDir);
+      const logger = new RunLogger(tmpLogsDir, { file: true });
       logger.info('process', 'started anyway');
-      expect(fs.readFileSync(logger.getFilePath(), 'utf8')).toContain('started anyway');
+      expect(fs.readFileSync(logger.getFilePath()!, 'utf8')).toContain('started anyway');
     } finally {
       readdir.mockRestore();
     }
+  });
+
+  it('skips retention pruning when disk logging is off', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
+
+    const stale = seed(runLogName('2026-06-01T12:00:00.000Z'));
+    new RunLogger(tmpLogsDir, { file: false, console: false });
+
+    expect(fs.existsSync(stale)).toBe(true);
   });
 });
 
@@ -308,9 +341,9 @@ describe('RunLogger structured output', () => {
 
   /** Console output is noise under test; every case here reads the file. */
   const make = (level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR') =>
-    new RunLogger(tmpLogsDir, { console: false, color: false, level });
+    new RunLogger(tmpLogsDir, { console: false, color: false, level, file: true });
 
-  const read = (logger: RunLogger) => fs.readFileSync(logger.getFilePath(), 'utf8');
+  const read = (logger: RunLogger) => fs.readFileSync(logger.getFilePath()!, 'utf8');
 
   it('renders fields as key=value alongside the message', () => {
     const logger = make();
@@ -419,6 +452,15 @@ describe('parseLogLevel', () => {
   it('falls back rather than silencing the log on a typo', () => {
     expect(parseLogLevel('verbose')).toBe('INFO');
     expect(parseLogLevel(undefined)).toBe('INFO');
+  });
+});
+
+describe('isDiskLoggingEnabled', () => {
+  it('is off unless LOG is exactly 1', () => {
+    expect(isDiskLoggingEnabled(undefined)).toBe(false);
+    expect(isDiskLoggingEnabled('0')).toBe(false);
+    expect(isDiskLoggingEnabled('true')).toBe(false);
+    expect(isDiskLoggingEnabled('1')).toBe(true);
   });
 });
 

@@ -202,6 +202,7 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 | `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | Where local message bookmarks persist |
 | `WACLI_TAGS_FILE`| `~/.wacli-mission-control/tags.json` | Where local chat tags persist |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | Set to `1` to log full inbound webhook payloads. Off by default so message bodies and contact details stay out of log files |
+| `LOG` | `0` | Set to `1` to write `apps/api/logs/run-<timestamp>.log`. Off by default — events still mirror to the terminal |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR`. `DEBUG` adds per-command timings, subprocess failures and wacli's own stderr |
 | `NO_COLOR` | unset | Set to any value to disable ANSI colour in terminal log output |
 | `VITE_API_URL` | `http://127.0.0.1:3002` | API base URL configured in `apps/web` |
@@ -269,13 +270,13 @@ Supported event types: `message.created`, `receipt.updated`, `presence.updated`,
 - **CORS Restricted**: Browser cross-origin requests are limited strictly to loopback origins.
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.
-- **Run Logs Expire**: Each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone.
+- **Run Logs Expire**: When `LOG=1`, each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone. Without `LOG=1`, nothing is written to disk.
 
 ---
 
 ## Reading the Logs
 
-Every run writes `apps/api/logs/run-<timestamp>.log` and mirrors the same events to the terminal. Each line is one event, in a fixed shape:
+Events always mirror to the terminal. Disk files are opt-in: start with `LOG=1` to also write `apps/api/logs/run-<timestamp>.log`. Each line is one event, in a fixed shape:
 
 ```
 [2026-09-04T20:20:25.976Z] [INFO] [http] GET /chats status=200 durationMs=155 query="limit=100&archived=false"

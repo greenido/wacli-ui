@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execWacli } from './commands.js';
+import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
 import type { EventBridge } from '../ws/event-bridge.js';
@@ -364,7 +364,7 @@ export class Scheduler {
       let result: Record<string, unknown>;
 
       if (item.filePath && fs.existsSync(item.filePath)) {
-        const args = ['send', 'file', '--to', item.to, '--file', item.filePath];
+        const args = ['send', 'file', '--to', item.to, '--file', item.filePath, '--post-send-wait', POST_SEND_WAIT];
         if (item.fileName) {
           args.push('--filename', item.fileName);
         }
@@ -387,7 +387,7 @@ export class Scheduler {
           // ignore
         }
       } else {
-        const args = ['send', 'text', '--to', item.to, '--message', item.message];
+        const args = ['send', 'text', '--to', item.to, '--message', item.message, '--post-send-wait', POST_SEND_WAIT];
         if (item.replyTo) {
           args.push('--reply-to', item.replyTo);
         }

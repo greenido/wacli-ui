@@ -333,7 +333,9 @@ export const SettingsModal: React.FC = () => {
                 <span className="text-mc-textMuted flex items-center gap-1 shrink-0">
                   <FileText size={12} /> Current Log:
                 </span>
-                <span className="text-mc-text break-all text-right">{settings?.currentLogFile || 'apps/api/logs/'}</span>
+                <span className="text-mc-text break-all text-right">
+                  {settings?.currentLogFile || 'console only (set LOG=1 to write a run log)'}
+                </span>
               </div>
             </div>
           </div>

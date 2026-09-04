@@ -39,7 +39,7 @@ export function createSettingsRouter(eventBridge?: EventBridge): Router {
       success: true,
       data: {
         ...settings,
-        currentLogFile: logger.getFilePath(),
+        currentLogFile: logger.getFilePath() ?? undefined,
       },
       error: null,
     });
