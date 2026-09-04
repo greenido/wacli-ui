@@ -1,20 +1,33 @@
 import { logger } from '../logger.js';
 import { isStoreLockMessage } from './store-lock.js';
+import { isTransientFailure } from './failures.js';
 
 export const DEFAULT_MEDIA_CONCURRENCY = 3;
 export const DEFAULT_FAILURE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * A network failure is remembered only long enough to stop one broken thread
+ * from stampeding wacli. Long enough to absorb a burst, short enough that a
+ * blip against mmg.whatsapp.net does not leave an attachment broken on screen
+ * for the full five minutes an expired one earns.
+ */
+export const DEFAULT_TRANSIENT_FAILURE_TTL_MS = 30 * 1000;
 
 export interface MediaDownloadCoordinatorOptions {
   /** Simultaneous `wacli media download` processes allowed. */
   concurrency?: number;
   /** How long a failed download is remembered before it is attempted again. */
   failureTtlMs?: number;
+  /** The same, for failures that describe the moment rather than the media. */
+  transientFailureTtlMs?: number;
   now?: () => number;
 }
 
 interface CachedFailure {
   at: number;
   message: string;
+  /** Chosen when the failure was recorded, from what the failure turned out to be. */
+  ttlMs: number;
 }
 
 /**
@@ -31,12 +44,18 @@ interface CachedFailure {
  *    missing from the store never succeed, and without it every scroll past
  *    them spawns the same doomed command again.
  *
- * Store-lock failures are deliberately never cached: those are transient by
- * definition and the caller's own retry should get through.
+ * How long a failure is remembered depends on what it says. A store lock is not
+ * remembered at all: it clears the moment the other command exits, and the
+ * caller's own retry is what gets through. A network failure — a timeout or a
+ * 5xx against mmg.whatsapp.net — says nothing about the media, so it is held
+ * only briefly; remembering those for the full TTL is what left three
+ * downloadable attachments showing as broken for five minutes after a blip.
+ * Everything else is treated as a property of the media and held in full.
  */
 export class MediaDownloadCoordinator {
   private concurrency: number;
   private failureTtlMs: number;
+  private transientFailureTtlMs: number;
   private now: () => number;
 
   private active = 0;
@@ -47,6 +66,8 @@ export class MediaDownloadCoordinator {
   constructor(options: MediaDownloadCoordinatorOptions = {}) {
     this.concurrency = options.concurrency ?? DEFAULT_MEDIA_CONCURRENCY;
     this.failureTtlMs = options.failureTtlMs ?? DEFAULT_FAILURE_TTL_MS;
+    this.transientFailureTtlMs =
+      options.transientFailureTtlMs ?? DEFAULT_TRANSIENT_FAILURE_TTL_MS;
     this.now = options.now ?? (() => Date.now());
   }
 
@@ -90,8 +111,9 @@ export class MediaDownloadCoordinator {
         },
         (err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
-          if (!isStoreLockMessage(message)) {
-            this.failures.set(key, { at: this.now(), message });
+          const ttlMs = this.failureTtlFor(message);
+          if (ttlMs > 0) {
+            this.failures.set(key, { at: this.now(), message, ttlMs });
           }
           throw err;
         }
@@ -117,11 +139,18 @@ export class MediaDownloadCoordinator {
     };
   }
 
+  /** 0 means "do not remember this one at all". */
+  private failureTtlFor(message: string): number {
+    if (isStoreLockMessage(message)) return 0;
+    if (isTransientFailure(message)) return this.transientFailureTtlMs;
+    return this.failureTtlMs;
+  }
+
   private getCachedFailure(key: string): CachedFailure | null {
     const cached = this.failures.get(key);
     if (!cached) return null;
 
-    if (this.now() - cached.at >= this.failureTtlMs) {
+    if (this.now() - cached.at >= cached.ttlMs) {
       this.failures.delete(key);
       return null;
     }

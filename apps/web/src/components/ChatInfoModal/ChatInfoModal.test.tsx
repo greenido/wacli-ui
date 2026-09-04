@@ -181,4 +181,101 @@ describe('ChatInfoModal', () => {
 
     expect(await screen.findByText(/store is locked by another process/i)).toBeInTheDocument();
   });
+
+  describe('tag autocomplete', () => {
+    const VOCAB = { tags: ['follow-up', 'work', 'work-travel'], byJid: {} };
+
+    beforeEach(() => {
+      getTags.mockResolvedValue(VOCAB);
+    });
+
+    it('offers the whole vocabulary the moment the box is focused', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await user.click(await screen.findByLabelText('Add tag'));
+
+      await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(3));
+      expect(screen.getByRole('option', { name: 'work-travel' })).toBeInTheDocument();
+    });
+
+    it('narrows to matching tags and adds the one that is clicked', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await user.type(await screen.findByLabelText('Add tag'), 'work');
+
+      await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+      await user.click(screen.getByRole('option', { name: 'work-travel' }));
+
+      await waitFor(() =>
+        expect(setChatTag).toHaveBeenCalledWith({ jid: DM.jid, tag: 'work-travel', add: true })
+      );
+    });
+
+    it('commits the arrowed-to suggestion on Enter', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await user.type(await screen.findByLabelText('Add tag'), 'wor');
+      await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+
+      await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+      await waitFor(() =>
+        expect(setChatTag).toHaveBeenCalledWith({ jid: DM.jid, tag: 'work-travel', add: true })
+      );
+    });
+
+    it('still commits what was typed when no suggestion was picked', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await user.type(await screen.findByLabelText('Add tag'), 'regatta{Enter}');
+
+      await waitFor(() =>
+        expect(setChatTag).toHaveBeenCalledWith({ jid: DM.jid, tag: 'regatta', add: true })
+      );
+    });
+
+    it('warns about a near-duplicate no substring match would catch, and offers the real tag', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      // Neither string contains the other, so only the near-miss check sees it.
+      await user.type(await screen.findByLabelText('Add tag'), 'followup');
+
+      expect(await screen.findByText(/second spelling/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'follow-up' }));
+
+      await waitFor(() =>
+        expect(setChatTag).toHaveBeenCalledWith({ jid: DM.jid, tag: 'follow-up', add: true })
+      );
+    });
+
+    it('refuses to re-add a tag the chat already carries', async () => {
+      const user = userEvent.setup();
+      getContact.mockResolvedValue({
+        jid: DM.jid, phone: '15551234567', name: 'Alice', alias: '',
+        systemName: '', updatedAt: null, tags: ['work'], known: true,
+      });
+      renderModal();
+
+      await user.type(await screen.findByLabelText('Add tag'), 'work{Enter}');
+
+      expect(await screen.findByText(/already has/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /ADD/i })).toBeDisabled();
+      expect(screen.queryByRole('option', { name: 'work' })).not.toBeInTheDocument();
+      expect(setChatTag).not.toHaveBeenCalled();
+    });
+
+    it('shows the folded tag, so a typed spelling is not mistaken for the stored one', async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await user.type(await screen.findByLabelText('Add tag'), 'Follow Up');
+
+      expect(await screen.findByText(/Saved as/i)).toBeInTheDocument();
+    });
+  });
 });

@@ -560,7 +560,13 @@ export const ThreadView: React.FC = () => {
                 >
                   {/* Media Content (Image/Audio/Video/Document) */}
                   {msg.mediaType && (
-                    <MediaViewer msg={msg} chatJid={selectedChat.jid} />
+                    // The message's own chat, not the selected one. While a
+                    // chat switch is in flight `keepPreviousData` keeps the
+                    // previous thread on screen, and pairing those messages
+                    // with the newly selected JID asked wacli to download
+                    // media for a chat the message is not in — a guaranteed
+                    // 404, and a doomed subprocess for every attachment.
+                    <MediaViewer msg={msg} chatJid={msg.chatJid || selectedChat.jid} />
                   )}
 
                   {/* Body Text — selectable so operators can copy codes, addresses, numbers */}

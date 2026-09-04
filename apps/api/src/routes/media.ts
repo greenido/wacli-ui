@@ -7,6 +7,7 @@ import { modeManager } from '../wacli/mode.js';
 import { logger } from '../logger.js';
 import { mediaDownloads } from '../wacli/media-downloads.js';
 import { isStoreLockMessage } from '../wacli/store-lock.js';
+import { isTransientFailure, parseHttpStatus } from '../wacli/failures.js';
 
 /**
  * Why a download failed, in the operator's terms.
@@ -16,13 +17,21 @@ import { isStoreLockMessage } from '../wacli/store-lock.js';
  * scrolling back, not incidents — reporting them at ERROR is what turned an
  * ordinary scroll into pages of red. The message stays constant so a thread
  * full of expired attachments collapses into one line and a count.
+ *
+ * A timeout against WhatsApp's media host is not routine, so it stays at WARN —
+ * but it gets a name of its own rather than falling through to `unknown`, which
+ * is where every one of them used to land once the truncated URL had eaten the
+ * cause. Note that the status is read from prose only: matching a bare `403`
+ * against the whole message meant a media URL whose random path happened to
+ * contain those digits was reported as expired.
  */
-function describeDownloadFailure(err: unknown): { reason: string; expected: boolean } {
+export function describeDownloadFailure(err: unknown): { reason: string; expected: boolean } {
   const message = err instanceof Error ? err.message : String(err);
 
-  if (message.includes('403')) return { reason: 'expired-on-whatsapp', expected: true };
-  if (message.includes('no rows in result set')) return { reason: 'not-in-local-store', expected: true };
   if (isStoreLockMessage(message)) return { reason: 'store-locked', expected: true };
+  if (parseHttpStatus(message) === 403) return { reason: 'expired-on-whatsapp', expected: true };
+  if (message.includes('no rows in result set')) return { reason: 'not-in-local-store', expected: true };
+  if (isTransientFailure(message)) return { reason: 'whatsapp-unreachable', expected: false };
 
   return { reason: 'unknown', expected: false };
 }

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, Tag, Pencil, Loader2, Check, Users, User } from 'lucide-react';
+import { X, Tag, Pencil, Loader2, Check, Users, User, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { normalizeTag, suggestTags, findSimilarTag } from '../../lib/tagSuggest.ts';
 import type { UnifiedGroup } from '../../types.ts';
 
 function formatDate(ts: string | null): string {
@@ -30,6 +31,10 @@ export const ChatInfoModal: React.FC = () => {
 
   const [aliasDraft, setAliasDraft] = useState<string | null>(null);
   const [tagDraft, setTagDraft] = useState('');
+  // -1 means nothing is picked from the list, so Enter always commits exactly
+  // what was typed. A suggestion is opt-in, via the arrow keys or a click.
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [isListOpen, setIsListOpen] = useState(false);
 
   const jid = selectedChat?.jid ?? '';
   const isGroup = jid.endsWith('@g.us');
@@ -63,6 +68,16 @@ export const ChatInfoModal: React.FC = () => {
   // Groups have no contact record, so their labels come from the tag map.
   const tags = isGroup ? (tagData?.byJid[jid] ?? []) : (contact?.tags ?? []);
 
+  // Every tag the operator has ever used, so the box can steer them back to
+  // one instead of letting a second spelling of it into the vocabulary.
+  const allTags = tagData?.tags ?? [];
+  const suggestions = suggestTags(tagDraft, allTags, tags);
+  const normalizedDraft = normalizeTag(tagDraft);
+  const isDuplicate = tags.includes(normalizedDraft);
+  const nearMiss = findSimilarTag(tagDraft, allTags);
+  // A near-miss the list is already offering needs no second warning.
+  const similarTag = nearMiss && !suggestions.includes(nearMiss) ? nearMiss : null;
+
   const aliasMutation = useMutation({
     mutationFn: (alias: string) => api.setContactAlias({ jid, alias }),
     onSuccess: () => {
@@ -77,10 +92,20 @@ export const ChatInfoModal: React.FC = () => {
       api.setChatTag({ jid, tag: params.tag, add: params.add }),
     onSuccess: () => {
       setTagDraft('');
+      setActiveSuggestion(-1);
+      setIsListOpen(false);
       queryClient.invalidateQueries({ queryKey: ['tags'] });
       queryClient.invalidateQueries({ queryKey: ['contact', jid] });
     },
   });
+
+  // Every path that commits a tag folds it first, so a chip can never appear in
+  // a spelling the store would not keep.
+  const submitTag = (raw: string) => {
+    const tag = normalizeTag(raw);
+    if (!tag || tags.includes(tag)) return;
+    tagMutation.mutate({ tag, add: true });
+  };
 
   if (!isOpen || !selectedChat) return null;
 
@@ -208,28 +233,118 @@ export const ChatInfoModal: React.FC = () => {
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                aria-label="Add tag"
-                value={tagDraft}
-                placeholder="work, family, follow-up..."
-                onChange={(e) => setTagDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && tagDraft.trim()) {
-                    tagMutation.mutate({ tag: tagDraft.trim(), add: true });
+              <div className="relative flex-1">
+                {/*
+                  The list opens upward: the tag row is the last thing in a
+                  scrolling body, which would clip a popup hanging below it.
+                */}
+                {isListOpen && suggestions.length > 0 && (
+                  <ul
+                    id="tag-suggestion-list"
+                    role="listbox"
+                    aria-label="Existing tags"
+                    className="absolute bottom-full inset-x-0 mb-1 z-10 bg-mc-surface border border-mc-border rounded shadow-xl overflow-hidden"
+                  >
+                    {suggestions.map((tag, i) => (
+                      <li
+                        key={tag}
+                        id={`tag-suggestion-${i}`}
+                        role="option"
+                        aria-selected={i === activeSuggestion}
+                        // A plain click would blur the box and unmount this list
+                        // before it landed, so the pick happens on press.
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          submitTag(tag);
+                        }}
+                        onMouseEnter={() => setActiveSuggestion(i)}
+                        className={`px-2 py-1 text-xs cursor-pointer ${
+                          i === activeSuggestion ? 'bg-mc-live/15 text-mc-live' : 'text-mc-text'
+                        }`}
+                      >
+                        {tag}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <input
+                  type="text"
+                  aria-label="Add tag"
+                  role="combobox"
+                  autoComplete="off"
+                  aria-autocomplete="list"
+                  aria-expanded={isListOpen && suggestions.length > 0}
+                  aria-controls={isListOpen && suggestions.length > 0 ? 'tag-suggestion-list' : undefined}
+                  aria-activedescendant={
+                    activeSuggestion >= 0 ? `tag-suggestion-${activeSuggestion}` : undefined
                   }
-                }}
-                className="flex-1 bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live"
-              />
+                  value={tagDraft}
+                  placeholder="work, family, follow-up..."
+                  onChange={(e) => {
+                    setTagDraft(e.target.value);
+                    setActiveSuggestion(-1);
+                    setIsListOpen(true);
+                  }}
+                  onFocus={() => setIsListOpen(true)}
+                  onBlur={() => {
+                    setIsListOpen(false);
+                    setActiveSuggestion(-1);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                      // Escape belongs to the dialog, which closes on it, so the
+                      // arrows are the only keys this list claims.
+                      e.preventDefault();
+                      if (suggestions.length === 0) return;
+                      setIsListOpen(true);
+                      setActiveSuggestion((i) =>
+                        e.key === 'ArrowDown'
+                          ? (i + 1) % suggestions.length
+                          : (i <= 0 ? suggestions.length : i) - 1
+                      );
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      submitTag(activeSuggestion >= 0 ? suggestions[activeSuggestion] : tagDraft);
+                    }
+                  }}
+                  className="w-full bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live"
+                />
+              </div>
               <button
-                onClick={() => tagMutation.mutate({ tag: tagDraft.trim(), add: true })}
-                disabled={!tagDraft.trim() || tagMutation.isPending}
+                onClick={() => submitTag(tagDraft)}
+                disabled={!normalizedDraft || isDuplicate || tagMutation.isPending}
+                title={isDuplicate ? `This chat already has "${normalizedDraft}"` : 'Add this tag'}
                 className="flex items-center gap-1 px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {tagMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
                 <span>ADD</span>
               </button>
             </div>
+            {isDuplicate ? (
+              <p className="text-[10px] text-mc-textMuted font-sans">
+                This chat already has <span className="text-mc-live">{normalizedDraft}</span>.
+              </p>
+            ) : similarTag ? (
+              <p className="flex items-start gap-1 text-[10px] text-mc-safe font-sans">
+                <AlertTriangle size={10} className="shrink-0 mt-0.5" />
+                <span>
+                  Close to the tag{' '}
+                  <button
+                    type="button"
+                    onClick={() => submitTag(similarTag)}
+                    className="underline underline-offset-2 hover:text-mc-live"
+                  >
+                    {similarTag}
+                  </button>{' '}
+                  you already use &mdash; add that one instead of a second spelling?
+                </span>
+              </p>
+            ) : normalizedDraft && normalizedDraft !== tagDraft.trim() ? (
+              <p className="text-[10px] text-mc-textMuted font-sans">
+                Saved as <span className="text-mc-text">{normalizedDraft}</span>.
+              </p>
+            ) : null}
             <p className="text-[10px] text-mc-textMuted font-sans">
               Mission Control&apos;s own labels, kept on this machine. wacli can write a tag but has no
               command that reads one back, so these never go near WhatsApp &mdash; and they keep working

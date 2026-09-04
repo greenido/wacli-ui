@@ -13,6 +13,9 @@ const bookmarkMessage = vi.hoisted(() => vi.fn());
 const getHistoryCoverage = vi.hoisted(() => vi.fn());
 const backfillHistory = vi.hoisted(() => vi.fn());
 const exportConversation = vi.hoisted(() => vi.fn());
+const getMediaUrl = vi.hoisted(() =>
+  vi.fn((_params: { chat?: string; id?: string; path?: string }) => '')
+);
 
 vi.mock('../../api/client.ts', () => ({
   api: {
@@ -23,7 +26,7 @@ vi.mock('../../api/client.ts', () => ({
     getHistoryCoverage,
     backfillHistory,
     exportConversation,
-    getMediaUrl: () => '',
+    getMediaUrl,
   },
   ApiClientError: class extends Error {},
 }));
@@ -342,5 +345,65 @@ describe('ThreadView conversation export', () => {
     await user.click(await screen.findByRole('menuitem', { name: /JSON/i }));
 
     expect(await screen.findByRole('status')).toHaveTextContent(/store is locked/i);
+  });
+});
+
+describe('ThreadView media across a chat switch', () => {
+  const OTHER_CHAT: UnifiedChat = { ...CHAT, jid: 'bob@s.whatsapp.net', name: 'Bob' };
+
+  function imageMessage(): UnifiedMessage {
+    return { ...message(1), msgId: 'MEDIA-1', mediaType: 'image', mimeType: 'image/jpeg' };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMediaUrl.mockReturnValue('');
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('asks for media using the chat the message is in', async () => {
+    getMessages.mockResolvedValue({ messages: [imageMessage()], hasMore: false });
+    renderThread();
+
+    await waitFor(() => expect(getMediaUrl).toHaveBeenCalled());
+    expect(getMediaUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ chat: CHAT.jid, id: 'MEDIA-1' })
+    );
+  });
+
+  it('does not pair the previous thread\'s messages with the chat being opened', async () => {
+    getMessages.mockResolvedValue({ messages: [imageMessage()], hasMore: false });
+    renderThread();
+    await waitFor(() => expect(getMediaUrl).toHaveBeenCalled());
+
+    // Switching chats leaves the previous thread on screen while the new one
+    // loads (`keepPreviousData`), and the selected JID has already changed.
+    getMessages.mockReturnValue(new Promise(() => {}));
+    getMediaUrl.mockClear();
+    act(() => {
+      useAppStore.setState({ selectedChat: OTHER_CHAT });
+    });
+
+    await waitFor(() => expect(getMediaUrl).toHaveBeenCalled());
+
+    // Every request for this message must still name the chat it belongs to.
+    // Pairing it with the newly selected chat was a guaranteed 404 and a doomed
+    // `wacli media download` for every attachment in the outgoing thread.
+    for (const [params] of getMediaUrl.mock.calls) {
+      if (params.id === 'MEDIA-1') {
+        expect(params).toMatchObject({ chat: CHAT.jid });
+      }
+    }
+    expect(getMediaUrl).not.toHaveBeenCalledWith(
+      expect.objectContaining({ chat: OTHER_CHAT.jid, id: 'MEDIA-1' })
+    );
   });
 });

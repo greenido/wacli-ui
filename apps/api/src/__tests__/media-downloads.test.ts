@@ -104,6 +104,86 @@ describe('MediaDownloadCoordinator', () => {
     expect(task).toHaveBeenCalledTimes(2);
   });
 
+  it('holds a network failure only briefly, so a blip is not a five-minute outage', async () => {
+    let now = 1_000_000;
+    const coordinator = new MediaDownloadCoordinator({
+      failureTtlMs: 5 * 60_000,
+      transientFailureTtlMs: 30_000,
+      now: () => now,
+    });
+    const task = vi.fn(async () => {
+      throw new Error(
+        'Get "https://mmg.whatsapp.net/o1/v/t24/f2/m269/AQNS": context deadline exceeded (Client.Timeout exceeded while awaiting headers)'
+      );
+    });
+
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    now += 29_000;
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    expect(task).toHaveBeenCalledTimes(1);
+
+    // Past the short TTL and still far inside the five minutes an expired
+    // attachment earns. Before this, a two-second network blip left three
+    // perfectly downloadable attachments showing as broken for the full window.
+    now += 2_000;
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
+  it('still holds expired media for the full TTL, not the transient one', async () => {
+    let now = 1_000_000;
+    const coordinator = new MediaDownloadCoordinator({
+      failureTtlMs: 5 * 60_000,
+      transientFailureTtlMs: 30_000,
+      now: () => now,
+    });
+    const task = vi.fn(async () => {
+      throw new Error('download failed with status code 403');
+    });
+
+    await expect(coordinator.run('chat:expired', task)).rejects.toThrow();
+    now += 60_000;
+    await expect(coordinator.run('chat:expired', task)).rejects.toThrow();
+
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a 5xx from the media host as transient, not as gone media', async () => {
+    let now = 1_000_000;
+    const coordinator = new MediaDownloadCoordinator({
+      failureTtlMs: 5 * 60_000,
+      transientFailureTtlMs: 30_000,
+      now: () => now,
+    });
+    const task = vi.fn(async () => {
+      throw new Error('download failed with status code 503');
+    });
+
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    now += 31_000;
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a transient failure leave a permanent entry in the cache', async () => {
+    let now = 1_000_000;
+    const coordinator = new MediaDownloadCoordinator({
+      transientFailureTtlMs: 30_000,
+      now: () => now,
+    });
+    const task = vi.fn(async () => {
+      throw new Error('net/http: TLS handshake timeout');
+    });
+
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    expect(coordinator.getStats().cachedFailures).toBe(1);
+
+    now += 31_000;
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
   it('lets an explicit operator retry through a remembered failure', async () => {
     const coordinator = new MediaDownloadCoordinator({ failureTtlMs: 60_000 });
     let shouldFail = true;

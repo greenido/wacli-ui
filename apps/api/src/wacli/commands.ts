@@ -4,6 +4,7 @@ import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
 import type { RawWacliResponse } from '../types.js';
 import { isStoreLockMessage, sleep, toStoreLockedError } from './store-lock.js';
+import { compactUrls } from './failures.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -127,11 +128,14 @@ function classifyCommandError(err: unknown, commandLabel: string): WacliCommandE
   const execErr = err as { code?: number; message?: string; stdout?: string; stderr?: string };
   const rawOut = (execErr.stdout || '') + (execErr.stderr || '');
 
+  // `rawOutput` keeps whatever wacli actually printed; the message is compacted
+  // because it is what gets logged and classified, and a 250-character media URL
+  // inside it pushes the real cause past the log's per-field cap.
   if (rawOut) {
     try {
       const parsed = JSON.parse(rawOut.trim()) as RawWacliResponse<unknown>;
       if (parsed.error) {
-        return new WacliCommandError(parsed.error, execErr.code, rawOut, commandLabel);
+        return new WacliCommandError(compactUrls(parsed.error), execErr.code, rawOut, commandLabel);
       }
     } catch (pErr) {
       if (pErr instanceof WacliCommandError) {
@@ -141,7 +145,7 @@ function classifyCommandError(err: unknown, commandLabel: string): WacliCommandE
   }
 
   return new WacliCommandError(
-    execErr.message || 'Unknown execution error',
+    compactUrls(execErr.message || 'Unknown execution error'),
     execErr.code,
     rawOut,
     commandLabel
