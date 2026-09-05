@@ -711,3 +711,56 @@ describe('ThreadView jump without a message id', () => {
     expect(await screen.findByText(/not in the local archive/i)).toBeInTheDocument();
   });
 });
+
+describe('ThreadView message direction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  function bodyWith(text: string, msgId = 'MSG-DIR'): UnifiedMessage {
+    return { ...message(1), msgId, text, displayText: text };
+  }
+
+  it('lays a Hebrew body out right-to-left', async () => {
+    getMessages.mockResolvedValue({ messages: [bodyWith('מתי אתה מגיע?')], hasMore: false });
+    renderThread();
+
+    expect(await screen.findByText('מתי אתה מגיע?')).toHaveAttribute('dir', 'rtl');
+  });
+
+  it('leaves an English body left-to-right', async () => {
+    getMessages.mockResolvedValue({ messages: [bodyWith('on my way')], hasMore: false });
+    renderThread();
+
+    expect(await screen.findByText('on my way')).toHaveAttribute('dir', 'ltr');
+  });
+
+  it('decides per message, so one Hebrew line does not flip its neighbours', async () => {
+    getMessages.mockResolvedValue({
+      messages: [bodyWith('בדרך', 'MSG-HE'), bodyWith('see you there', 'MSG-EN')],
+      hasMore: false,
+    });
+    renderThread();
+
+    expect(await screen.findByText('בדרך')).toHaveAttribute('dir', 'rtl');
+    expect(screen.getByText('see you there')).toHaveAttribute('dir', 'ltr');
+  });
+
+  it('keeps the deleted-message notice left-to-right, English as it is', async () => {
+    const deleted: UnifiedMessage = { ...bodyWith('היי'), revoked: true };
+    getMessages.mockResolvedValue({ messages: [deleted], hasMore: false });
+    renderThread();
+
+    const notice = await screen.findByText('This message was deleted.');
+    expect(notice.parentElement).toHaveAttribute('dir', 'ltr');
+  });
+});

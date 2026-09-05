@@ -16,6 +16,7 @@ import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import type { MessageJumpHint } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
 import type { ScheduledMessage, SendLogEntry, UnifiedChat } from '../../types.ts';
@@ -451,7 +452,10 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                         OPEN →
                       </span>
                     </div>
-                    <div className="text-mc-textMuted truncate">
+                    <div
+                      dir={detectTextDirection(log.message)}
+                      className="text-mc-textMuted truncate text-start"
+                    >
                       {log.message}
                     </div>
                     {log.error && (
@@ -559,7 +563,10 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                           </span>
                         )}
                       </div>
-                      <div className="text-mc-textMuted truncate">
+                      <div
+                        dir={detectTextDirection(item.message)}
+                        className="text-mc-textMuted truncate text-start"
+                      >
                         {item.fileName ? `[File: ${item.fileName}] ` : ''}
                         {item.message}
                       </div>
@@ -598,7 +605,10 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
 
                         <div className="text-mc-textMuted leading-snug">
                           <span className="uppercase">Message: </span>
-                          <span className="text-mc-text break-words whitespace-pre-wrap">
+                          <span
+                            dir={detectTextDirection(item.message)}
+                            className="text-mc-text break-words whitespace-pre-wrap"
+                          >
                             {item.message || '(no text)'}
                           </span>
                         </div>

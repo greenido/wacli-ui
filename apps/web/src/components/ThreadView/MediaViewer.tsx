@@ -9,6 +9,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '../../api/client.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 interface MediaViewerProps {
@@ -164,7 +165,12 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
                 className="max-h-[80vh] max-w-full rounded shadow-2xl object-contain border border-mc-border/50"
               />
               {msg.mediaCaption && (
-                <div className="text-xs text-mc-text text-center max-w-xl px-4 py-2 bg-mc-surface/80 rounded border border-mc-border font-sans select-text cursor-text">
+                // Stays centred; `dir` is here for the bidi ordering inside the
+                // line, which centring does nothing for.
+                <div
+                  dir={detectTextDirection(msg.mediaCaption)}
+                  className="text-xs text-mc-text text-center max-w-xl px-4 py-2 bg-mc-surface/80 rounded border border-mc-border font-sans select-text cursor-text"
+                >
                   {msg.mediaCaption}
                 </div>
               )}

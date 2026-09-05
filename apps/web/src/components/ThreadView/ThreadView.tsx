@@ -24,6 +24,7 @@ import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import { ExportMenu } from './ExportMenu.tsx';
@@ -765,9 +766,16 @@ export const ThreadView: React.FC = () => {
                     <MediaViewer msg={msg} chatJid={msg.chatJid || selectedChat.jid} />
                   )}
 
-                  {/* Body Text — selectable so operators can copy codes, addresses, numbers */}
+                  {/* Body Text — selectable so operators can copy codes, addresses, numbers.
+                      `dir` is per message, not per chat: a thread mixes Hebrew and
+                      English freely, and it is the body that decides which edge it
+                      hangs from and where its punctuation lands. A revoked message
+                      shows our own English notice, so it stays left-to-right. */}
                   {(msg.displayText || msg.text) && (
-                    <div className="whitespace-pre-wrap break-words leading-relaxed select-text cursor-text">
+                    <div
+                      dir={msg.revoked ? 'ltr' : detectTextDirection(msg.displayText || msg.text)}
+                      className="whitespace-pre-wrap break-words leading-relaxed select-text cursor-text text-start"
+                    >
                       {msg.revoked ? (
                         <span className="italic text-mc-textMuted">This message was deleted.</span>
                       ) : (
