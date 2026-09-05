@@ -181,6 +181,32 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  /**
+   * Renames one label on every chat carrying it. `merged` comes back true when
+   * the new name was already in use and the two vocabularies were folded into
+   * one, which the caller is expected to have confirmed first.
+   */
+  renameTag: (data: { from: string; to: string }) =>
+    request<{ from: string; to: string; renamed: number; merged: boolean }>('/api/tags/rename', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify(data),
+    }),
+
+  /** Retires one label, dropping it from every chat that carries it. */
+  deleteTag: (data: { tag: string }) =>
+    request<{ tag: string; removed: number }>('/api/tags/delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify(data),
+    }),
+
   /** How far back the local archive reaches — what the thread can page to. */
   getHistoryCoverage: (params: { chat?: string } = {}) =>
     request<ChatCoverage[]>('/api/history/coverage', {}, params),
