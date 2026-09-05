@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calendar } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
@@ -39,6 +39,18 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const dialogRef = useModalDialog<HTMLDivElement>(true, () => setActiveModal(null));
+
+  // The "sent" tick is held on screen for a moment before the dialog closes
+  // itself. That timer writes shared app state, so it has to die with the
+  // dialog that armed it: an uncancelled one fires into whatever is on screen
+  // 400ms later and closes a confirmation this send knows nothing about.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+    },
+    []
+  );
 
   // Only ever read at mount, which is the opening this dialog is for.
   const [isScheduled, setIsScheduled] = useState(sendConfirmData.scheduleMode ?? false);
@@ -231,7 +243,8 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
 
       clearComposer(sendConfirmData.toJid);
 
-      setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
         setIsCommitted(false);
         setSendConfirmData(null);
         setActiveModal(null);

@@ -183,3 +183,54 @@ describe('SendConfirmModal keyboard flow', () => {
     expect(sendText).not.toHaveBeenCalled();
   });
 });
+
+describe('SendConfirmModal teardown', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMode.mockResolvedValue({ readOnly: false });
+    sendText.mockResolvedValue({ sent: true, messageId: 'wamid.1' });
+    useAppStore.setState({
+      selectedChat: CHAT,
+      activeModal: null,
+      sendConfirmData: null,
+      composerDrafts: {},
+      composerFiles: {},
+      replyingToByChat: {},
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, activeModal: null, sendConfirmData: null });
+  });
+
+  it('does not let a finished send close a confirmation it knows nothing about', async () => {
+    const user = userEvent.setup();
+    const view = renderConsole();
+
+    await user.type(composerBox(), 'ping');
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
+
+    // The dialog holds its "sent" tick for a moment before closing itself.
+    // Tear it down inside that window — a chat switch, a reload, the end of a
+    // test — and then stage the next dispatch, as the composer would.
+    view.unmount();
+    useAppStore.setState({
+      activeModal: 'send-confirm',
+      sendConfirmData: {
+        toJid: CHAT.jid,
+        recipientName: CHAT.name,
+        messageText: 'the next one',
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    // The first send's timer used to survive its dialog and fire into whatever
+    // was on screen 400ms later, closing this one on its way past.
+    expect(useAppStore.getState().activeModal).toBe('send-confirm');
+    expect(useAppStore.getState().sendConfirmData?.messageText).toBe('the next one');
+  });
+});

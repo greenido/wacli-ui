@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -29,7 +29,13 @@ export function useModalDialog<T extends HTMLElement = HTMLDivElement>(
     onCloseRef.current = onClose;
   });
 
-  useEffect(() => {
+  // Layout, not passive: moving focus is DOM work that has to land in the same
+  // commit as the dialog it belongs to. As a passive effect React flushed it on
+  // a later task, so between the dialog leaving the DOM and focus going back
+  // where it came from there was a window in which the page had no focus and
+  // anything that ran in it — the next line of a test, an app that focuses a
+  // field after closing a dialog — was overwritten a moment later.
+  useLayoutEffect(() => {
     // Callers early-return null when closed, so the hook must run every render
     // and arm itself only once the container is actually in the DOM.
     if (!isOpen) return;
@@ -94,7 +100,15 @@ export function useModalDialog<T extends HTMLElement = HTMLDivElement>(
     document.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
-      previouslyFocused?.focus?.();
+
+      // Give focus back only if nobody else has taken it. Closing a dialog
+      // drops focus to the body, which is what this restores; if something has
+      // deliberately claimed focus since, pulling it back here would undo a
+      // decision made after this dialog stopped being the thing on screen.
+      const active = document.activeElement;
+      if (!active || active === document.body || container.contains(active)) {
+        previouslyFocused?.focus?.();
+      }
     };
   }, [isOpen]);
 
