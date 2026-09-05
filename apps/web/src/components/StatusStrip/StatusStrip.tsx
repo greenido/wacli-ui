@@ -15,8 +15,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { usableMessageId } from '../../lib/messageJump.ts';
+import type { MessageJumpHint } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
-import type { ScheduledMessage, UnifiedChat } from '../../types.ts';
+import type { ScheduledMessage, SendLogEntry, UnifiedChat } from '../../types.ts';
 
 const LIST_PAGE_SIZE = 100;
 
@@ -52,7 +54,12 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     [sendLogs]
   );
 
-  const handleSelectMessageChat = (toJid: string, name?: string, msgId?: string) => {
+  const handleSelectMessageChat = (
+    toJid: string,
+    name?: string,
+    msgId?: string,
+    hint?: MessageJumpHint
+  ) => {
     if (!toJid) return;
     const cachedChats =
       queryClient.getQueryData<UnifiedChat[]>(['chats', searchQuery, chatFilter]) ||
@@ -84,8 +91,28 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     // Always assign, never only on a hit. Leaving the previous target set sent
     // the newly opened thread hunting for a message from the chat before it,
     // which it then reported as missing from the local archive.
-    setHighlightedMessageId(msgId ?? null);
+    //
+    // The hint goes along with the id because most rows have no usable id at
+    // all: everything sent before wacli's id was recorded, which is every
+    // scheduled message already on disk.
+    setHighlightedMessageId(usableMessageId(msgId), hint ?? null);
   };
+
+  const openSendLog = (log: SendLogEntry) => {
+    handleSelectMessageChat(log.to, log.chatName, log.messageId, {
+      text: log.message,
+      sentAfter: log.timestamp,
+    });
+  };
+
+  /**
+   * A message that never went out has nothing to focus, and a queued one has
+   * not been sent yet — only a delivered message can be pointed at.
+   */
+  const scheduledJumpHint = (item: ScheduledMessage): MessageJumpHint | undefined =>
+    item.status === 'sent'
+      ? { text: item.message || item.fileName || '', sentAfter: item.scheduledAt }
+      : undefined;
 
   const { data: health } = useQuery({
     queryKey: ['health'],
@@ -388,11 +415,11 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     key={log.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => handleSelectMessageChat(log.to, log.chatName, log.messageId)}
+                    onClick={() => openSendLog(log)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        handleSelectMessageChat(log.to, log.chatName, log.messageId);
+                        openSendLog(log);
                       }
                     }}
                     className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
@@ -400,11 +427,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                         ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
                         : 'border-mc-border/70'
                     }`}
-                    title={
-                      log.messageId
-                        ? 'Click to open the conversation and focus this message'
-                        : 'Click to view conversation in main chat area'
-                    }
+                    title="Click to open the conversation and focus this message"
                   >
                     <div className="flex items-center justify-between text-[10px]">
                       <span className="text-mc-textMuted">
@@ -467,7 +490,12 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                   if (isFailed) {
                     setExpandedScheduledId(isExpanded ? null : item.id);
                   }
-                  handleSelectMessageChat(item.to, item.recipientName, item.sentMessageId);
+                  handleSelectMessageChat(
+                    item.to,
+                    item.recipientName,
+                    item.sentMessageId,
+                    scheduledJumpHint(item)
+                  );
                 };
 
                 return (

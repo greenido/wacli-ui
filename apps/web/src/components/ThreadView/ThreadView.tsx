@@ -23,6 +23,7 @@ import { POLL_MESSAGES_MS, POLL_SCHEDULED_MS, wacliReadQueryOptions } from '../.
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import { ExportMenu } from './ExportMenu.tsx';
@@ -89,6 +90,7 @@ export const ThreadView: React.FC = () => {
   const setReplyingTo = useAppStore((s) => s.setReplyingTo);
   const presenceMap = useAppStore((s) => s.presenceMap);
   const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
+  const highlightedMessageHint = useAppStore((s) => s.highlightedMessageHint);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
@@ -305,20 +307,30 @@ export const ThreadView: React.FC = () => {
 
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
+  // Which message the jump actually lands on. An id is honoured when the thread
+  // holds it; otherwise the hint recognises the message from what was sent.
+  // Resolved here rather than written back to the store, so the thread stays a
+  // pure reading of what is loaded.
+  const jumpRequested = Boolean(highlightedMessageId || highlightedMessageHint);
+  const focusedMessageId = useMemo(
+    () => resolveJumpTarget(messages, highlightedMessageId, highlightedMessageHint),
+    [messages, highlightedMessageId, highlightedMessageHint]
+  );
+
   // `isPlaceholderData` carries as much weight as `isFetching`: while a chat
   // switch is in flight the thread on screen is still the previous
   // conversation's, and measuring the target against it accused the archive of
   // losing a message it had never been asked to hold.
   const highlightMissed =
-    Boolean(highlightedMessageId) &&
+    jumpRequested &&
     !isFetching &&
     !isPlaceholderData &&
     messages.length > 0 &&
-    !messages.some((m) => m.msgId === highlightedMessageId);
+    !focusedMessageId;
 
   // Auto-scroll to the newest message, unless we are navigating to a specific one.
   useEffect(() => {
-    if (!highlightedMessageId) {
+    if (!jumpRequested) {
       // The highlight we just honoured has expired. Scrolling to the newest
       // message here is what made a jump look like it never worked: the
       // operator landed on the message, then five seconds later the thread
@@ -333,9 +345,9 @@ export const ThreadView: React.FC = () => {
       return;
     }
 
-    const el = document.getElementById(`msg-${highlightedMessageId}`);
+    const el = focusedMessageId ? document.getElementById(`msg-${focusedMessageId}`) : null;
     if (el) {
-      jumpedToRef.current = highlightedMessageId;
+      jumpedToRef.current = focusedMessageId;
       const raf = requestAnimationFrame(() => {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
@@ -357,7 +369,7 @@ export const ThreadView: React.FC = () => {
     // only the found path ever reset it.
     const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_MISS_TTL_MS);
     return () => clearTimeout(timer);
-  }, [selectedChat?.jid, messages, highlightedMessageId, setHighlightedMessageId]);
+  }, [selectedChat?.jid, messages, jumpRequested, focusedMessageId, setHighlightedMessageId]);
 
   const reactMutation = useMutation({
     mutationFn: ({ msg, emoji }: { msg: UnifiedMessage; emoji: string }) =>
@@ -735,7 +747,7 @@ export const ThreadView: React.FC = () => {
                   className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-all duration-300 ${
                     activeReactionMsgId === msg.msgId ? 'z-40' : 'z-0'
                   } ${
-                    highlightedMessageId === msg.msgId
+                    focusedMessageId === msg.msgId
                       ? 'ring-2 ring-mc-live ring-offset-2 ring-offset-mc-bg shadow-[0_0_20px_rgba(37,211,102,0.7)] bg-[#1e3d2f] border-mc-live animate-pulse'
                       : isMe
                       ? 'bg-[#1B2823] border border-mc-live/30 text-mc-text'

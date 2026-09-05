@@ -19,6 +19,21 @@ export type ActiveModal =
  */
 export type ChatFocusIntent = 'composer' | 'rail';
 
+/**
+ * How to recognise a message when no id was recorded for it.
+ *
+ * Sends made before Mission Control kept wacli's message id — which is every
+ * one already on disk — have nothing to jump to. What they do have is the chat,
+ * the body that went out and roughly when, and that is enough to pick the
+ * message out of a thread the console has already loaded.
+ */
+export interface MessageJumpHint {
+  /** The body that was sent. Compared against the message as it is displayed. */
+  text: string;
+  /** Not before this moment, so an identical older message is not mistaken for it. */
+  sentAfter: string;
+}
+
 const presenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function clearPresenceTimer(chatJid: string) {
@@ -55,6 +70,8 @@ interface AppState {
   presenceMap: Record<string, { state: 'composing' | 'paused'; sender: string }>;
   sendLogs: SendLogEntry[];
   highlightedMessageId: string | null;
+  /** Used only when the id is absent or turns out not to be in the thread. */
+  highlightedMessageHint: MessageJumpHint | null;
   activeModal: ActiveModal | null;
   chatFocusIntent: ChatFocusIntent;
   /**
@@ -88,7 +105,7 @@ interface AppState {
   clearPresence: (chatJid: string) => void;
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
-  setHighlightedMessageId: (id: string | null) => void;
+  setHighlightedMessageId: (id: string | null, hint?: MessageJumpHint | null) => void;
   setActiveModal: (modal: ActiveModal | null) => void;
   runCommand: (name: UiCommand) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
@@ -114,6 +131,7 @@ export const useAppStore = create<AppState>((set) => ({
   presenceMap: {},
   sendLogs: [],
   highlightedMessageId: null,
+  highlightedMessageHint: null,
   activeModal: null,
   chatFocusIntent: 'composer',
   uiCommand: null,
@@ -130,7 +148,12 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) =>
       s.selectedChat?.jid === chat?.jid
         ? { selectedChat: chat, chatFocusIntent: focusIntent }
-        : { selectedChat: chat, chatFocusIntent: focusIntent, highlightedMessageId: null }
+        : {
+            selectedChat: chat,
+            chatFocusIntent: focusIntent,
+            highlightedMessageId: null,
+            highlightedMessageHint: null,
+          }
     ),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setChatFilter: (filter) => set({ chatFilter: filter }),
@@ -191,7 +214,10 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({
       sendLogs: s.sendLogs.map((item) => (item.id === id ? { ...item, ...update } : item)),
     })),
-  setHighlightedMessageId: (id) => set({ highlightedMessageId: id }),
+  // The hint travels with the id and is replaced with it, so a jump can never
+  // be answered with the leftovers of the one before it.
+  setHighlightedMessageId: (id, hint = null) =>
+    set({ highlightedMessageId: id, highlightedMessageHint: hint }),
   setActiveModal: (modal) => set({ activeModal: modal }),
   runCommand: (name) =>
     set((s) => ({ uiCommand: { name, seq: (s.uiCommand?.seq ?? 0) + 1 } })),
