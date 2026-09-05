@@ -1,4 +1,5 @@
 import { messagePreviewText } from './messagePreview.ts';
+import { chatDisplayName } from './chatDisplayName.ts';
 import type { UnifiedChat, UnifiedMessage } from '../types.ts';
 
 /**
@@ -10,7 +11,7 @@ import type { UnifiedChat, UnifiedMessage } from '../types.ts';
 export function chatFromMessage(msg: UnifiedMessage): UnifiedChat {
   return {
     jid: msg.chatJid,
-    name: msg.chatName || msg.chatJid.split('@')[0],
+    name: chatDisplayName(msg.chatJid, msg.chatName),
     kind: msg.chatJid.endsWith('@g.us') ? 'group' : 'dm',
     lastMessageTs: msg.ts,
     lastMessage: messagePreviewText(msg) || null,

@@ -86,6 +86,33 @@ export function normalizeCoverage(raw: RawChatCoverage): ChatCoverage {
   };
 }
 
+/**
+ * What to call a chat the store has no name for.
+ *
+ * For a DM the JID's local part is the phone number, which is genuinely useful.
+ * For a group it is an opaque 18-digit WhatsApp group id — it identifies
+ * nothing a human recognises, and rendered as a name it reads as a phone
+ * number, which is worse than admitting we don't know. 33 group chats on this
+ * account have no name in either the chat or the group table (they are ones
+ * that were left, so `groups refresh` never brings them back), and every one of
+ * them showed up in the rail as a bare number.
+ *
+ * The tail is kept so two unnamed groups stay tellable apart; `ChatInfoModal`
+ * still shows the full JID for anyone who needs it.
+ *
+ * Twin of `chatDisplayName` in `apps/web/src/lib/chatDisplayName.ts`, which
+ * names the same chat when it is built from a message instead. Keep them in step.
+ */
+export function chatDisplayName(jid: string, name?: string | null): string {
+  const given = (name ?? '').trim();
+  if (given) return given;
+
+  const local = jid.split('@')[0] ?? '';
+  if (!jid.endsWith('@g.us')) return local;
+
+  return local ? `Group ${local.slice(-6)}` : 'Unnamed group';
+}
+
 export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat {
   let kind: UnifiedChat['kind'] = 'unknown';
   if (raw.kind === 'dm' || raw.kind === 'group' || raw.kind === 'broadcast' || raw.kind === 'newsletter') {
@@ -101,7 +128,7 @@ export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat 
   return {
     jid: raw.jid,
     kind,
-    name: raw.name || raw.jid.split('@')[0],
+    name: chatDisplayName(raw.jid, raw.name),
     lastMessageTs: raw.last_message_ts ?? null,
     lastMessage: preview?.text ?? null,
     lastMessageFromMe: preview?.fromMe ?? false,

@@ -5,6 +5,7 @@ import { api } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
+import { chatDisplayName } from '../../lib/chatDisplayName.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedChat } from '../../types.ts';
@@ -65,7 +66,7 @@ export const NewChatModal: React.FC = () => {
     const cleanDigits = raw.replace(/[^0-9]/g, '');
     const isJid = raw.includes('@');
     const jid = isJid ? raw : `${cleanDigits}@s.whatsapp.net`;
-    const displayName = isJid ? raw.split('@')[0] : (cleanDigits ? `+${cleanDigits}` : raw);
+    const displayName = isJid ? chatDisplayName(jid) : (cleanDigits ? `+${cleanDigits}` : raw);
 
     const customChat: UnifiedChat = {
       jid,
