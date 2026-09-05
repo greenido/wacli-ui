@@ -77,6 +77,8 @@ function unregisterShutdownHooks(): void {
 export class WacliProcessManager {
   private child: ChildProcess | null = null;
   private state: ProcessState = 'stopped';
+  /** The reason announced with the current state, so a repeat can be spotted. */
+  private stateReason: string | undefined;
   private webhookSecret: string;
   private apiPort: number;
   private reconnectAttempts = 0;
@@ -191,8 +193,16 @@ export class WacliProcessManager {
     return null;
   }
 
+  /**
+   * Announces a transition. Restating the state the daemon is already in is not
+   * a transition, and subscribers treat every call as news — so an unchanged
+   * state and reason is dropped rather than broadcast and logged twice.
+   */
   private setState(state: ProcessState, reason?: string): void {
+    if (this.state === state && this.stateReason === reason) return;
+
     this.state = state;
+    this.stateReason = reason;
     logger.info('process', 'Sync state changed', { state, reason });
     if (this.onStateChange) {
       this.onStateChange(state, reason);
@@ -372,8 +382,13 @@ export class WacliProcessManager {
       this.uptimeTimer = null;
     }
 
+    // A pause is always someone else's doing: `stop()` and `executeExclusive()`
+    // each add their own `close` listener before killing the child, and this one
+    // was registered at spawn so it runs first. Announcing here would beat the
+    // initiator to it with a blank reason, which is what made every exclusive
+    // command emit `paused` twice — once with no explanation, once with one.
+    // Leave the announcement to whoever asked for the pause.
     if (this.isPaused) {
-      this.setState('paused');
       return;
     }
 
