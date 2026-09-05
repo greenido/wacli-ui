@@ -71,6 +71,11 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
   - Active store lock status and battery / network health telemetry.
   - Live outgoing send audit log tracking all dispatched actions with status badges.
 
+### 🔤 Right-to-Left Messages
+- Hebrew and Arabic message bodies are laid out right-to-left, decided per message rather than per chat — so a thread that mixes scripts renders each line the way it was written, with punctuation at the end it belongs to.
+- Applies everywhere a message body reaches the screen: thread bubbles, the rail preview, search results, the reply pill, the send-confirmation read-back, the Later queue, and the activity log. The console's own chrome — labels, timestamps, buttons — stays left-to-right.
+- The composer flips as you type, so a Hebrew draft looks the way it will read once sent.
+
 ### 🔍 Global Full-Text Search (`Cmd+K` / `Ctrl+K`)
 - Instant cross-chat message search powered by SQLite FTS5.
 - Displays matching message snippets, timestamp, sender, and target chat with one-click navigation.

@@ -3,6 +3,7 @@ import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedMessage } from '../../types.ts';
@@ -167,7 +168,12 @@ export const Composer: React.FC = () => {
         <div className="mb-2 p-2 rounded bg-mc-bg border-l-2 border-mc-live flex items-center justify-between text-xs font-mono">
           <div className="min-w-0 truncate">
             <span className="text-mc-live font-semibold">Replying to {replyingTo.senderName || replyingTo.senderJid}:</span>{' '}
-            <span className="text-mc-textMuted truncate">{replyingTo.displayText || replyingTo.text}</span>
+            <span
+              dir={detectTextDirection(replyingTo.displayText || replyingTo.text)}
+              className="text-mc-textMuted truncate"
+            >
+              {replyingTo.displayText || replyingTo.text}
+            </span>
           </div>
           <button
             onClick={() => setReplyingTo(chatJid, null)}
@@ -212,14 +218,19 @@ export const Composer: React.FC = () => {
         </button>
 
         <div className="flex-1 min-h-[38px] relative">
+          {/* The draft flips as it is typed, so composing in Hebrew looks the
+              way it will read once sent — and the caret sits at the right edge
+              instead of the left. The placeholder is English either way, so it
+              only flips once there is a draft to flip for. */}
           <textarea
             ref={textareaRef}
             value={composerDraft}
             onChange={(e) => setComposerDraft(chatJid, e.target.value)}
             onKeyDown={handleKeyDown}
             rows={1}
+            dir={detectTextDirection(composerDraft)}
             placeholder={`Message ${selectedChat.name}... (Press Enter to send)`}
-            className="w-full bg-mc-bg border border-mc-border rounded p-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live resize-none font-sans max-h-32"
+            className="w-full bg-mc-bg border border-mc-border rounded p-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live resize-none font-sans max-h-32 text-start"
           />
         </div>
 

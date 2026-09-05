@@ -5,6 +5,7 @@ import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -303,8 +304,18 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                   {/* What the conversation is about. When there is no preview
                       to show, say that: the JID that used to sit here repeated
                       the row above for unknown contacts and told the operator
-                      nothing for everyone else. */}
-                  <div className="text-[11px] truncate">
+                      nothing for everyone else.
+
+                      The preview follows its own message's direction, so a
+                      Hebrew rail reads from the right edge. `text-start` is
+                      needed because the row button sets `text-left`, which
+                      would otherwise pin the line to the left regardless of
+                      `dir`. Only the preview flips — the name above it is a
+                      contact label, and the row's own chrome stays put. */}
+                  <div
+                    dir={isTyping ? 'ltr' : detectTextDirection(chat.lastMessage)}
+                    className="text-[11px] truncate text-start"
+                  >
                     {isTyping ? (
                       <span className="text-mc-live font-mono animate-pulse">typing...</span>
                     ) : chat.lastMessage ? (

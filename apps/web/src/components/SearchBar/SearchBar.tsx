@@ -6,6 +6,7 @@ import { chatFromMessage } from '../../lib/chatFromMessage.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
 import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
@@ -157,7 +158,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
                       {new Date(msg.ts).toLocaleDateString()} {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <div className="text-xs text-mc-text line-clamp-2">
+                  {/* `text-start` because the result button sets `text-left`. */}
+                  <div
+                    dir={detectTextDirection(msg.snippet || msg.displayText || msg.text)}
+                    className="text-xs text-mc-text line-clamp-2 text-start"
+                  >
                     {msg.snippet || msg.displayText || msg.text}
                   </div>
                 </button>

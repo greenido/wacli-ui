@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calendar } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
+import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { getPresetTime, getTomorrowMorning } from '../../lib/scheduleTime.ts';
@@ -38,6 +39,18 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const dialogRef = useModalDialog<HTMLDivElement>(true, () => setActiveModal(null));
+
+  // The "sent" tick is held on screen for a moment before the dialog closes
+  // itself. That timer writes shared app state, so it has to die with the
+  // dialog that armed it: an uncancelled one fires into whatever is on screen
+  // 400ms later and closes a confirmation this send knows nothing about.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
+    },
+    []
+  );
 
   // Only ever read at mount, which is the opening this dialog is for.
   const [isScheduled, setIsScheduled] = useState(sendConfirmData.scheduleMode ?? false);
@@ -230,7 +243,8 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
 
       clearComposer(sendConfirmData.toJid);
 
-      setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
         setIsCommitted(false);
         setSendConfirmData(null);
         setActiveModal(null);
@@ -401,7 +415,10 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
                   <div className="text-mc-live font-semibold text-[11px]">
                     {sendConfirmData.replyToPreview.sender}
                   </div>
-                  <div className="text-mc-text text-[11px] font-sans line-clamp-3 whitespace-pre-wrap">
+                  <div
+                    dir={detectTextDirection(sendConfirmData.replyToPreview.text)}
+                    className="text-mc-text text-[11px] font-sans line-clamp-3 whitespace-pre-wrap text-start"
+                  >
                     {sendConfirmData.replyToPreview.text}
                   </div>
                 </>
@@ -426,7 +443,13 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
           {sendConfirmData.messageText && (
             <div className="space-y-1">
               <div className="text-mc-textMuted text-[10px]">MESSAGE BODY</div>
-              <div className="p-3 bg-mc-bg rounded border border-mc-border text-xs text-mc-text font-sans whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+              {/* Read back what is about to go out the way the recipient will
+                  see it — a Hebrew body confirmed in left-to-right layout is
+                  not the message the operator is agreeing to send. */}
+              <div
+                dir={detectTextDirection(sendConfirmData.messageText)}
+                className="p-3 bg-mc-bg rounded border border-mc-border text-xs text-mc-text font-sans whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed text-start"
+              >
                 {sendConfirmData.messageText}
               </div>
             </div>

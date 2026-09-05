@@ -205,3 +205,50 @@ describe('ChatList keyboard navigation', () => {
     expect(screen.getByLabelText('Filter chats by name or JID')).toHaveFocus();
   });
 });
+
+describe('ChatList preview direction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getHealth.mockResolvedValue({
+      wacliInstalled: true,
+      wacliWorking: true,
+      processState: 'running',
+      statusSummary: 'ok',
+    });
+    getTags.mockResolvedValue([]);
+    markChatRead.mockResolvedValue({});
+    useAppStore.setState({ selectedChat: null, chatFilter: 'all', tagFilter: null, searchQuery: '' });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, chatFilter: 'all', tagFilter: null, searchQuery: '' });
+  });
+
+  it('turns a Hebrew preview around to face the right edge', async () => {
+    getChats.mockResolvedValue([chat(ALICE.jid, 'Alice', { lastMessage: 'נדבר מחר בבוקר' })]);
+    renderList();
+
+    const preview = await screen.findByText('נדבר מחר בבוקר');
+    expect(preview.closest('[dir]')).toHaveAttribute('dir', 'rtl');
+  });
+
+  it('is not thrown off by the You: prefix on an outbound Hebrew preview', async () => {
+    // The prefix is two Latin letters ahead of the message. First-strong would
+    // read it as English and left-align every reply the operator sent.
+    getChats.mockResolvedValue([
+      chat(ALICE.jid, 'Alice', { lastMessage: 'אני מגיע בעוד רבע שעה', lastMessageFromMe: true }),
+    ]);
+    renderList();
+
+    const preview = await screen.findByText('אני מגיע בעוד רבע שעה');
+    expect(preview.closest('[dir]')).toHaveAttribute('dir', 'rtl');
+  });
+
+  it('leaves an English preview alone', async () => {
+    getChats.mockResolvedValue([chat(ALICE.jid, 'Alice', { lastMessage: 'running ten late' })]);
+    renderList();
+
+    const preview = await screen.findByText('running ten late');
+    expect(preview.closest('[dir]')).toHaveAttribute('dir', 'ltr');
+  });
+});
