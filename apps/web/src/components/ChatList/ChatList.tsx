@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useCallback, useRef } from 'react';
-import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag } from 'lucide-react';
+import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag, SlidersHorizontal } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
 import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
@@ -212,26 +212,44 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
         </div>
 
         {availableTags.length > 0 && (
-          <div className="flex gap-1 items-center overflow-x-auto text-[11px] font-mono no-scrollbar">
+          <div className="flex gap-1 items-center text-[11px] font-mono">
             <Tag size={11} className="text-mc-textMuted shrink-0" />
-            {availableTags.map((tag) => {
-              const isActive = tagFilter === tag;
-              return (
-                <button
-                  key={tag}
-                  onClick={() => setTagFilter(isActive ? null : tag)}
-                  aria-pressed={isActive}
-                  title={`Show only chats tagged "${tag}"`}
-                  className={`px-2 py-0.5 rounded shrink-0 transition-colors ${
-                    isActive
-                      ? 'bg-mc-live/15 text-mc-live border border-mc-live/40 font-semibold'
-                      : 'text-mc-textMuted hover:text-mc-text border border-transparent hover:bg-mc-surfaceHover'
-                  }`}
-                >
-                  {tag}
-                </button>
-              );
-            })}
+            {/*
+              Only the chips scroll. The manage button sits outside that box, so
+              a long vocabulary cannot push the way to edit it off the rail.
+            */}
+            <div className="flex gap-1 items-center flex-1 min-w-0 overflow-x-auto no-scrollbar">
+              {availableTags.map((tag) => {
+                const isActive = tagFilter === tag;
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => setTagFilter(isActive ? null : tag)}
+                    aria-pressed={isActive}
+                    title={`Show only chats tagged "${tag}"`}
+                    className={`px-2 py-0.5 rounded shrink-0 transition-colors ${
+                      isActive
+                        ? 'bg-mc-live/15 text-mc-live border border-mc-live/40 font-semibold'
+                        : 'text-mc-textMuted hover:text-mc-text border border-transparent hover:bg-mc-surfaceHover'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+            {/*
+              Rendered only alongside the chips: with no tags there is nothing
+              to manage, and this whole row is absent anyway.
+            */}
+            <button
+              onClick={() => setActiveModal('tag-manager')}
+              aria-label="Manage tags"
+              title="Rename or delete tags"
+              className="p-1 rounded shrink-0 text-mc-textMuted hover:text-mc-text hover:bg-mc-surfaceHover transition-colors"
+            >
+              <SlidersHorizontal size={11} />
+            </button>
           </div>
         )}
       </div>

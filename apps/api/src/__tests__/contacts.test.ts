@@ -223,3 +223,128 @@ describe('Local chat tags', () => {
     expect(execWacli).not.toHaveBeenCalled();
   });
 });
+
+describe('Managing the tag vocabulary', () => {
+  const app = createApp(new WacliProcessManager({ apiPort: 3002 }));
+
+  const tag = (jid: string, name: string) =>
+    request(app)
+      .post('/api/tags')
+      .set('X-Mission-Control-Request', '1')
+      .send({ jid, tag: name, add: true });
+
+  beforeEach(() => {
+    execWacli.mockClear();
+    modeManager.setReadOnly(false);
+  });
+
+  afterEach(async () => {
+    modeManager.setReadOnly(false);
+    // The store is shared across this file, so clear the whole vocabulary
+    // rather than guessing which chats a test happened to touch.
+    const { body } = await request(app).get('/api/tags');
+    for (const name of body.data.tags as string[]) {
+      await request(app)
+        .post('/api/tags/delete')
+        .set('X-Mission-Control-Request', '1')
+        .send({ tag: name });
+    }
+  });
+
+  it('renames a tag on every chat carrying it', async () => {
+    await tag('alice@s.whatsapp.net', 'work');
+    await tag('bob@s.whatsapp.net', 'work');
+
+    const res = await request(app)
+      .post('/api/tags/rename')
+      .set('X-Mission-Control-Request', '1')
+      .send({ from: 'work', to: 'Clients' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ from: 'work', to: 'clients', renamed: 2, merged: false });
+
+    const listed = await request(app).get('/api/tags');
+    expect(listed.body.data.tags).toEqual(['clients']);
+    expect(listed.body.data.byJid['bob@s.whatsapp.net']).toEqual(['clients']);
+  });
+
+  it('flags the merge when the new name is already in use', async () => {
+    await tag('alice@s.whatsapp.net', 'work');
+    await tag('bob@s.whatsapp.net', 'clients');
+
+    const res = await request(app)
+      .post('/api/tags/rename')
+      .set('X-Mission-Control-Request', '1')
+      .send({ from: 'work', to: 'clients' });
+
+    expect(res.body.data).toMatchObject({ renamed: 1, merged: true });
+    expect((await request(app).get('/api/tags')).body.data.tags).toEqual(['clients']);
+  });
+
+  it('requires both ends of the rename', async () => {
+    const res = await request(app)
+      .post('/api/tags/rename')
+      .set('X-Mission-Control-Request', '1')
+      .send({ from: 'work' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a new name that folds away to nothing', async () => {
+    await tag('alice@s.whatsapp.net', 'work');
+
+    const res = await request(app)
+      .post('/api/tags/rename')
+      .set('X-Mission-Control-Request', '1')
+      .send({ from: 'work', to: '   ' });
+
+    expect(res.status).toBe(400);
+    expect((await request(app).get('/api/tags')).body.data.tags).toEqual(['work']);
+  });
+
+  it('deletes a tag from every chat and reports the reach', async () => {
+    await tag('alice@s.whatsapp.net', 'work');
+    await tag('bob@s.whatsapp.net', 'work');
+    await tag('bob@s.whatsapp.net', 'family');
+
+    const res = await request(app)
+      .post('/api/tags/delete')
+      .set('X-Mission-Control-Request', '1')
+      .send({ tag: 'Work' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ tag: 'work', removed: 2 });
+
+    const listed = await request(app).get('/api/tags');
+    expect(listed.body.data.tags).toEqual(['family']);
+    expect(listed.body.data.byJid['alice@s.whatsapp.net']).toBeUndefined();
+  });
+
+  it('requires a tag to delete', async () => {
+    const res = await request(app)
+      .post('/api/tags/delete')
+      .set('X-Mission-Control-Request', '1')
+      .send({});
+
+    expect(res.status).toBe(400);
+  });
+
+  it('still manages tags in safe read-only mode, because none of it reaches wacli', async () => {
+    await tag('alice@s.whatsapp.net', 'work');
+    modeManager.setReadOnly(true);
+
+    const renamed = await request(app)
+      .post('/api/tags/rename')
+      .set('X-Mission-Control-Request', '1')
+      .send({ from: 'work', to: 'clients' });
+    expect(renamed.status).toBe(200);
+
+    const deleted = await request(app)
+      .post('/api/tags/delete')
+      .set('X-Mission-Control-Request', '1')
+      .send({ tag: 'clients' });
+    expect(deleted.status).toBe(200);
+
+    expect(execWacli).not.toHaveBeenCalled();
+  });
+});

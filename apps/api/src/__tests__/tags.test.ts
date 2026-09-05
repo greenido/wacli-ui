@@ -100,3 +100,148 @@ describe('TagStore', () => {
     expect(new TagStore(file).get('alice@s.whatsapp.net')).toEqual(['family', 'work']);
   });
 });
+
+describe('TagStore.countFor', () => {
+  it('counts the chats carrying a tag, not the times it was typed', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('alice@s.whatsapp.net', 'Work');
+    store.add('bob@s.whatsapp.net', 'work');
+    store.add('carol@s.whatsapp.net', 'family');
+
+    expect(store.countFor('work')).toBe(2);
+    expect(store.countFor('family')).toBe(1);
+  });
+
+  it('reports zero for a tag nobody carries', () => {
+    expect(new TagStore(file).countFor('nope')).toBe(0);
+  });
+});
+
+describe('TagStore.rename', () => {
+  it('renames a tag on every chat carrying it, in one pass', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('bob@s.whatsapp.net', 'work');
+
+    expect(store.rename('work', 'clients')).toEqual({ renamed: 2, merged: false });
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['clients']);
+    expect(store.get('bob@s.whatsapp.net')).toEqual(['clients']);
+    expect(store.allTags()).toEqual(['clients']);
+  });
+
+  it('leaves the chats that never carried it alone', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('bob@s.whatsapp.net', 'family');
+
+    store.rename('work', 'clients');
+    expect(store.get('bob@s.whatsapp.net')).toEqual(['family']);
+  });
+
+  it('keeps a chat\'s other tags through the rename', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('alice@s.whatsapp.net', 'urgent');
+
+    store.rename('work', 'clients');
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['clients', 'urgent']);
+  });
+
+  it('merges into a name already in use, and says that it did', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('bob@s.whatsapp.net', 'clients');
+
+    expect(store.rename('work', 'clients')).toEqual({ renamed: 1, merged: true });
+    expect(store.allTags()).toEqual(['clients']);
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['clients']);
+    expect(store.get('bob@s.whatsapp.net')).toEqual(['clients']);
+  });
+
+  it('leaves one chip, not two, on a chat that carried both names', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('alice@s.whatsapp.net', 'clients');
+
+    store.rename('work', 'clients');
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['clients']);
+  });
+
+  it('folds the new name, so a rename cannot smuggle in a spelling add() would refuse', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+
+    store.rename('work', '  Follow Up ');
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['follow-up']);
+  });
+
+  it('treats a rename to the same name as nothing to do', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+
+    expect(store.rename('work', 'WORK')).toEqual({ renamed: 0, merged: false });
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['work']);
+  });
+
+  it('refuses a new name that folds away to nothing', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+
+    expect(store.rename('work', '   ')).toEqual({ renamed: 0, merged: false });
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['work']);
+  });
+
+  it('survives a restart', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.rename('work', 'clients');
+
+    expect(new TagStore(file).get('alice@s.whatsapp.net')).toEqual(['clients']);
+  });
+});
+
+describe('TagStore.deleteTag', () => {
+  it('drops a tag from every chat carrying it and reports how many', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('bob@s.whatsapp.net', 'work');
+    store.add('carol@s.whatsapp.net', 'family');
+
+    expect(store.deleteTag('work')).toBe(2);
+    expect(store.allTags()).toEqual(['family']);
+    expect(store.get('alice@s.whatsapp.net')).toEqual([]);
+  });
+
+  it('keeps the tags it was not asked about', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('alice@s.whatsapp.net', 'urgent');
+
+    store.deleteTag('work');
+    expect(store.get('alice@s.whatsapp.net')).toEqual(['urgent']);
+  });
+
+  it('forgets a chat whose last tag it just took', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.deleteTag('work');
+
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({});
+  });
+
+  it('does not touch the file for a tag nobody carries', () => {
+    const store = new TagStore(file);
+    expect(store.deleteTag('nope')).toBe(0);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('survives a restart', () => {
+    const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+    store.add('alice@s.whatsapp.net', 'urgent');
+    store.deleteTag('work');
+
+    expect(new TagStore(file).get('alice@s.whatsapp.net')).toEqual(['urgent']);
+  });
+});

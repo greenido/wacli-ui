@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { normalizeContact, normalizeGroup } from '../wacli/normalize.js';
-import { tagStore } from '../wacli/tags.js';
+import { tagStore, normalizeTag } from '../wacli/tags.js';
 import { logger } from '../logger.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { RawContact, RawGroup } from '../types.js';
@@ -158,6 +158,54 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
 
     const tags = add === false ? tagStore.remove(jid, tag) : tagStore.add(jid, tag);
     res.json({ success: true, data: { jid, tags }, error: null });
+  });
+
+  /*
+   * The two routes below act on a tag across every chat at once, which the
+   * per-chat POST above cannot express: correcting a label the operator has
+   * already spread over a dozen conversations, or retiring one entirely.
+   * Still Mission Control's own file, so still allowed in safe read-only mode.
+   */
+
+  // POST /api/tags/rename - rename one label everywhere it is used
+  router.post('/tags/rename', requireUiRequest, (req: Request, res: Response) => {
+    const { from, to } = req.body as { from?: string; to?: string };
+
+    if (!from || !to) {
+      res.status(400).json({ success: false, data: null, error: 'Both "from" and "to" are required.' });
+      return;
+    }
+
+    const before = normalizeTag(from);
+    const after = normalizeTag(to);
+
+    // A name that is only whitespace folds away to nothing, so the check is on
+    // what would actually be stored rather than on what was sent.
+    if (!before || !after) {
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: 'A tag needs at least one character that is not whitespace.',
+      });
+      return;
+    }
+
+    const { renamed, merged } = tagStore.rename(before, after);
+    res.json({ success: true, data: { from: before, to: after, renamed, merged }, error: null });
+  });
+
+  // POST /api/tags/delete - drop one label from every chat carrying it
+  router.post('/tags/delete', requireUiRequest, (req: Request, res: Response) => {
+    const { tag } = req.body as { tag?: string };
+
+    if (!tag) {
+      res.status(400).json({ success: false, data: null, error: 'Field "tag" is required.' });
+      return;
+    }
+
+    const normalized = normalizeTag(tag);
+    const removed = tagStore.deleteTag(normalized);
+    res.json({ success: true, data: { tag: normalized, removed }, error: null });
   });
 
   return router;

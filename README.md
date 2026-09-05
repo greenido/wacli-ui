@@ -53,6 +53,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
   - Quick filters: `All`, `Unread`, `Pinned`, `Muted`, and `Archived`.
   - Filter search by contact name or JID, debounced so a word typed into the box costs one query rather than one per letter.
   - **Tag filter row**: narrow the rail to chats carrying one of your own labels. Combines with the quick filters rather than replacing them.
+  - **Manage Tags**: rename or retire a label across every chat at once, from the button at the end of the tag row. Each row states how many chats it reaches, renaming onto an existing name asks before merging the two, and a delete is confirmed with its blast radius. A rail filtered on a tag that gets renamed follows it; one filtered on a tag that gets deleted clears instead of going blank.
 - **Center Pane (Thread View & Composer)**:
   - Chronological history with auto-scroll, and a **Load Older Messages** control that pages further back through the local archive.
   - **Archive coverage** in the header (how far back this machine actually holds), so a thread that stops has an explanation rather than just an end.
@@ -272,6 +273,8 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `GET` | `/api/groups` | Local group metadata (`?query=`) |
 | `GET` | `/api/tags` | Every local tag in use, and which chats carry them |
 | `POST`| `/api/tags` | Add or remove a local tag (`{ jid, tag, add }`); allowed in read-only mode |
+| `POST`| `/api/tags/rename` | Rename a local tag on every chat carrying it (`{ from, to }`); merges when `to` already exists |
+| `POST`| `/api/tags/delete` | Drop a local tag from every chat carrying it (`{ tag }`) |
 | `POST`| `/api/history/backfill` | Ask the primary device for older messages (`{ chat, count? }`); refused in read-only mode |
 | `GET` | `/api/search` | Search message history with FTS5 (`?q=<query>&limit=50`) |
 | `POST`| `/api/send/text` | Send a text message or reply (`{ to, message, replyTo?, confirm: true }`) |

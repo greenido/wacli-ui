@@ -10,6 +10,7 @@ import { SettingsModal } from './components/SettingsModal/SettingsModal.tsx';
 import { NewChatModal } from './components/NewChatModal/NewChatModal.tsx';
 import { ChatInfoModal } from './components/ChatInfoModal/ChatInfoModal.tsx';
 import { HelpModal } from './components/HelpModal/HelpModal.tsx';
+import { TagManagerModal } from './components/TagManagerModal/TagManagerModal.tsx';
 import { ModeConfirmModal } from './components/ModeConfirmModal/ModeConfirmModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
@@ -138,6 +139,7 @@ export const App: React.FC = () => {
       <SettingsModal />
       <NewChatModal />
       <ChatInfoModal />
+      <TagManagerModal />
       <ModeConfirmModal />
       <HelpModal />
       {isSearchOpen && <SearchBar onClose={() => setIsSearchOpen(false)} />}

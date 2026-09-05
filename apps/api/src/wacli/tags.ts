@@ -109,6 +109,70 @@ export class TagStore {
     return next;
   }
 
+  /** How many chats carry a tag — the blast radius of renaming or deleting it. */
+  public countFor(tag: string): number {
+    const normalized = normalizeTag(tag);
+    if (!normalized) return 0;
+
+    let count = 0;
+    for (const tags of this.byJid.values()) {
+      if (tags.includes(normalized)) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Renames a tag on every chat carrying it, so a vocabulary that drifted can
+   * be corrected in one place instead of chat by chat.
+   *
+   * Renaming onto a name already in use merges the two: `clean` dedupes, so a
+   * chat that held both ends up with one chip rather than a doubled one. That
+   * is a decision, not a detail — the caller confirms it first, and the
+   * returned `merged` flag says whether it happened.
+   */
+  public rename(from: string, to: string): { renamed: number; merged: boolean } {
+    const before = normalizeTag(from);
+    const after = normalizeTag(to);
+    if (!before || !after || before === after) return { renamed: 0, merged: false };
+
+    // Read before the write: afterwards every renamed chat carries `after` and
+    // the question of whether it pre-existed can no longer be asked.
+    const merged = this.allTags().includes(after);
+    let renamed = 0;
+
+    for (const [jid, tags] of [...this.byJid]) {
+      if (!tags.includes(before)) continue;
+      this.byJid.set(jid, this.clean([...tags.filter((t) => t !== before), after]));
+      renamed += 1;
+    }
+
+    if (renamed > 0) this.save();
+    return { renamed, merged };
+  }
+
+  /** Drops a tag from every chat carrying it. Returns how many were touched. */
+  public deleteTag(tag: string): number {
+    const normalized = normalizeTag(tag);
+    if (!normalized) return 0;
+
+    let removed = 0;
+    for (const [jid, tags] of [...this.byJid]) {
+      if (!tags.includes(normalized)) continue;
+
+      const next = tags.filter((t) => t !== normalized);
+      if (next.length > 0) {
+        this.byJid.set(jid, next);
+      } else {
+        // Same reasoning as remove(): absence says what an empty array says.
+        this.byJid.delete(jid);
+      }
+      removed += 1;
+    }
+
+    if (removed > 0) this.save();
+    return removed;
+  }
+
   public remove(jid: string, tag: string): string[] {
     const normalized = normalizeTag(tag);
     const next = this.get(jid).filter((t) => t !== normalized);
