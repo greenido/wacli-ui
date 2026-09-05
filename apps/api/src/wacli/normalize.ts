@@ -207,11 +207,23 @@ interface DoctorRawStore {
   last_activity_at?: string;
 }
 
+/**
+ * `wacli doctor` names the lock holder outright. Reading it here is what lets
+ * the health route tell "somebody else's wacli owns the store" apart from "ours
+ * is still coming up" without waiting for a command to fail and regexing a PID
+ * out of the error text.
+ */
+function toPid(value: unknown): number | null {
+  const pid = Number(value);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
 export function normalizeDoctor(raw: Record<string, unknown>): UnifiedDoctor {
   const store = (raw.store ?? {}) as DoctorRawStore;
   return {
     storeDir: String(raw.store_dir ?? ''),
     lockHeld: Boolean(raw.lock_held),
+    lockOwnerPid: toPid(raw.lock_owner_pid),
     authenticated: Boolean(raw.authenticated),
     linkedJid: raw.linked_jid ? String(raw.linked_jid) : null,
     connected: Boolean(raw.connected),

@@ -64,6 +64,28 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
     return { ...doctor, connected: false, connectionState: 'connecting' };
   }
 
+  /**
+   * The PID holding the store lock, when it is not one of ours.
+   *
+   * `wacli doctor` names the lock holder on every probe, so this is a direct
+   * answer available whenever the store is locked. The checks below it needed
+   * one of our own commands to have already failed with a lock error so a PID
+   * could be regexed out of the message, or the daemon to be sitting in
+   * `stopped`/`failed` — neither of which holds during the restart loop an
+   * external lock holder actually produces, where the state is `restarting`
+   * and `getPid()` is null. That combination reported "sync daemon is starting"
+   * indefinitely, which is the one diagnosis this route exists to avoid.
+   *
+   * A PID we spawned ourselves is never external, even once it has exited: the
+   * doctor result is cached for a few seconds and can still name the daemon
+   * that just died.
+   */
+  function externalLockHolderPid(doctor: UnifiedDoctor): number | null {
+    if (!doctor.lockHeld || doctor.lockOwnerPid === null) return null;
+    if (processManager.hasSpawnedPid(doctor.lockOwnerPid)) return null;
+    return doctor.lockOwnerPid;
+  }
+
   router.get('/health', async (req, res) => {
     const fresh = req.query.fresh === '1' || req.query.fresh === 'true';
     const installStatus = await checkWacliInstalled();
@@ -98,7 +120,13 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
             ? parseLockHolderPid(lastError)
             : null;
 
-          if (
+          const externalPid = externalLockHolderPid(doctor);
+
+          if (externalPid !== null) {
+            wacliWorking = false;
+            statusSummary = 'store_locked_external';
+            statusMessage = `Another wacli process (pid ${externalPid}) holds the store lock. Stop it or restart the sync daemon.`;
+          } else if (
             lockPidFromError &&
             daemonPid &&
             lockPidFromError !== daemonPid
@@ -133,8 +161,12 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
     }
 
     const lastError = doctorError || processManager.getLastError() || installStatus.error;
+    // The LOCK file is the authority on who holds it, and doctor reads it on
+    // every probe. The error text is the fallback for a wacli old enough not to
+    // report `lock_owner_pid`, and for the case where doctor itself failed.
     const storeLockHolderPid =
-      lastError && isStoreLockMessage(lastError) ? parseLockHolderPid(lastError) : null;
+      doctor?.lockOwnerPid ??
+      (lastError && isStoreLockMessage(lastError) ? parseLockHolderPid(lastError) : null);
 
     const status: MissionControlStatus = {
       readOnly: modeManager.isReadOnly(),

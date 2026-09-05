@@ -61,6 +61,41 @@ describe('chat preview cache', () => {
     expect(previewScans()).toBe(1);
   });
 
+  it('collapses requests arriving during a scan into one', async () => {
+    // The cache only helps requests that arrive after a scan has finished. A
+    // reconnect invalidating the rail while a poll is already in flight lands
+    // both on a cold cache, and each scan is ~2 MB of JSON and ~100ms of wacli.
+    const healthy = execWacli.getMockImplementation()!;
+    let releaseScan: (() => void) | undefined;
+    execWacli.mockImplementation(async (args: string[]) => {
+      if (args.join(' ').startsWith('messages list')) {
+        await new Promise<void>((resolve) => {
+          releaseScan = resolve;
+        });
+      }
+      return healthy(args);
+    });
+
+    // .map forces supertest to dispatch: its Test object sends nothing until
+    // something calls .then on it.
+    const polls = [
+      request(app).get('/api/chats'),
+      request(app).get('/api/chats'),
+      request(app).get('/api/chats'),
+    ].map((pending) => pending.then((res) => res));
+
+    // Let all three reach the handler before the scan answers.
+    await vi.waitFor(() => expect(releaseScan).toBeDefined());
+    releaseScan!();
+    // beforeEach only clears calls, so the blocking stub has to be handed back.
+    execWacli.mockImplementation(healthy);
+
+    for (const res of await Promise.all(polls)) {
+      expect(res.body.data[0].lastMessage).toBe('preview line');
+    }
+    expect(previewScans()).toBe(1);
+  });
+
   it('rescans once the cache has expired, so the rail does not go stale', async () => {
     await request(app).get('/api/chats');
     expect(previewScans()).toBe(1);

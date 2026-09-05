@@ -333,19 +333,21 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           {health?.storeLockHeld && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>STORE LOCK</span>
+              {/* Whether the holder is ours is the API's call: comparing the two
+                  PIDs here read the lock as the daemon's own whenever we did not
+                  know our PID, which is exactly the restarting state an external
+                  holder puts us in — the strip then contradicted the banner. */}
               <span
                 className={
-                  health.storeLockHolderPid &&
-                  health.processPid &&
-                  health.storeLockHolderPid !== health.processPid
+                  health.statusSummary === 'store_locked_external'
                     ? 'text-mc-danger font-semibold'
                     : 'text-mc-live font-semibold'
                 }
               >
-                {health.storeLockHolderPid &&
-                health.processPid &&
-                health.storeLockHolderPid !== health.processPid
-                  ? `EXTERNAL (pid ${health.storeLockHolderPid})`
+                {health.statusSummary === 'store_locked_external'
+                  ? health.storeLockHolderPid
+                    ? `EXTERNAL (pid ${health.storeLockHolderPid})`
+                    : 'EXTERNAL'
                   : 'HELD BY DAEMON'}
               </span>
             </div>

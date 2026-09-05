@@ -49,9 +49,21 @@ interface RawMessagesListResponse {
 
 let previewCache: { previews: Map<string, ChatPreview>; expiresAt: number } | null = null;
 
+/**
+ * The scan in flight, if any.
+ *
+ * The cache alone only collapses requests that arrive after one has finished.
+ * Two `/api/chats` in the same tick — a reconnect invalidating the rail while a
+ * poll is already running — both miss it and both run the scan, which is 2 MB
+ * of JSON and ~100 ms of wacli each. Sharing the promise makes the second one
+ * free, the same way `/api/health` shares its doctor probe.
+ */
+let previewInFlight: Promise<Map<string, ChatPreview>> | null = null;
+
 /** Test seam: the cache is module state, so suites must be able to clear it. */
 export function resetChatPreviewCache(): void {
   previewCache = null;
+  previewInFlight = null;
 }
 
 /**
@@ -63,6 +75,18 @@ async function fetchChatPreviews(): Promise<Map<string, ChatPreview>> {
     return previewCache.previews;
   }
 
+  if (previewInFlight) {
+    return previewInFlight;
+  }
+
+  previewInFlight = scanChatPreviews().finally(() => {
+    previewInFlight = null;
+  });
+
+  return previewInFlight;
+}
+
+async function scanChatPreviews(): Promise<Map<string, ChatPreview>> {
   const previews = new Map<string, ChatPreview>();
   const done = logger.time('api', 'Chat preview scan');
 
