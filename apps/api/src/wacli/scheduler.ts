@@ -4,7 +4,7 @@ import os from 'node:os';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
-import { sentMessageIdFrom } from './normalize.js';
+import { isSynthesisedMessageId, sentMessageIdFrom } from './normalize.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 
 export interface ScheduledMessage {
@@ -83,8 +83,23 @@ export class Scheduler {
         const raw = fs.readFileSync(this.filePath, 'utf8');
         const list = JSON.parse(raw) as ScheduledMessage[];
         if (Array.isArray(list)) {
+          let healed = 0;
           for (const item of list) {
+            // Records written before wacli's id was read correctly carry a
+            // placeholder no archive can match. Dropping it on the way in is
+            // what stops every one of them answering a click with "that
+            // message is not in the local archive".
+            if (isSynthesisedMessageId(item.sentMessageId)) {
+              delete item.sentMessageId;
+              healed++;
+            }
             this.items.set(item.id, item);
+          }
+          if (healed > 0) {
+            logger.info('send', 'Dropped placeholder message ids from scheduled history', {
+              count: healed,
+            });
+            this.save();
           }
         }
       }

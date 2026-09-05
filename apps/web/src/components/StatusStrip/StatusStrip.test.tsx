@@ -269,3 +269,91 @@ describe('StatusStrip jumps to the message a row stands for', () => {
     expect(useAppStore.getState().highlightedMessageId).toBeNull();
   });
 });
+
+describe('StatusStrip rows recorded before message ids were kept', () => {
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getScheduled.mockResolvedValue([]);
+    useAppStore.setState({
+      selectedChat: null,
+      sendLogs: [],
+      highlightedMessageId: null,
+      highlightedMessageHint: null,
+    });
+  });
+
+  it('describes the message when a LATER row only has a placeholder id', async () => {
+    // This is what every scheduled send already on disk looks like: `out-<ms>`,
+    // a value wacli never produced and no archive can match.
+    getScheduled.mockResolvedValue([
+      {
+        ...failedItem,
+        id: 'sched-legacy',
+        status: 'sent',
+        error: undefined,
+        message: 'Ma kore gever?',
+        scheduledAt: new Date('2026-09-04T10:00:00Z').toISOString(),
+        sentMessageId: 'out-1788203211119',
+      },
+    ]);
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+    await user.click(await screen.findByTitle(/Click to view conversation/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(failedItem.to);
+    // The placeholder is discarded rather than handed to the thread, which used
+    // to answer it with "that message is not in the local archive".
+    expect(state.highlightedMessageId).toBeNull();
+    expect(state.highlightedMessageHint).toEqual({
+      text: 'Ma kore gever?',
+      sentAfter: new Date('2026-09-04T10:00:00Z').toISOString(),
+    });
+  });
+
+  it('describes the message an ACTIVITY row logged, id or no id', async () => {
+    useAppStore.setState({
+      sendLogs: [
+        {
+          id: 'send-1',
+          timestamp: new Date('2026-09-04T10:00:00Z').toISOString(),
+          to: failedItem.to,
+          chatName: 'Alice',
+          message: 'the wire went out',
+          status: 'success',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByTitle(/focus this message/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(failedItem.to);
+    expect(state.highlightedMessageHint).toEqual({
+      text: 'the wire went out',
+      sentAfter: new Date('2026-09-04T10:00:00Z').toISOString(),
+    });
+  });
+
+  it('offers nothing to focus for a message that never went out', async () => {
+    getScheduled.mockResolvedValue([
+      { ...failedItem, id: 'sched-pending', status: 'pending', error: undefined },
+    ]);
+    useAppStore.setState({ highlightedMessageId: 'wamid.FROM-ANOTHER-CHAT' });
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+    await user.click(await screen.findByTitle(/Click to view conversation/i));
+
+    const state = useAppStore.getState();
+    expect(state.highlightedMessageId).toBeNull();
+    expect(state.highlightedMessageHint).toBeNull();
+  });
+});

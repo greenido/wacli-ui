@@ -637,3 +637,77 @@ describe('ThreadView reactions', () => {
     expect(screen.queryByText('\u{1F44D}')).not.toBeInTheDocument();
   });
 });
+
+describe('ThreadView jump without a message id', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({
+      selectedChat: CHAT,
+      highlightedMessageId: null,
+      highlightedMessageHint: null,
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({
+      selectedChat: null,
+      highlightedMessageId: null,
+      highlightedMessageHint: null,
+    });
+  });
+
+  function sentMessage(): UnifiedMessage {
+    return {
+      ...message(4),
+      msgId: '3EB0626F628F3B645B291E',
+      fromMe: true,
+      senderJid: '',
+      senderName: 'Me',
+      text: 'Ma kore gever?',
+      displayText: 'Ma kore gever?',
+    };
+  }
+
+  it('focuses the message a sidebar row describes when it carries no id', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1), sentMessage()], hasMore: false });
+    useAppStore.setState({
+      highlightedMessageHint: { text: 'Ma kore gever?', sentAfter: '2026-09-01T10:00:00Z' },
+    });
+    renderThread();
+
+    await screen.findByText('Ma kore gever?');
+    // Every scheduled send already on disk reaches the thread this way, with no
+    // id wacli ever produced.
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(screen.queryByText(/not in the local archive/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to the description when the recorded id is not in the thread', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1), sentMessage()], hasMore: false });
+    useAppStore.setState({
+      highlightedMessageId: 'wamid.NOT-IN-THE-ARCHIVE',
+      highlightedMessageHint: { text: 'Ma kore gever?', sentAfter: '2026-09-01T10:00:00Z' },
+    });
+    renderThread();
+
+    await screen.findByText('Ma kore gever?');
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(screen.queryByText(/not in the local archive/i)).not.toBeInTheDocument();
+  });
+
+  it('still says so when neither the id nor the description can be found', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: false });
+    useAppStore.setState({
+      highlightedMessageHint: { text: 'never sent from here', sentAfter: '2026-09-01T10:00:00Z' },
+    });
+    renderThread();
+
+    // The notice has to keep working: it is only wrong when it fires for a
+    // message that is present.
+    expect(await screen.findByText(/not in the local archive/i)).toBeInTheDocument();
+  });
+});

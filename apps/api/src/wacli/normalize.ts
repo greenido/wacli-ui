@@ -234,3 +234,13 @@ export function sentMessageIdFrom(result: unknown): string | null {
 
   return null;
 }
+
+/**
+ * Mission Control used to stamp any send it could not read an id for with
+ * `out-<epoch millis>`. wacli's own ids look like `3EB0626F628F3B645B291E`, so
+ * a jump to one of these could only ever report the message as missing from the
+ * archive. They are dropped wherever they are still on record.
+ */
+export function isSynthesisedMessageId(id: unknown): boolean {
+  return typeof id === 'string' && /^out-\d+$/.test(id);
+}

@@ -537,3 +537,54 @@ describe('Scheduler records only a real message ID', () => {
     expect(item.sentMessageId).toBeUndefined();
   });
 });
+
+describe('Scheduler drops placeholder ids already on disk', () => {
+  let tmpSchedFile: string;
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-heal-${Date.now()}-${Math.random()}.json`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpSchedFile)) {
+      fs.unlinkSync(tmpSchedFile);
+    }
+  });
+
+  it('heals records written before wacli\'s id was read correctly', () => {
+    // Exactly what is on disk today: every sent item stamped `out-<millis>`,
+    // a value no archive can match, so clicking the row in LATER could only
+    // ever answer "that message is not in the local archive".
+    fs.writeFileSync(
+      tmpSchedFile,
+      JSON.stringify([
+        {
+          id: 'sched-legacy',
+          to: '15551234567@s.whatsapp.net',
+          message: 'Ma kore gever?',
+          scheduledAt: '2026-09-04T10:00:00Z',
+          createdAt: '2026-09-04T09:00:00Z',
+          status: 'sent',
+          sentMessageId: 'out-1788203211119',
+        },
+        {
+          id: 'sched-real',
+          to: '15551234567@s.whatsapp.net',
+          message: 'and this one is fine',
+          scheduledAt: '2026-09-04T10:00:00Z',
+          createdAt: '2026-09-04T09:00:00Z',
+          status: 'sent',
+          sentMessageId: '3EB0626F628F3B645B291E',
+        },
+      ])
+    );
+
+    const list = new Scheduler(tmpSchedFile).getList();
+    expect(list.find((i) => i.id === 'sched-legacy')?.sentMessageId).toBeUndefined();
+    expect(list.find((i) => i.id === 'sched-real')?.sentMessageId).toBe('3EB0626F628F3B645B291E');
+
+    // Healed on disk too, so it is a one-off rather than a filter on every read.
+    const onDisk = JSON.parse(fs.readFileSync(tmpSchedFile, 'utf8')) as Record<string, unknown>[];
+    expect(onDisk.find((i) => i.id === 'sched-legacy')?.sentMessageId).toBeUndefined();
+  });
+});
