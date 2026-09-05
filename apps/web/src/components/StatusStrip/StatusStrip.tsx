@@ -17,6 +17,7 @@ import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
+import { isHeartbeatStale } from '../../lib/heartbeat.ts';
 import type { MessageJumpHint } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
 import type { ScheduledMessage, SendLogEntry, UnifiedChat } from '../../types.ts';
@@ -316,7 +317,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           {heartbeatAge !== null && heartbeatAge !== undefined && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>HEARTBEAT</span>
-              <span className={heartbeatAge < 120 ? 'text-mc-text' : 'text-mc-safe'}>
+              <span className={isHeartbeatStale(heartbeatAge) ? 'text-mc-safe' : 'text-mc-text'}>
                 {heartbeatAge}s ago
               </span>
             </div>

@@ -83,6 +83,51 @@ describe('WacliProcessManager', () => {
     expect(pm.getState()).toBe('logged_out');
   });
 
+  it('announces a pause once, carrying its reason', () => {
+    const events: Array<{ state: string; reason?: string }> = [];
+    const pm = new WacliProcessManager({
+      apiPort: 3002,
+      onStateChange: (state, reason) => events.push({ state, reason }),
+    });
+
+    const internals = pm as unknown as {
+      state: string;
+      isPaused: boolean;
+      handleProcessExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+      setState: (state: string, reason?: string) => void;
+    };
+
+    internals.state = 'running';
+    internals.isPaused = true;
+
+    // Both of these run off the *same* `close` event: handleProcessExit was
+    // wired at spawn so it fires first, and executeExclusive's own listener
+    // follows. It used to announce `paused` with no reason before the real one
+    // landed, so every exclusive command emitted the transition twice.
+    internals.handleProcessExit(0, null);
+    internals.setState('paused', 'Paused for exclusive command');
+
+    expect(events).toEqual([{ state: 'paused', reason: 'Paused for exclusive command' }]);
+  });
+
+  it('does not re-announce a state it is already in', () => {
+    const events: Array<{ state: string; reason?: string }> = [];
+    const pm = new WacliProcessManager({
+      apiPort: 3002,
+      onStateChange: (state, reason) => events.push({ state, reason }),
+    });
+
+    const internals = pm as unknown as { setState: (state: string, reason?: string) => void };
+
+    internals.setState('paused', 'Paused for exclusive command');
+    internals.setState('paused', 'Paused for exclusive command');
+    expect(events).toHaveLength(1);
+
+    // A changed reason is still news: same state, different thing to say.
+    internals.setState('paused', 'Paused for something else');
+    expect(events).toHaveLength(2);
+  });
+
   it('supports restart method', async () => {
     const pm = new WacliProcessManager({ apiPort: 3002 });
     const spawnSpy = vi.spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess').mockImplementation(() => {});
