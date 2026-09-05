@@ -9,6 +9,7 @@ import {
   requestNotificationPermission,
   setNotificationsEnabled,
 } from '../../lib/notifications.ts';
+import { isHeartbeatStale } from '../../lib/heartbeat.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 
@@ -267,7 +268,7 @@ export const SettingsModal: React.FC = () => {
               {health?.heartbeatAgeSeconds !== null && health?.heartbeatAgeSeconds !== undefined && (
                 <div className="flex justify-between">
                   <span className="text-mc-textMuted">Heartbeat:</span>
-                  <span className={health.heartbeatAgeSeconds < 120 ? 'text-mc-text' : 'text-mc-safe'}>
+                  <span className={isHeartbeatStale(health.heartbeatAgeSeconds) ? 'text-mc-safe' : 'text-mc-text'}>
                     {health.heartbeatAgeSeconds}s ago
                   </span>
                 </div>
