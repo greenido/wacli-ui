@@ -128,6 +128,37 @@ describe('WacliProcessManager', () => {
     expect(events).toHaveLength(2);
   });
 
+  it('remembers a daemon PID after that daemon is gone', async () => {
+    // The health route asks this to tell a lock held by one of ours from one
+    // held by somebody else's wacli. A cached `wacli doctor` result can still
+    // name a daemon that has since exited, so forgetting the PID on exit would
+    // report an ordinary restart as an external process taking the store.
+    const previousBin = process.env.WACLI_BIN;
+    process.env.WACLI_BIN = '/bin/sleep';
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    try {
+      pm.start();
+      const pid = pm.getPid();
+      expect(pid).toBeGreaterThan(0);
+      expect(pm.hasSpawnedPid(pid!)).toBe(true);
+
+      // stop() pauses first, so the exit does not schedule a restart.
+      await pm.stop();
+
+      expect(pm.getPid()).toBeNull();
+      expect(pm.hasSpawnedPid(pid!)).toBe(true);
+      expect(pm.hasSpawnedPid(pid! + 1)).toBe(false);
+    } finally {
+      pm.dispose();
+      if (previousBin === undefined) {
+        delete process.env.WACLI_BIN;
+      } else {
+        process.env.WACLI_BIN = previousBin;
+      }
+    }
+  });
+
   it('supports restart method', async () => {
     const pm = new WacliProcessManager({ apiPort: 3002 });
     const spawnSpy = vi.spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess').mockImplementation(() => {});

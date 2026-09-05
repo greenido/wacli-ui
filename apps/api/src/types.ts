@@ -87,6 +87,8 @@ export interface UnifiedGroup {
 export interface UnifiedDoctor {
   storeDir: string;
   lockHeld: boolean;
+  /** PID named by the store LOCK file, straight from `wacli doctor`. */
+  lockOwnerPid: number | null;
   authenticated: boolean;
   linkedJid: string | null;
   connected: boolean;

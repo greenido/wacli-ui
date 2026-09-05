@@ -26,6 +26,17 @@ export interface ProcessManagerOptions {
 export const DEFAULT_RESPAWN_DEBOUNCE_MS = 750;
 
 /**
+ * How many of our own daemon PIDs to remember.
+ *
+ * A `wacli doctor` result is cached for a few seconds, so the PID it names as
+ * the lock holder can be a daemon of ours that has since exited — and the
+ * health route must not read that as somebody else's wacli. A restart loop
+ * burns through PIDs quickly at the short end of the backoff, so remember more
+ * than one; bounded because nothing else expires this list.
+ */
+export const SPAWNED_PID_HISTORY = 16;
+
+/**
  * Cleanups of every live manager, run when this process goes down. The hooks
  * used to be registered per instance, which added three process listeners per
  * construction and tripped Node's MaxListenersExceededWarning as soon as a test
@@ -93,6 +104,8 @@ export class WacliProcessManager {
   private respawnDebounceMs: number;
   /** Last connection state the daemon reported about itself. */
   private daemonConnected = false;
+  /** PIDs we have spawned, so a lock held by one is never read as external. */
+  private spawnedPids: number[] = [];
   private onStateChange?: (state: ProcessState, reason?: string) => void;
   private onLifecycleEvent?: (event: Record<string, unknown>) => void;
   /** SIGINTs the daemon if this process goes down; held so dispose() can drop it. */
@@ -169,6 +182,16 @@ export class WacliProcessManager {
   /** Exposed for the health route's "is a command holding the daemon down" check. */
   public hasPendingExclusiveWork(): boolean {
     return this.exclusiveWaiters > 0;
+  }
+
+  /**
+   * Whether this manager has ever spawned `pid`. Answers "is that lock holder
+   * one of ours?" for a PID our current child no longer has — while the daemon
+   * is restarting `getPid()` is null, and a cached doctor result can still name
+   * the process that just exited.
+   */
+  public hasSpawnedPid(pid: number): boolean {
+    return this.spawnedPids.includes(pid);
   }
 
   public getHeartbeatAgeSeconds(): number | null {
@@ -288,6 +311,13 @@ export class WacliProcessManager {
       });
 
       this.child = child;
+
+      if (typeof child.pid === 'number') {
+        this.spawnedPids.push(child.pid);
+        if (this.spawnedPids.length > SPAWNED_PID_HISTORY) {
+          this.spawnedPids.shift();
+        }
+      }
 
       // Handle stderr NDJSON lifecycle stream
       if (child.stderr) {

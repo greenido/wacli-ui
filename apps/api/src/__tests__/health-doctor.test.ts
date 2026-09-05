@@ -82,6 +82,43 @@ describe('Health doctor probe', () => {
     expect(res.body.data.statusSummary).toBe('store_locked_external');
   });
 
+  it('names the external lock holder while our own daemon is restart-looping', async () => {
+    // What an external `wacli sync` actually does to us: our daemon spawns,
+    // cannot take the lock, exits, and backs off — so the state is `restarting`
+    // and `getPid()` is null for most of it. Every check that needed a PID of
+    // ours, or a `stopped`/`failed` state, missed this and left the operator
+    // reading "sync daemon is starting" for as long as the other process ran.
+    execSpy.mockResolvedValue({ ...lockedDoctor, lock_owner_pid: 9999 });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    vi.spyOn(pm, 'getPid').mockReturnValue(null);
+    vi.spyOn(pm, 'getState').mockReturnValue('restarting');
+    const app = createApp(pm);
+
+    const res = await request(app).get('/api/health?fresh=1');
+
+    expect(res.body.data.statusSummary).toBe('store_locked_external');
+    expect(res.body.data.statusMessage).toContain('pid 9999');
+    expect(res.body.data.storeLockHolderPid).toBe(9999);
+  });
+
+  it('does not read a daemon of our own as an external lock holder', async () => {
+    // The doctor result is cached for seconds, so the PID it names can be the
+    // daemon that just exited. Reporting that as somebody else's wacli would
+    // turn an ordinary restart into a false alarm.
+    execSpy.mockResolvedValue({ ...lockedDoctor, lock_owner_pid: 4242 });
+
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    vi.spyOn(pm, 'getPid').mockReturnValue(null);
+    vi.spyOn(pm, 'getState').mockReturnValue('restarting');
+    vi.spyOn(pm, 'hasSpawnedPid').mockImplementation((pid) => pid === 4242);
+    const app = createApp(pm);
+
+    const res = await request(app).get('/api/health?fresh=1');
+
+    expect(res.body.data.statusSummary).toBe('sync_starting');
+  });
+
   it('reuses a cached doctor result instead of probing the store every poll', async () => {
     const app = createApp(connectedManager());
 
