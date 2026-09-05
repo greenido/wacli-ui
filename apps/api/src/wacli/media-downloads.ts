@@ -35,8 +35,17 @@ interface CachedFailure {
  *
  * Opening a chat renders every attachment at once, and each one that is not on
  * disk shells out a `wacli media download`. Unbounded, that is dozens of
- * processes all contending for the single-writer store lock, which starves the
- * sync daemon. Three things keep that under control:
+ * processes, each fetching a file from mmg.whatsapp.net — a burst that competes
+ * with the daemon for CPU and bandwidth, and with the operator for patience.
+ *
+ * It does not, however, compete for the store lock. Both download paths run
+ * read-only with an explicit `--output`, and in that combination wacli serves
+ * the download without taking the lock at all — verified against wacli 0.17.1
+ * while the sync daemon held it. Do not reach for `executeExclusive` here on
+ * the strength of the store-lock handling below: that is for a lock taken by
+ * something else, not by these.
+ *
+ * Three things keep the burst under control:
  *
  *  - a concurrency cap, so a thread of 40 attachments is a queue, not a stampede;
  *  - single-flight, so the same message requested twice downloads once;
