@@ -30,7 +30,7 @@ const message = (over: Partial<UnifiedMessage>): UnifiedMessage => ({
 
 describe('chatDisplayName', () => {
   it('keeps the name it is given', () => {
-    expect(chatDisplayName('120363235572543247@g.us', 'The hikers')).toBe('The hikers');
+    expect(chatDisplayName('120363111111111111@g.us', 'The hikers')).toBe('The hikers');
     expect(chatDisplayName('15551234567@s.whatsapp.net', 'Alice')).toBe('Alice');
   });
 
@@ -41,10 +41,10 @@ describe('chatDisplayName', () => {
   it('labels an unnamed group instead of showing its group id as a name', () => {
     // The 18-digit id identifies nothing a human recognises, and shown bare it
     // reads as a phone number. The tail keeps two unnamed groups distinguishable.
-    expect(chatDisplayName('120363235572543247@g.us', '')).toBe('Group 543247');
-    expect(chatDisplayName('120363418066369021@g.us', '')).toBe('Group 369021');
-    expect(chatDisplayName('120363235572543247@g.us', '  ')).toBe('Group 543247');
-    expect(chatDisplayName('120363235572543247@g.us')).toBe('Group 543247');
+    expect(chatDisplayName('120363111111111111@g.us', '')).toBe('Group 111111');
+    expect(chatDisplayName('120363222222222222@g.us', '')).toBe('Group 222222');
+    expect(chatDisplayName('120363111111111111@g.us', '  ')).toBe('Group 111111');
+    expect(chatDisplayName('120363111111111111@g.us')).toBe('Group 111111');
   });
 
   it('has something to say even for a malformed group jid', () => {
@@ -54,13 +54,13 @@ describe('chatDisplayName', () => {
 
 describe('chatFromMessage naming', () => {
   it('uses the message chat name when the live event carries one', () => {
-    const chat = chatFromMessage(message({ chatJid: '120363235572543247@g.us', chatName: 'The hikers' }));
+    const chat = chatFromMessage(message({ chatJid: '120363111111111111@g.us', chatName: 'The hikers' }));
     expect(chat.name).toBe('The hikers');
     expect(chat.kind).toBe('group');
   });
 
   it('labels the group when the live event carries no chat name', () => {
-    const chat = chatFromMessage(message({ chatJid: '120363235572543247@g.us', chatName: '' }));
-    expect(chat.name).toBe('Group 543247');
+    const chat = chatFromMessage(message({ chatJid: '120363111111111111@g.us', chatName: '' }));
+    expect(chat.name).toBe('Group 111111');
   });
 });
