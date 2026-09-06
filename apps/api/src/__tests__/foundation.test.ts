@@ -46,17 +46,17 @@ describe('Normalize utilities', () => {
     // A left group keeps its chat row but never comes back from `groups
     // refresh`, so nothing local knows what it was called. The 18-digit id is
     // not a name, and shown as one it reads like a phone number.
-    const unnamedGroup = normalizeChat({ jid: '120363235572543247@g.us', name: '' });
-    expect(unnamedGroup.name).toBe('Group 543247');
+    const unnamedGroup = normalizeChat({ jid: '120363111111111111@g.us', name: '' });
+    expect(unnamedGroup.name).toBe('Group 111111');
     expect(unnamedGroup.kind).toBe('group');
 
     // A DM's local part *is* the phone number, so that fallback stays.
     expect(normalizeChat({ jid: '15551234567@s.whatsapp.net', name: '' }).name).toBe('15551234567');
 
     // A real name always wins, whitespace-only never does.
-    expect(chatDisplayName('120363235572543247@g.us', 'The hikers')).toBe('The hikers');
-    expect(chatDisplayName('120363235572543247@g.us', '   ')).toBe('Group 543247');
-    expect(chatDisplayName('120363235572543247@g.us', null)).toBe('Group 543247');
+    expect(chatDisplayName('120363111111111111@g.us', 'The hikers')).toBe('The hikers');
+    expect(chatDisplayName('120363111111111111@g.us', '   ')).toBe('Group 111111');
+    expect(chatDisplayName('120363111111111111@g.us', null)).toBe('Group 111111');
     expect(chatDisplayName('@g.us')).toBe('Unnamed group');
   });
 
