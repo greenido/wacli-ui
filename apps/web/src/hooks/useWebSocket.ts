@@ -12,7 +12,8 @@ import {
   showMessageNotification,
 } from '../lib/notifications.ts';
 import { sameWhatsAppUser } from '../lib/presence.ts';
-import type { MissionControlEvent, MissionControlStatus, UnifiedChat, UnifiedMessage } from '../types.ts';
+import { patchMessages, prependMessage, type MessagePages } from '../lib/messagePages.ts';
+import type { MissionControlEvent, MissionControlStatus, UnifiedChat } from '../types.ts';
 
 /**
  * How long to hold a chat-list refetch open so a burst of messages from chats
@@ -76,22 +77,12 @@ export function useWebSocket() {
           if (payload.type === 'message.new') {
             const newMsg = payload.data;
 
-            // 1. Reconcile into the active thread cache. The thread is keyed by
-            //    chat *and* window size, so match on the prefix: a widened
-            //    window is a different key holding the same conversation.
-            queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
+            // 1. Reconcile into the active thread cache. The thread holds its
+            //    history as pages, so the insert goes on the front of the newest
+            //    one and dedupes across all of them.
+            queryClient.setQueriesData<MessagePages>(
               { queryKey: ['messages', newMsg.chatJid] },
-              (old) => {
-                // Nothing loaded yet: the fetch already in flight will carry it.
-                if (!old) return old;
-                if (old.messages.some((m) => m.msgId === newMsg.msgId)) {
-                  return old; // dedupe
-                }
-                return {
-                  ...old,
-                  messages: [newMsg, ...old.messages],
-                };
-              }
+              (old) => prependMessage(old, newMsg)
             );
 
             // 2. Reconcile into chats list cache
@@ -182,20 +173,12 @@ export function useWebSocket() {
             }
           } else if (payload.type === 'message.receipt') {
             const { chatJid, messageIds, status } = payload.data;
-            queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-              { queryKey: ['messages', chatJid] },
-              (old) => {
-                if (!old) return old;
-                return {
-                  ...old,
-                  messages: old.messages.map((m) => {
-                    if (messageIds.includes(m.msgId)) {
-                      return { ...m, deliveryStatus: status };
-                    }
-                    return m;
-                  }),
-                };
-              }
+            queryClient.setQueriesData<MessagePages>({ queryKey: ['messages', chatJid] }, (old) =>
+              patchMessages(
+                old,
+                (m) => messageIds.includes(m.msgId),
+                (m) => ({ ...m, deliveryStatus: status })
+              )
             );
           } else if (payload.type === 'chat.presence') {
             const { chatJid, state, senderJid } = payload.data;

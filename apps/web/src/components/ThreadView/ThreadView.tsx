@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useLayoutEffect, useState } from 'react';
 import {
   Reply,
   Smile,
@@ -17,23 +17,32 @@ import {
   AlertTriangle,
   Terminal,
 } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api } from '../../api/client.ts';
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  keepPreviousData,
+} from '@tanstack/react-query';
+import { api, ApiClientError } from '../../api/client.ts';
 import { POLL_MESSAGES_MS, POLL_SCHEDULED_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
+import {
+  flattenMessagePages,
+  olderCursor,
+  patchMessages,
+  shouldPollThread,
+  type MessagePage,
+  type MessagePages,
+} from '../../lib/messagePages.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import { ExportMenu } from './ExportMenu.tsx';
-import type { ChatCoverage, UnifiedMessage } from '../../types.ts';
-
-interface MessagePage {
-  messages: UnifiedMessage[];
-  hasMore: boolean;
-}
+import type { UnifiedMessage } from '../../types.ts';
 
 interface ThreadReaction {
   emoji: string;
@@ -63,7 +72,7 @@ interface PendingReaction {
 const NO_PENDING_REACTIONS: Record<string, PendingReaction> = {};
 
 /** How many messages the thread opens with, and each "load older" step adds. */
-const MESSAGE_WINDOW_STEP = 200;
+const MESSAGE_PAGE_SIZE = 200;
 
 const HIGHLIGHT_TTL_MS = 5000;
 
@@ -126,20 +135,6 @@ export const ThreadView: React.FC = () => {
   // from the message they had just been sent to, seconds after arriving.
   const jumpedToRef = useRef<string | null>(null);
 
-  // How much history is loaded, and which chat that was decided for. Deriving
-  // the size from the pair means moving to another conversation starts from the
-  // newest page again, with no effect to keep the two in sync.
-  const [messageWindow, setMessageWindow] = useState<{ jid: string | null; size: number }>({
-    jid: null,
-    size: MESSAGE_WINDOW_STEP,
-  });
-  const windowSize =
-    messageWindow.jid === (selectedChat?.jid ?? null) ? messageWindow.size : MESSAGE_WINDOW_STEP;
-
-  const loadOlderMessages = () => {
-    setMessageWindow({ jid: selectedChat?.jid ?? null, size: windowSize + MESSAGE_WINDOW_STEP });
-  };
-
   const queryClient = useQueryClient();
 
   const { data: health } = useQuery({
@@ -148,32 +143,73 @@ export const ThreadView: React.FC = () => {
   });
 
   const readsReady = isWacliReadyForReads(health);
-  const readQueryOpts = wacliReadQueryOptions<MessagePage>(
+  const readQueryOpts = wacliReadQueryOptions(
     readsReady && Boolean(selectedChat?.jid)
   );
 
-  // The window is part of the query key, so widening it is an ordinary fetch
-  // rather than a cache mutation. Everything that writes into a thread does so
-  // with a prefix match, and therefore keeps working across window sizes.
+  // One page per "load older", walked back with a `before` cursor, rather than
+  // one ever-widening `limit`. Re-reading the whole thread to reach 200 more
+  // messages is what made the sixth step cost a 1200-message subprocess — and
+  // then cost it again on every poll.
   const {
-    data: messagesData,
+    data: messagePages,
     isLoading,
     isFetching,
     isPlaceholderData,
-  } = useQuery({
-    queryKey: ['messages', selectedChat?.jid, windowSize],
-    queryFn: () =>
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<MessagePage, ApiClientError, MessagePages, unknown[], string | undefined>({
+    queryKey: ['messages', selectedChat?.jid],
+    queryFn: ({ pageParam }) =>
       selectedChat
-        ? api.getMessages({ chat: selectedChat.jid, limit: windowSize })
+        ? api.getMessages({
+            chat: selectedChat.jid,
+            limit: MESSAGE_PAGE_SIZE,
+            before: pageParam,
+          })
         : Promise.resolve({ messages: [], hasMore: false }),
-    refetchInterval: POLL_MESSAGES_MS,
-    // Keep the narrower window on screen while the wider one loads, so
-    // "load older" extends the thread instead of blanking it.
+    initialPageParam: undefined,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? olderCursor(lastPage) : undefined),
+    refetchInterval: (query) =>
+      shouldPollThread(query.state.data?.pages.length ?? 1) ? POLL_MESSAGES_MS : false,
+    // Keep the previous conversation on screen while the next one loads, so
+    // switching chats does not blank the pane.
     placeholderData: keepPreviousData,
     ...readQueryOpts,
   });
 
-  const canLoadOlder = Boolean(messagesData?.hasMore);
+  const canLoadOlder = Boolean(hasNextPage);
+
+  /**
+   * How far the reading position sat from the bottom when a "load older" began,
+   * or null when no such fetch is outstanding.
+   *
+   * Prepending history grows the scrollable area upwards. Measuring from the
+   * bottom rather than the top is what survives that growth: re-applying it
+   * afterwards leaves the line the operator was reading exactly where it was,
+   * instead of dropping them back at the newest message.
+   */
+  const olderAnchorRef = useRef<number | null>(null);
+
+  /** Set for the one commit that restores an anchor, so auto-scroll stands down. */
+  const restoredOlderRef = useRef(false);
+
+  const loadOlderMessages = () => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const el = scrollRef.current;
+    olderAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
+    void fetchNextPage();
+  };
+
+  useLayoutEffect(() => {
+    const anchor = olderAnchorRef.current;
+    if (anchor === null) return;
+    olderAnchorRef.current = null;
+    restoredOlderRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight - anchor;
+  }, [messagePages]);
 
   // How far back the local archive reaches. Paging the thread stops at whatever
   // sync happened to pull; this is what tells the operator whether the wall they
@@ -183,7 +219,7 @@ export const ThreadView: React.FC = () => {
     queryFn: () =>
       selectedChat ? api.getHistoryCoverage({ chat: selectedChat.jid }) : Promise.resolve([]),
     staleTime: COVERAGE_STALE_MS,
-    ...wacliReadQueryOptions<ChatCoverage[]>(readsReady && Boolean(selectedChat?.jid)),
+    ...wacliReadQueryOptions(readsReady && Boolean(selectedChat?.jid)),
   });
 
   const coverage = coverageRows?.[0] ?? null;
@@ -222,13 +258,12 @@ export const ThreadView: React.FC = () => {
       api.bookmarkMessage(params),
     onMutate: async ({ chat, id, bookmarked }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chat] });
-      queryClient.setQueriesData<MessagePage>({ queryKey: ['messages', chat] }, (old) =>
-        old
-          ? {
-              ...old,
-              messages: old.messages.map((m) => (m.msgId === id ? { ...m, bookmarked } : m)),
-            }
-          : old
+      queryClient.setQueriesData<MessagePages>({ queryKey: ['messages', chat] }, (old) =>
+        patchMessages(
+          old,
+          (m) => m.msgId === id,
+          (m) => ({ ...m, bookmarked })
+        )
       );
     },
     onError: (_err, { chat }) => {
@@ -240,8 +275,10 @@ export const ThreadView: React.FC = () => {
   // rather than appending is what lets an optimistic reaction sit in the same
   // slot the archive's own row will occupy, instead of doubling the emoji up
   // the moment the real one arrives.
+  const loadedMessages = useMemo(() => flattenMessagePages(messagePages), [messagePages]);
+
   const { messages, reactionsMap, myArchivedReactions } = useMemo(() => {
-    const rawMessages = messagesData?.messages ?? [];
+    const rawMessages = loadedMessages;
     const byTarget = new Map<string, Map<string, ThreadReaction & { at: number }>>();
     const visibleMsgs: UnifiedMessage[] = [];
 
@@ -304,7 +341,7 @@ export const ThreadView: React.FC = () => {
     // Sort chronologically ascending for display
     visibleMsgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
     return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
-  }, [messagesData?.messages, pendingReactions]);
+  }, [loadedMessages, pendingReactions]);
 
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
@@ -331,6 +368,14 @@ export const ThreadView: React.FC = () => {
 
   // Auto-scroll to the newest message, unless we are navigating to a specific one.
   useEffect(() => {
+    // Older history just landed and the layout pass has already put the reading
+    // position back. Scrolling to the newest message now is exactly what "load
+    // older" is asking not to happen.
+    if (restoredOlderRef.current) {
+      restoredOlderRef.current = false;
+      return;
+    }
+
     if (!jumpRequested) {
       // The highlight we just honoured has expired. Scrolling to the newest
       // message here is what made a jump look like it never worked: the
@@ -452,7 +497,7 @@ export const ThreadView: React.FC = () => {
   });
 
   useUiCommand('thread:load-older', () => {
-    if (!canLoadOlder || isFetching) return;
+    if (!canLoadOlder || isFetchingNextPage) return;
     loadOlderMessages();
   });
 
@@ -687,11 +732,11 @@ export const ThreadView: React.FC = () => {
           <div className="flex justify-center pb-1">
             <button
               onClick={loadOlderMessages}
-              disabled={isFetching}
+              disabled={isFetchingNextPage}
               className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
               title="Load the previous 200 messages from the local archive"
             >
-              {isFetching ? (
+              {isFetchingNextPage ? (
                 <>
                   <Loader2 size={12} className="animate-spin" />
                   <span>LOADING...</span>

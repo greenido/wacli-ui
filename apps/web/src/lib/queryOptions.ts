@@ -1,4 +1,3 @@
-import type { UseQueryOptions } from '@tanstack/react-query';
 import { ApiClientError } from '../api/client.ts';
 
 /**
@@ -19,9 +18,19 @@ export const POLL_MESSAGES_MS = 30_000;
 export const POLL_SCHEDULED_MS = 15_000;
 export const POLL_MODE_MS = 15_000;
 
-export function wacliReadQueryOptions<T>(
-  enabled: boolean
-): Pick<UseQueryOptions<T, ApiClientError>, 'enabled' | 'retry' | 'retryDelay'> {
+/**
+ * Spelled out rather than picked from `UseQueryOptions`, so the same options
+ * spread into an infinite query too — those type `enabled` against paged data,
+ * and a shape borrowed from the plain query would not fit. None of these three
+ * fields depend on what the query returns, only on how it fails.
+ */
+export interface WacliReadQueryOptions {
+  enabled: boolean;
+  retry: (failureCount: number, error: ApiClientError) => boolean;
+  retryDelay: (attempt: number) => number;
+}
+
+export function wacliReadQueryOptions(enabled: boolean): WacliReadQueryOptions {
   return {
     enabled,
     retry: (failureCount, error) => {

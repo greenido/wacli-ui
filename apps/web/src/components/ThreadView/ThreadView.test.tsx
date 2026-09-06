@@ -124,16 +124,46 @@ describe('ThreadView history window', () => {
     expect(screen.queryByRole('button', { name: /LOAD OLDER MESSAGES/i })).not.toBeInTheDocument();
   });
 
-  it('asks wacli for a wider window when the operator loads older messages', async () => {
+  it('walks back from the oldest loaded message instead of re-reading the thread', async () => {
     const user = userEvent.setup();
-    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: true });
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: true });
     renderThread();
 
     await user.click(await screen.findByRole('button', { name: /LOAD OLDER MESSAGES/i }));
 
-    // The thread used to be pinned at a hard-coded 200 with no way to go back.
-    expect(getMessages).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
-    expect(getMessages).toHaveBeenCalledWith(expect.objectContaining({ limit: 400 }));
+    // The thread used to widen one `limit`, so reaching 200 more messages meant
+    // re-reading every message already on screen — and paying for it again on
+    // every poll. Each step is now one page, anchored to where the last ended.
+    expect(getMessages).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ chat: CHAT.jid, limit: 200, before: undefined })
+    );
+
+    // wacli returns newest first, so the cursor is the *last* message of the
+    // page just read — and `--before` takes a time, not an id.
+    const oldestLoaded = message(2).ts;
+    await waitFor(() =>
+      expect(getMessages).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ chat: CHAT.jid, limit: 200, before: oldestLoaded })
+      )
+    );
+  });
+
+  it('keeps the newest page on screen while an older one is being fetched', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: true });
+    renderThread();
+
+    expect(await screen.findByText('message body 1')).toBeInTheDocument();
+
+    getMessages.mockResolvedValue({ messages: [message(2)], hasMore: false });
+    await user.click(screen.getByRole('button', { name: /LOAD OLDER MESSAGES/i }));
+
+    // Paging appends history rather than replacing the window, so nothing that
+    // was already being read leaves the pane.
+    expect(await screen.findByText('message body 2')).toBeInTheDocument();
+    expect(screen.getByText('message body 1')).toBeInTheDocument();
   });
 });
 

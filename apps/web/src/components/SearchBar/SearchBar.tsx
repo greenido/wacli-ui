@@ -40,7 +40,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const isTypingAhead = query.trim() !== settledQuery;
 
   const readsReady = isWacliReadyForReads(health);
-  const readQueryOpts = wacliReadQueryOptions<{ query: string; fts: boolean; results: UnifiedMessage[] } | null>(
+  const readQueryOpts = wacliReadQueryOptions(
     readsReady && Boolean(settledQuery)
   );
 

@@ -30,7 +30,7 @@ const message = (over: Partial<UnifiedMessage>): UnifiedMessage => ({
 
 describe('chatDisplayName', () => {
   it('keeps the name it is given', () => {
-    expect(chatDisplayName('120363111111111111@g.us', 'The hikers')).toBe('The hikers');
+    expect(chatDisplayName('120363111111111111@g.us', 'Ops Team')).toBe('Ops Team');
     expect(chatDisplayName('15551234567@s.whatsapp.net', 'Alice')).toBe('Alice');
   });
 
@@ -54,8 +54,8 @@ describe('chatDisplayName', () => {
 
 describe('chatFromMessage naming', () => {
   it('uses the message chat name when the live event carries one', () => {
-    const chat = chatFromMessage(message({ chatJid: '120363111111111111@g.us', chatName: 'The hikers' }));
-    expect(chat.name).toBe('The hikers');
+    const chat = chatFromMessage(message({ chatJid: '120363111111111111@g.us', chatName: 'Ops Team' }));
+    expect(chat.name).toBe('Ops Team');
     expect(chat.kind).toBe('group');
   });
 

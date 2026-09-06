@@ -6,6 +6,7 @@ import { useWebSocket } from './useWebSocket.ts';
 import { NOTIFICATIONS_STORAGE_KEY } from '../lib/notifications.ts';
 import { useAppStore } from '../store/appStore.ts';
 import { MARK_READ_DEBOUNCE_MS } from '../lib/chatRead.ts';
+import { flattenMessagePages, type MessagePages } from '../lib/messagePages.ts';
 import type { MissionControlEvent, UnifiedChat, UnifiedMessage } from '../types.ts';
 
 const markChatRead = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -411,6 +412,87 @@ describe('useWebSocket desktop notifications', () => {
 
     const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
     expect(rail[0].lastMessage).toBe('the newest line');
+    unmount();
+  });
+});
+
+describe('useWebSocket thread reconciliation', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    useAppStore.setState({ selectedChat: null });
+    markChatRead.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  /** The thread as an infinite query holds it: newest page first. */
+  function seedThread(...groups: UnifiedMessage[][]): void {
+    queryClient.setQueryData(['messages', 'alice@s.whatsapp.net'], {
+      pages: groups.map((messages, i) => ({ messages, hasMore: i === groups.length - 1 })),
+      pageParams: groups.map((_, i) => (i === 0 ? undefined : `cursor-${i}`)),
+    });
+  }
+
+  function thread(): MessagePages {
+    return queryClient.getQueryData<MessagePages>(['messages', 'alice@s.whatsapp.net'])!;
+  }
+
+  it('inserts a live message at the front of the newest page without a refetch', () => {
+    seedThread([message({ msgId: 'MSG-OLD', text: 'earlier line' })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    expect(flattenMessagePages(thread()).map((m) => m.msgId)).toEqual(['MSG-1', 'MSG-OLD']);
+    // The whole point of the socket: a new message costs no wacli read.
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['messages', 'alice@s.whatsapp.net'] })
+    );
+    unmount();
+  });
+
+  it('does not double a message the operator has already scrolled back past', () => {
+    seedThread([message({ msgId: 'MSG-NEW' })], [message({ msgId: 'MSG-1' })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    expect(flattenMessagePages(thread()).filter((m) => m.msgId === 'MSG-1')).toHaveLength(1);
+    unmount();
+  });
+
+  it('applies a receipt to a message sitting in an older page', () => {
+    seedThread([message({ msgId: 'MSG-NEW' })], [message({ msgId: 'MSG-1' })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({
+        type: 'message.receipt',
+        data: {
+          chatJid: 'alice@s.whatsapp.net',
+          messageIds: ['MSG-1'],
+          status: 'read',
+          sender: 'alice@s.whatsapp.net',
+          isFromMe: false,
+        },
+        ts: '2026-09-01T11:05:00Z',
+      });
+    });
+
+    const patched = flattenMessagePages(thread()).find((m) => m.msgId === 'MSG-1')!;
+    expect(patched.deliveryStatus).toBe('read');
     unmount();
   });
 });

@@ -30,7 +30,7 @@ export const NewChatModal: React.FC = () => {
   });
 
   const readsReady = isWacliReadyForReads(health);
-  const readQueryOpts = wacliReadQueryOptions<UnifiedChat[]>(
+  const readQueryOpts = wacliReadQueryOptions(
     activeModal === 'new-chat' && readsReady
   );
 

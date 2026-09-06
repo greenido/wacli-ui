@@ -54,7 +54,7 @@ describe('Normalize utilities', () => {
     expect(normalizeChat({ jid: '15551234567@s.whatsapp.net', name: '' }).name).toBe('15551234567');
 
     // A real name always wins, whitespace-only never does.
-    expect(chatDisplayName('120363111111111111@g.us', 'The hikers')).toBe('The hikers');
+    expect(chatDisplayName('120363111111111111@g.us', 'Ops Team')).toBe('Ops Team');
     expect(chatDisplayName('120363111111111111@g.us', '   ')).toBe('Group 111111');
     expect(chatDisplayName('120363111111111111@g.us', null)).toBe('Group 111111');
     expect(chatDisplayName('@g.us')).toBe('Unnamed group');

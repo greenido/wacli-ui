@@ -44,7 +44,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
 
   const readsReady = isWacliReadyForReads(health);
-  const readQueryOpts = wacliReadQueryOptions<UnifiedChat[]>(readsReady);
+  const readQueryOpts = wacliReadQueryOptions(readsReady);
 
   const { data: chats = [], isLoading, isError, error, isFetching } = useQuery({
     queryKey: ['chats', debouncedSearchQuery, chatFilter],
