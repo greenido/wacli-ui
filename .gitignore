@@ -7,3 +7,10 @@ logs/
 .env.*
 !.env.example
 coverage/
+
+# Local runtime state — may hold real chat JIDs, scheduled message bodies, tags
+.wacli-mission-control/
+*.db
+*.sqlite
+*.sqlite3
+*.jsonl
