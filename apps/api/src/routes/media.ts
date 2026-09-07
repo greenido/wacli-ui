@@ -168,6 +168,35 @@ function getMimeType(filePath: string): string {
   return MIME_MAP[ext] || 'application/octet-stream';
 }
 
+/**
+ * Streams a file to the response, and survives it going away mid-body.
+ *
+ * `pipe()` does not forward errors, and an unhandled `error` on a read stream
+ * is an uncaught exception — so a file deleted, unmounted or truncated while it
+ * was being served took the whole API down with it, and with it the sync daemon
+ * and every other pane. Headers are already sent by this point, so there is no
+ * status left to send: the honest thing is to log it and cut the body off,
+ * which is what the client sees as a truncated download.
+ *
+ * The response ending first is the ordinary case — a seek, a closed tab, a
+ * paused video — so the stream is destroyed with it rather than left reading a
+ * file nobody is waiting for.
+ */
+function streamFile(res: Response, filePath: string, range?: { start: number; end: number }): void {
+  const stream = fs.createReadStream(filePath, range);
+
+  stream.on('error', (err) => {
+    logger.warn('media', 'Media stream failed mid-body', { path: filePath, err });
+    res.destroy();
+  });
+
+  res.on('close', () => {
+    stream.destroy();
+  });
+
+  stream.pipe(res);
+}
+
 export function createMediaRouter(): Router {
   const router = Router();
 
@@ -294,7 +323,6 @@ export function createMediaRouter(): Router {
 
       if (parsedRange) {
         const { start, end } = parsedRange;
-        const fileStream = fs.createReadStream(filePath, { start, end });
 
         res.writeHead(206, {
           'Content-Range': `bytes ${start}-${end}/${stat.size}`,
@@ -304,7 +332,7 @@ export function createMediaRouter(): Router {
           'Content-Disposition': disposition,
           'X-Content-Type-Options': 'nosniff',
         });
-        fileStream.pipe(res);
+        streamFile(res, filePath, { start, end });
       } else {
         res.writeHead(200, {
           'Content-Length': stat.size,
@@ -313,7 +341,7 @@ export function createMediaRouter(): Router {
           'Content-Disposition': disposition,
           'X-Content-Type-Options': 'nosniff',
         });
-        fs.createReadStream(filePath).pipe(res);
+        streamFile(res, filePath);
       }
     } catch (err) {
       next(err);

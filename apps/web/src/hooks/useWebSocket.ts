@@ -21,6 +21,23 @@ import type { MissionControlEvent, MissionControlStatus, UnifiedChat } from '../
  */
 const CHATS_REFETCH_COALESCE_MS = 1_000;
 
+/**
+ * How long to wait before the first reconnect, and the ceiling it backs off to.
+ *
+ * The retry used to be a flat two seconds forever, so a console left open
+ * against a stopped API reconnected thirty times a minute for as long as the
+ * tab lived. Backing off keeps the common case fast — an API restarted during
+ * development is back within a second — without the tab settling into a
+ * permanent poll of something that is not there.
+ */
+export const WS_RECONNECT_BASE_MS = 1_000;
+export const WS_RECONNECT_MAX_MS = 30_000;
+
+/** The delay before reconnect attempt `attempt`, counting from zero. */
+export function wsReconnectDelay(attempt: number): number {
+  return Math.min(WS_RECONNECT_BASE_MS * 2 ** attempt, WS_RECONNECT_MAX_MS);
+}
+
 export function useWebSocket() {
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
@@ -30,6 +47,7 @@ export function useWebSocket() {
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let chatsRefetchTimer: ReturnType<typeof setTimeout> | null = null;
     let shouldReconnect = true;
+    let reconnectAttempts = 0;
 
     // `/api/chats` costs a `chats list` plus a ~300 KB message scan, so it is
     // asked for only when the cache genuinely cannot be patched in place.
@@ -52,6 +70,9 @@ export function useWebSocket() {
 
       ws.onopen = () => {
         setIsConnected(true);
+        // A connection that came back is the end of the retry sequence, so the
+        // next outage starts from a short delay rather than the last ceiling.
+        reconnectAttempts = 0;
         // Refresh health and current chat data on connect
         queryClient.invalidateQueries({ queryKey: ['health'] });
         queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -60,7 +81,8 @@ export function useWebSocket() {
       ws.onclose = () => {
         setIsConnected(false);
         if (shouldReconnect) {
-          reconnectTimer = setTimeout(connect, 2000);
+          reconnectTimer = setTimeout(connect, wsReconnectDelay(reconnectAttempts));
+          reconnectAttempts += 1;
         }
       };
 
@@ -92,15 +114,21 @@ export function useWebSocket() {
             // A reaction is not conversation content — the server-side preview scan
             // skips it, so the rail keeps showing the message being reacted to.
             const preview = newMsg.reactionToId ? null : messagePreviewText(newMsg);
-            let railChat: UnifiedChat | undefined;
-            let chatIsInRail = false;
+
+            // Read before writing. An updater has to be pure: React Query runs
+            // it once per query key matching `['chats']`, and StrictMode runs it
+            // twice again — so gathering state inside one, as this used to,
+            // meant the read receipt below could be sent several times for a
+            // single message.
+            const railChat = queryClient
+              .getQueriesData<UnifiedChat[]>({ queryKey: ['chats'] })
+              .flatMap(([, chats]) => chats ?? [])
+              .find((c) => c.jid === newMsg.chatJid);
+            const chatIsInRail = Boolean(railChat);
 
             queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
               if (!old) return old;
-              const known = old.find((c) => c.jid === newMsg.chatJid);
-              if (!known) return old;
-              chatIsInRail = true;
-              railChat ??= known;
+              if (!old.some((c) => c.jid === newMsg.chatJid)) return old;
 
               return old.map((c) => {
                 if (c.jid !== newMsg.chatJid) return c;
@@ -110,9 +138,6 @@ export function useWebSocket() {
                   : c;
 
                 if (isViewingChat) {
-                  if (!newMsg.fromMe) {
-                    void markChatAsRead(queryClient, newMsg.chatJid);
-                  }
                   return {
                     ...patched,
                     lastMessageTs: newMsg.ts,
@@ -137,6 +162,14 @@ export function useWebSocket() {
                 return tsB - tsA;
               });
             });
+
+            // A message arriving in the conversation on screen has been read by
+            // definition. Sent from out here, once, rather than from inside the
+            // updater above — and no longer conditional on the chat being in
+            // the rail, which was never what made it read.
+            if (isViewingChat && !newMsg.fromMe) {
+              markChatAsRead(queryClient, newMsg.chatJid);
+            }
 
             // The rail row is now correct without a round trip. Only a chat the
             // rail has never seen still needs one.

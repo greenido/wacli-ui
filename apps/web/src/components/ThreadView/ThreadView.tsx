@@ -31,6 +31,7 @@ import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
+import { distanceFromBottom, shouldFollowNewest } from '../../lib/threadScroll.ts';
 import {
   flattenMessagePages,
   olderCursor,
@@ -194,6 +195,23 @@ export const ThreadView: React.FC = () => {
 
   /** Set for the one commit that restores an anchor, so auto-scroll stands down. */
   const restoredOlderRef = useRef(false);
+
+  /**
+   * How far the reading position sat above the bottom when the operator last
+   * moved it. Recorded on scroll rather than measured in the effect, because by
+   * then the new message is already laid out and the distance it would report
+   * is one the operator never chose.
+   */
+  const distanceFromBottomRef = useRef(0);
+
+  /** Which conversation that distance belongs to, so opening another resets it. */
+  const followedChatRef = useRef<string | null>(null);
+
+  const handleThreadScroll = () => {
+    if (scrollRef.current) {
+      distanceFromBottomRef.current = distanceFromBottom(scrollRef.current);
+    }
+  };
 
   const loadOlderMessages = () => {
     if (!hasNextPage || isFetchingNextPage) return;
@@ -385,8 +403,24 @@ export const ThreadView: React.FC = () => {
         jumpedToRef.current = null;
         return;
       }
+
+      // A conversation just opened always shows its newest message.
+      const openedAnotherChat = followedChatRef.current !== (selectedChat?.jid ?? null);
+      followedChatRef.current = selectedChat?.jid ?? null;
+      if (openedAnotherChat) {
+        distanceFromBottomRef.current = 0;
+      }
+
+      // Following the live edge, or reading back through history? Judged on
+      // where the operator was before this message was laid out — see
+      // lib/threadScroll.
+      if (!shouldFollowNewest(distanceFromBottomRef.current)) {
+        return;
+      }
+
       if (scrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        distanceFromBottomRef.current = 0;
       }
       return;
     }
@@ -505,6 +539,9 @@ export const ThreadView: React.FC = () => {
     setHighlightedMessageId(null);
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      // An explicit ask to go to the newest message is also an ask to start
+      // following it again, so the next arrival is not left behind.
+      distanceFromBottomRef.current = 0;
     }
   });
 
@@ -654,7 +691,11 @@ export const ThreadView: React.FC = () => {
       )}
 
       {/* Message List */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleThreadScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-3"
+      >
         {/* Older history. wacli keeps the full archive locally; the thread just
             has to ask for more of it. */}
         {reactionError && (

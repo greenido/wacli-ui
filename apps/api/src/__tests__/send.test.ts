@@ -207,14 +207,63 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.body.error).toContain('not found');
   });
 
+  // A refusal is answered as one. This used to reply 200 with `success: true`
+  // and the reason tucked into `error`, which the client reads as success —
+  // so discarding a message that was never failed was reported as done.
   it('POST discard refuses a pending message', async () => {
     const id = await schedulePending();
 
     const res = await request(app).post(`/api/send/scheduled/${id}/discard`);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
     expect(res.body.data.discarded).toBe(false);
-    expect(res.body.error).toContain('not in failed state');
+    expect(res.body.error).toContain('not in a failed state');
+  });
+
+  it('DELETE cancels a pending message', async () => {
+    const id = await schedulePending();
+
+    const res = await request(app).delete(`/api/send/scheduled/${id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.cancelled).toBe(true);
+    expect(res.body.error).toBeNull();
+  });
+
+  it('DELETE refuses to cancel the same message twice', async () => {
+    const id = await schedulePending();
+    await request(app).delete(`/api/send/scheduled/${id}`);
+
+    const res = await request(app).delete(`/api/send/scheduled/${id}`);
+
+    // Already cancelled is not cancelled again. Answering the second one as a
+    // success is what let the UI report a no-op as done.
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.data.cancelled).toBe(false);
+    expect(res.body.error).toContain('no longer pending');
+  });
+
+  it('DELETE reports an unknown id rather than claiming a cancellation', async () => {
+    const res = await request(app).delete('/api/send/scheduled/sched-does-not-exist');
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toContain('not found');
+  });
+
+  it('POST cancel answers the same way as DELETE', async () => {
+    const id = await schedulePending();
+
+    const cancelled = await request(app).post(`/api/send/scheduled/${id}/cancel`);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.data.cancelled).toBe(true);
+
+    const again = await request(app).post(`/api/send/scheduled/${id}/cancel`);
+    expect(again.status).toBe(409);
+    expect(again.body.success).toBe(false);
   });
 });
 

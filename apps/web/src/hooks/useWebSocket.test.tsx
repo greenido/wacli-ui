@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useWebSocket } from './useWebSocket.ts';
+import { useWebSocket, wsReconnectDelay, WS_RECONNECT_BASE_MS, WS_RECONNECT_MAX_MS } from './useWebSocket.ts';
 import { NOTIFICATIONS_STORAGE_KEY } from '../lib/notifications.ts';
 import { useAppStore } from '../store/appStore.ts';
 import { MARK_READ_DEBOUNCE_MS } from '../lib/chatRead.ts';
@@ -494,5 +494,234 @@ describe('useWebSocket thread reconciliation', () => {
     const patched = flattenMessagePages(thread()).find((m) => m.msgId === 'MSG-1')!;
     expect(patched.deliveryStatus).toBe('read');
     unmount();
+  });
+});
+
+/**
+ * The read receipt used to be sent from inside a `setQueriesData` updater.
+ * Updaters have to be pure — React Query runs one per query key matching
+ * `['chats']`, and StrictMode runs each twice — so a single message could ask
+ * for the receipt several times, and only the debounce hid it.
+ */
+describe('useWebSocket read receipts are a side effect, not a cache update', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    useAppStore.setState({ selectedChat: null });
+    markChatRead.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('marks read for a chat the rail has never seen', async () => {
+    // Being in the rail was never what made a message read — having the
+    // conversation open is. The receipt used to be unreachable for a chat the
+    // rail did not already hold, because it lived inside the rail's updater.
+    useAppStore.setState({ selectedChat: chat() });
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+    unmount();
+  });
+
+  it('patches every cached rail without multiplying the receipt', async () => {
+    // Two filter tabs the operator has visited: two query keys, two updater
+    // runs, and one message that has still only been read once.
+    queryClient.setQueryData(['chats', '', 'all'], [chat({ unread: true, unreadCount: 3 })]);
+    queryClient.setQueryData(['chats', '', 'unread'], [chat({ unread: true, unreadCount: 3 })]);
+    useAppStore.setState({ selectedChat: chat() });
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    for (const key of [['chats', '', 'all'], ['chats', '', 'unread']]) {
+      const rail = queryClient.getQueryData<UnifiedChat[]>(key)!;
+      expect(rail[0].lastMessage).toBe('the newest line');
+      expect(rail[0].unreadCount).toBe(0);
+    }
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
+    unmount();
+  });
+
+  it('does not mark read a chat the operator is not looking at', async () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    useAppStore.setState({ selectedChat: chat({ jid: 'bob@s.whatsapp.net', name: 'Bob' }) });
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+
+    expect(markChatRead).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('does not mark read on a message it sent itself', async () => {
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    useAppStore.setState({ selectedChat: chat() });
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({
+        type: 'message.new',
+        data: message({ fromMe: true, senderName: 'Me' }),
+        ts: '2026-09-01T11:00:00Z',
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+
+    expect(markChatRead).not.toHaveBeenCalled();
+    unmount();
+  });
+});
+
+/**
+ * The retry used to be a flat two seconds, forever: a console left open against
+ * a stopped API reconnected thirty times a minute for as long as the tab lived.
+ */
+describe('useWebSocket reconnect backoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('doubles the wait, up to a ceiling', () => {
+    expect(wsReconnectDelay(0)).toBe(1_000);
+    expect(wsReconnectDelay(1)).toBe(2_000);
+    expect(wsReconnectDelay(2)).toBe(4_000);
+    expect(wsReconnectDelay(3)).toBe(8_000);
+    expect(wsReconnectDelay(4)).toBe(16_000);
+    expect(wsReconnectDelay(5)).toBe(WS_RECONNECT_MAX_MS);
+    // However long the outage, the tab never retries faster than the ceiling.
+    expect(wsReconnectDelay(40)).toBe(WS_RECONNECT_MAX_MS);
+  });
+
+  it('comes back quickly after a single drop', async () => {
+    const { unmount } = mount();
+    const before = FakeWebSocket.instances.length;
+
+    act(() => {
+      FakeWebSocket.instances.at(-1)!.onclose?.();
+    });
+
+    // Nothing yet: the first retry waits out its (short) delay.
+    expect(FakeWebSocket.instances.length).toBe(before);
+
+    await act(async () => {
+      vi.advanceTimersByTime(WS_RECONNECT_BASE_MS);
+    });
+
+    expect(FakeWebSocket.instances.length).toBe(before + 1);
+    unmount();
+  });
+
+  it('backs off while the API stays down', async () => {
+    const { unmount } = mount();
+
+    // Three failed attempts in a row, each waiting longer than the last.
+    for (const attempt of [0, 1, 2]) {
+      const before = FakeWebSocket.instances.length;
+
+      act(() => {
+        FakeWebSocket.instances.at(-1)!.onclose?.();
+      });
+
+      // One millisecond short of the delay for this attempt: still waiting.
+      await act(async () => {
+        vi.advanceTimersByTime(wsReconnectDelay(attempt) - 1);
+      });
+      expect(FakeWebSocket.instances.length).toBe(before);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(FakeWebSocket.instances.length).toBe(before + 1);
+    }
+
+    unmount();
+  });
+
+  it('starts over from a short delay once a connection comes back', async () => {
+    const { unmount } = mount();
+
+    // Two drops in: the next wait would be 4s.
+    for (const attempt of [0, 1]) {
+      act(() => {
+        FakeWebSocket.instances.at(-1)!.onclose?.();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(wsReconnectDelay(attempt));
+      });
+    }
+
+    // The reconnect succeeds, so the sequence is over.
+    act(() => {
+      FakeWebSocket.instances.at(-1)!.onopen?.();
+    });
+
+    const before = FakeWebSocket.instances.length;
+    act(() => {
+      FakeWebSocket.instances.at(-1)!.onclose?.();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(WS_RECONNECT_BASE_MS);
+    });
+
+    expect(FakeWebSocket.instances.length).toBe(before + 1);
+    unmount();
+  });
+
+  it('stops retrying once the console unmounts', async () => {
+    const { unmount } = mount();
+    unmount();
+
+    const before = FakeWebSocket.instances.length;
+    act(() => {
+      FakeWebSocket.instances.at(-1)!.onclose?.();
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(WS_RECONNECT_MAX_MS * 2);
+    });
+
+    expect(FakeWebSocket.instances.length).toBe(before);
   });
 });

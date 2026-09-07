@@ -190,6 +190,56 @@ describe('StatusStrip scheduled failures', () => {
     await waitFor(() => expect(discardScheduled).toHaveBeenCalledWith('sched-1'));
   });
 
+  /**
+   * The server used to answer a cancel or discard it could not honour with
+   * `success: true` and the reason tucked into `error`, which the client reads
+   * as success — so a row the operator could no longer act on simply stopped
+   * responding, with nothing said about why.
+   */
+  it('says why a discard was refused', async () => {
+    discardScheduled.mockRejectedValue(
+      new Error('Scheduled message not found, or not in a failed state.')
+    );
+    const user = userEvent.setup();
+    renderStrip();
+    await openFailedDetail(user);
+
+    await user.click(screen.getByRole('button', { name: /DISCARD/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not in a failed state/i);
+  });
+
+  it('says why a cancel was refused', async () => {
+    getScheduled.mockResolvedValue([
+      { ...failedItem, status: 'pending', error: undefined },
+    ]);
+    cancelScheduled.mockRejectedValue(
+      new Error('Scheduled message not found, or no longer pending.')
+    );
+    const user = userEvent.setup();
+    renderStrip();
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+
+    // By title, because the row itself is a button whose name also matches.
+    await user.click(await screen.findByTitle(/Cancel scheduled dispatch/i));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no longer pending/i);
+  });
+
+  it('clears the refusal when the operator dismisses it', async () => {
+    discardScheduled.mockRejectedValue(new Error('Scheduled message not found.'));
+    const user = userEvent.setup();
+    renderStrip();
+    await openFailedDetail(user);
+
+    await user.click(screen.getByRole('button', { name: /DISCARD/i }));
+    const alert = await screen.findByRole('alert');
+
+    await user.click(within(alert).getByRole('button', { name: /dismiss/i }));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('leaves a sent message alone: no detail panel, no resend', async () => {
     getScheduled.mockResolvedValue([
       { ...failedItem, status: 'sent', error: undefined, sentMessageId: 'wamid.OK' },

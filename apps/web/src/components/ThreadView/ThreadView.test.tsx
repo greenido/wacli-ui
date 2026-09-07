@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThreadView } from './ThreadView.tsx';
@@ -792,5 +792,136 @@ describe('ThreadView message direction', () => {
 
     const notice = await screen.findByText('This message was deleted.');
     expect(notice.parentElement).toHaveAttribute('dir', 'ltr');
+  });
+});
+
+/**
+ * The helpers in lib/threadScroll decide this, and are unit-tested there. What
+ * these cover is the wiring: that the thread records where the operator was,
+ * and consults it before scrolling. Every piece can be correct while nothing
+ * calls them.
+ */
+describe('ThreadView follows the newest message only from the newest message', () => {
+  let client: QueryClient;
+
+  function renderWithClient() {
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <ThreadView />
+      </QueryClientProvider>
+    );
+  }
+
+  const scrollBox = (container: HTMLElement) =>
+    container.querySelector('.overflow-y-auto') as HTMLElement;
+
+  /** jsdom does no layout, so the geometry has to be stated outright. */
+  function giveGeometry(el: HTMLElement, scrollHeight: number, clientHeight: number): void {
+    Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true });
+  }
+
+  /** Puts the reading position somewhere and lets the thread notice. */
+  function scrollTo(el: HTMLElement, top: number): void {
+    el.scrollTop = top;
+    fireEvent.scroll(el);
+  }
+
+  async function aMessageArrives(): Promise<void> {
+    getMessages.mockResolvedValue({
+      messages: [message(1), message(2), message(3)],
+      hasMore: false,
+    });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['messages', CHAT.jid] });
+    });
+    await screen.findByText('message body 3');
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: false });
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('opens a conversation at its newest message', async () => {
+    const { container } = renderWithClient();
+    await screen.findByText('message body 2');
+
+    const el = scrollBox(container);
+    giveGeometry(el, 5000, 800);
+    await aMessageArrives();
+
+    expect(el.scrollTop).toBe(5000);
+  });
+
+  it('keeps following while the operator sits at the bottom', async () => {
+    const { container } = renderWithClient();
+    await screen.findByText('message body 2');
+
+    const el = scrollBox(container);
+    giveGeometry(el, 5000, 800);
+    scrollTo(el, 4200); // exactly the bottom
+
+    await aMessageArrives();
+
+    expect(el.scrollTop).toBe(5000);
+  });
+
+  it('still follows from a few pixels off the floor', async () => {
+    const { container } = renderWithClient();
+    await screen.findByText('message body 2');
+
+    const el = scrollBox(container);
+    giveGeometry(el, 5000, 800);
+    scrollTo(el, 4150); // 50px up: a partly-scrolled last bubble
+
+    await aMessageArrives();
+
+    expect(el.scrollTop).toBe(5000);
+  });
+
+  /** The whole point: reading history is not interrupted by an arrival. */
+  it('leaves a reader alone once they have scrolled up', async () => {
+    const { container } = renderWithClient();
+    await screen.findByText('message body 2');
+
+    const el = scrollBox(container);
+    giveGeometry(el, 5000, 800);
+    scrollTo(el, 1000);
+
+    await aMessageArrives();
+
+    expect(el.scrollTop).toBe(1000);
+  });
+
+  it('goes back to following when asked for the newest message', async () => {
+    const { container } = renderWithClient();
+    await screen.findByText('message body 2');
+
+    const el = scrollBox(container);
+    giveGeometry(el, 5000, 800);
+    scrollTo(el, 1000);
+
+    // The `end` shortcut: an explicit ask to go to the newest message, and to
+    // start following it again.
+    await act(async () => {
+      useAppStore.getState().runCommand('thread:jump-newest');
+    });
+    expect(el.scrollTop).toBe(5000);
+
+    scrollTo(el, 5000); // where the jump left it: the bottom
+    await aMessageArrives();
+
+    expect(el.scrollTop).toBe(5000);
   });
 });
