@@ -11,10 +11,11 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2, LifeBuoy, X } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
-import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
+import { POLL_ACTIVITY_MS, POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
+import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
@@ -22,8 +23,6 @@ import { isHeartbeatStale } from '../../lib/heartbeat.ts';
 import type { MessageJumpHint } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
 import type { ScheduledMessage, SendLogEntry, UnifiedChat } from '../../types.ts';
-
-const LIST_PAGE_SIZE = 100;
 
 interface StatusStripProps {
   wsConnected: boolean;
@@ -40,8 +39,6 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const chatFilter = useAppStore((s) => s.chatFilter);
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'activity' | 'scheduled'>('activity');
-  const [activityVisibleCount, setActivityVisibleCount] = useState(LIST_PAGE_SIZE);
-  const [scheduledVisibleCount, setScheduledVisibleCount] = useState(LIST_PAGE_SIZE);
   // A failed message has nothing to show in the thread, so its detail has to
   // open here instead of sending the operator to a conversation that is missing
   // the very message they clicked.
@@ -130,24 +127,70 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     refetchInterval: POLL_HEALTH_MS,
   });
 
-  const { data: scheduledItems = [] } = useQuery({
+  /**
+   * The queue: every pending message on the first page, history a page at a
+   * time. Only page one is polled — the pages behind it are settled history and
+   * refetching them on a timer would fight the operator's own scrolling.
+   */
+  const scheduledQuery = useInfiniteQuery({
     queryKey: ['scheduled'],
-    queryFn: () => api.getScheduled(),
+    queryFn: ({ pageParam }) => api.getScheduled({ before: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: POLL_SCHEDULED_MS,
   });
 
-  const sortedScheduledItems = useMemo(
-    () =>
-      [...scheduledItems].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ),
-    [scheduledItems]
+  const activityQuery = useInfiniteQuery({
+    queryKey: ['activity'],
+    queryFn: ({ pageParam }) => api.getActivity({ before: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    refetchInterval: POLL_ACTIVITY_MS,
+  });
+
+  // The `?? []` fallback allocates a fresh array each render, so it lives
+  // inside the memo rather than feeding one from outside.
+  const pendingScheduled = useMemo(
+    () => scheduledQuery.data?.pages[0]?.pending ?? [],
+    [scheduledQuery.data]
   );
 
-  const visibleSendLogs = sortedSendLogs.slice(0, activityVisibleCount);
-  const visibleScheduledItems = sortedScheduledItems.slice(0, scheduledVisibleCount);
-  const hasMoreActivity = sortedSendLogs.length > activityVisibleCount;
-  const hasMoreScheduled = sortedScheduledItems.length > scheduledVisibleCount;
+  /**
+   * In-flight sends first, then the server's record.
+   *
+   * The local rows exist only between clicking send and the server answering,
+   * and are dropped the moment its row lands — so this concatenation cannot
+   * show the same send twice.
+   */
+  const activityRows = useMemo(
+    () => [...sortedSendLogs, ...(activityQuery.data?.pages.flatMap((p) => p.items) ?? [])],
+    [sortedSendLogs, activityQuery.data]
+  );
+
+  // Pending first, then resolved history: what is about to happen reads above
+  // what already did, and pending is never paged away.
+  const scheduledRows = useMemo(
+    () => [
+      ...pendingScheduled,
+      ...(scheduledQuery.data?.pages.flatMap((p) => p.history) ?? []),
+    ],
+    [pendingScheduled, scheduledQuery.data]
+  );
+
+  const activityTotal = (activityQuery.data?.pages[0]?.total ?? 0) + sortedSendLogs.length;
+  const scheduledCount = scheduledQuery.data?.pages[0]?.totalPending ?? 0;
+
+  const activitySentinelRef = useInfiniteScroll({
+    hasMore: activityQuery.hasNextPage,
+    isLoading: activityQuery.isFetchingNextPage,
+    onLoadMore: () => void activityQuery.fetchNextPage(),
+  });
+
+  const scheduledSentinelRef = useInfiniteScroll({
+    hasMore: scheduledQuery.hasNextPage,
+    isLoading: scheduledQuery.isFetchingNextPage,
+    onLoadMore: () => void scheduledQuery.fetchNextPage(),
+  });
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.cancelScheduled(id),
@@ -196,8 +239,6 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
       queryClient.invalidateQueries({ queryKey: ['health'] });
     },
   });
-
-  const pendingScheduled = scheduledItems.filter((i) => i.status === 'pending');
 
   const { isReadOnly } = useSafeMode();
   const processState = health?.processState ?? 'stopped';
@@ -408,7 +449,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                   : 'text-mc-textMuted hover:text-mc-text'
               }`}
             >
-              ACTIVITY ({sendLogs.length})
+              ACTIVITY ({activityTotal})
             </button>
             <button
               onClick={() => setActiveTab('scheduled')}
@@ -419,20 +460,20 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               }`}
             >
               <Clock size={11} />
-              <span>LATER ({pendingScheduled.length})</span>
+              <span>LATER ({scheduledCount})</span>
             </button>
           </div>
         </div>
 
         {activeTab === 'activity' ? (
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-            {sendLogs.length === 0 ? (
+            {activityRows.length === 0 ? (
               <div className="text-center py-6 text-mc-textMuted/60 text-[11px]">
-                No outbound sends in this session.
+                {activityQuery.isPending ? 'Loading activity…' : 'No outbound sends on record.'}
               </div>
             ) : (
               <>
-              {visibleSendLogs.map((log) => {
+              {activityRows.map((log) => {
                 const isSelected = selectedChat?.jid === log.to;
                 return (
                   <div
@@ -487,13 +528,16 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                   </div>
                 );
               })}
-              {hasMoreActivity && (
-                <button
-                  onClick={() => setActivityVisibleCount((count) => count + LIST_PAGE_SIZE)}
-                  className="w-full py-2 text-[11px] font-mono text-mc-live hover:text-mc-text border border-mc-border hover:border-mc-live/50 rounded bg-mc-bg hover:bg-mc-surfaceHover transition-colors"
+              {activityQuery.hasNextPage && (
+                // The sentinel is the paging control: scrolling to it asks for
+                // the next page. It stays visible while that page loads so the
+                // list does not jump as rows arrive underneath the scroll.
+                <div
+                  ref={activitySentinelRef}
+                  className="py-2 text-center text-[10px] font-mono text-mc-textMuted/70"
                 >
-                  fetch more
-                </button>
+                  {activityQuery.isFetchingNextPage ? 'loading more…' : 'scroll for more'}
+                </div>
               )}
               </>
             )}
@@ -516,13 +560,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                 </button>
               </div>
             )}
-            {scheduledItems.length === 0 ? (
+            {scheduledRows.length === 0 ? (
               <div className="text-center py-6 text-mc-textMuted/60 text-[11px]">
-                No scheduled messages queued.
+                {scheduledQuery.isPending ? 'Loading queue…' : 'No scheduled messages queued.'}
               </div>
             ) : (
               <>
-              {visibleScheduledItems.map((item) => {
+              {scheduledRows.map((item) => {
                 const isSelected = selectedChat?.jid === item.to;
                 const isFailed = item.status === 'failed';
                 const isExpanded = isFailed && expandedScheduledId === item.id;
@@ -711,13 +755,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                   </div>
                 );
               })}
-              {hasMoreScheduled && (
-                <button
-                  onClick={() => setScheduledVisibleCount((count) => count + LIST_PAGE_SIZE)}
-                  className="w-full py-2 text-[11px] font-mono text-mc-live hover:text-mc-text border border-mc-border hover:border-mc-live/50 rounded bg-mc-bg hover:bg-mc-surfaceHover transition-colors"
+              {scheduledQuery.hasNextPage && (
+                <div
+                  ref={scheduledSentinelRef}
+                  className="py-2 text-center text-[10px] font-mono text-mc-textMuted/70"
                 >
-                  fetch more
-                </button>
+                  {scheduledQuery.isFetchingNextPage ? 'loading more…' : 'scroll for more'}
+                </div>
               )}
               </>
             )}

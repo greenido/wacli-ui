@@ -16,6 +16,12 @@ export const POLL_HEALTH_MS = 20_000;
 export const POLL_CHATS_MS = 30_000;
 export const POLL_MESSAGES_MS = 30_000;
 export const POLL_SCHEDULED_MS = 15_000;
+/**
+ * The activity log is served from Mission Control's own database rather than
+ * through a wacli subprocess, so it costs no store contention and can be read
+ * more often than the lists that do.
+ */
+export const POLL_ACTIVITY_MS = 10_000;
 export const POLL_MODE_MS = 15_000;
 
 /**

@@ -34,7 +34,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Two-Step Mutation Guardrails**: Every send, media dispatch, or reaction prompt passes through a `SendConfirmModal` confirmation step with target JID, payload preview, the quoted message when replying, and explicit confirmation.
 - **Drafts Stay With Their Conversation**: The composer draft, attachment, and reply target are scoped to the chat they were started in, so switching chats can never carry a message — or a reply aimed at one thread — into another.
 - **Bookmarks Are Local, And Say So**: wacli can read a WhatsApp star but has no command to set one, so Mission Control's bookmark is presented as its own local flag rather than pretending to reach your phone.
-- **Tags Are Local, And Say So**: wacli can *write* a tag (`contacts tags add`) but exposes nothing that reads one back — no `tags list`, and no tag field on `contacts show`. Writing there would be a dead drop, so tags live in Mission Control's own file alongside bookmarks, are labelled that way in the UI, and keep working in safe read-only mode. An **alias** is the opposite: wacli stores and returns it, so it is written to the wacli store and safe mode refuses it.
+- **Tags Are Local, And Say So**: wacli can *write* a tag (`contacts tags add`) but exposes nothing that reads one back — no `tags list`, and no tag field on `contacts show`. Writing there would be a dead drop, so tags live in Mission Control's own database alongside bookmarks, are labelled that way in the UI, and keep working in safe read-only mode. An **alias** is the opposite: wacli stores and returns it, so it is written to the wacli store and safe mode refuses it.
 - **Sandboxed Media Access**: The media endpoint only streams files inside the wacli store, and never renders SVG inline.
 - **Exports Stay Local**: A conversation export runs `wacli messages export` and hands the file straight to your browser. Nothing is uploaded, and the file says in its own header when the size cap truncated it.
 - **Notifications Stay Local**: Desktop notifications are raised in your own browser from the WebSocket bridge — no push service, no third party, nothing leaves the machine. They are off until you switch them on in Settings and the browser grants permission.
@@ -70,7 +70,8 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Right Rail (Status Strip & Audit Log)**:
   - WebSocket connection indicator and sync daemon PID / status.
   - Active store lock status and battery / network health telemetry.
-  - Live outgoing send audit log tracking all dispatched actions with status badges.
+  - **ACTIVITY**: the outgoing send audit log, with status badges. Recorded by the API rather than the browser, so it survives a refresh, reads the same in every tab, and includes scheduled messages that fired while no console was open. Ten rows load at a time; scrolling to the bottom fetches the next ten. Entries expire after 90 days.
+  - **LATER**: the scheduled queue. Every pending message is always shown — a queue that hides what is about to go out is not one you can trust — followed by the ten most recent resolved dispatches, paged the same way.
 
 ### 🔤 Right-to-Left Messages
 - Hebrew and Arabic message bodies are laid out right-to-left, decided per message rather than per chat — so a thread that mixes scripts renders each line the way it was written, with punctuation at the end it belongs to.
@@ -87,7 +88,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - **Keyboard**: the whole shortcut table, rendered from the same catalogue the key handler dispatches from (`apps/web/src/lib/shortcuts.ts`), so a binding cannot drift away from its documentation.
 
 ### ⏱️ Send Later / Scheduled Messages
-- Built-in in-memory scheduler for delayed messaging and replies.
+- Built-in scheduler for delayed messaging and replies, persisted in Mission Control's database so a queued message survives a restart.
 - Dedicated chat banner displaying pending scheduled messages with one-click cancellation.
 
 ---
@@ -109,7 +110,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
                                                                └──────────────┘
 ```
 
-- **Backend (`apps/api`)**: Node.js 20+, Express 5, `ws`, child process supervisor, HMAC webhook listener, and SQLite FTS5 query runner.
+- **Backend (`apps/api`)**: Node.js 22.5+, Express 5, `ws`, child process supervisor, HMAC webhook listener, and SQLite FTS5 query runner.
 - **Frontend (`apps/web`)**: React 19, TypeScript, Vite 7, Tailwind CSS v3, TanStack Query v5, Zustand, Lucide Icons, and date-fns.
 
 ---
@@ -141,7 +142,7 @@ wacli-mission-control --port 8080 --open
 
 ### Prerequisites
 
-1. **Node.js**: `v20.0.0` or newer.
+1. **Node.js**: `v22.5.0` or newer — that is where `node:sqlite` lands, which Mission Control's own store is built on. No native module to compile.
 2. **wacli CLI**: Installed on your system and authenticated with your WhatsApp account.
    ```bash
    # Verify wacli installation
@@ -243,10 +244,11 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 The bind address is not configurable. Mission Control always listens on
 `127.0.0.1`: it holds a live WhatsApp session and authenticates nothing, so
 "the request came from this machine" is the whole of its access control.
-| `WACLI_SETTINGS_FILE` | `~/.wacli-mission-control/settings.json` | Where operator mode and store settings persist |
-| `WACLI_SCHEDULED_FILE`| `~/.wacli-mission-control/scheduled.json` | Where scheduled messages persist |
-| `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | Where local message bookmarks persist |
-| `WACLI_TAGS_FILE`| `~/.wacli-mission-control/tags.json` | Where local chat tags persist |
+| `WACLI_DB_FILE` | `~/.wacli-mission-control/mission-control.db` | Where operator mode, scheduled messages, the activity log, bookmarks and tags persist |
+| `WACLI_SETTINGS_FILE` | `~/.wacli-mission-control/settings.json` | **Migration only.** Read once to import a pre-SQLite install, then ignored |
+| `WACLI_SCHEDULED_FILE`| `~/.wacli-mission-control/scheduled.json` | **Migration only.** As above |
+| `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | **Migration only.** As above |
+| `WACLI_TAGS_FILE`| `~/.wacli-mission-control/tags.json` | **Migration only.** As above |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | Set to `1` to log full inbound webhook payloads. Off by default so message bodies and contact details stay out of log files |
 | `LOG` | `0` | Set to `1` to write `apps/api/logs/run-<timestamp>.log`. Off by default — events still mirror to the terminal |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR`. `DEBUG` adds per-command timings, subprocess failures and wacli's own stderr |
@@ -319,6 +321,8 @@ Supported event types: `message.created`, `receipt.updated`, `presence.updated`,
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.
 - **Run Logs Expire**: When `LOG=1`, each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone. Without `LOG=1`, nothing is written to disk.
+- **The Activity Log Expires Too**: Sends are recorded in Mission Control's own database, which means they survive a refresh — and that a record of who was messaged, and what was said, now sits on disk. Entries older than **90 days** are deleted on startup, and the database file is created `0600`. It never leaves the machine.
+- **No Store, No Start**: If that database cannot be opened, the API refuses to boot rather than falling back to defaults. Safe mode is stored in it, and a server that came up unable to read it would answer every send check from a compiled-in default instead of your actual choice.
 
 ---
 

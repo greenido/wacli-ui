@@ -336,8 +336,11 @@ describe('SendConfirmModal thread reconciliation', () => {
     // gone out — the one thing a dispatch console must never do. The dialog
     // stayed open on its error banner instead of closing on the sent tick.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(useAppStore.getState().sendLogs[0]?.status).toBe('success');
-    expect(useAppStore.getState().sendLogs[0]?.error).toBeUndefined();
+    // The activity log is the server's now, so what this asserts is that the
+    // in-flight row was retired rather than left on screen as a failure. A
+    // dialog that closed on the sent tick and no lingering error row is the
+    // whole of "the operator was told it went out".
+    expect(useAppStore.getState().sendLogs).toHaveLength(0);
   });
 
   it('still closes the dialog when the caches cannot be painted', async () => {
@@ -354,7 +357,7 @@ describe('SendConfirmModal thread reconciliation', () => {
     // Local bookkeeping is not the dispatch. Whatever goes wrong after the
     // message has left, the operator is told it left.
     await waitFor(() => expect(useAppStore.getState().activeModal).toBeNull());
-    expect(useAppStore.getState().sendLogs[0]?.status).toBe('success');
+    expect(useAppStore.getState().sendLogs).toHaveLength(0);
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });

@@ -33,7 +33,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const setSendConfirmData = useAppStore((s) => s.setSendConfirmData);
   const clearComposer = useAppStore((s) => s.clearComposer);
   const addSendLog = useAppStore((s) => s.addSendLog);
-  const updateSendLog = useAppStore((s) => s.updateSendLog);
+  const clearSendLog = useAppStore((s) => s.clearSendLog);
   const queryClient = useQueryClient();
 
   const [isCommitted, setIsCommitted] = useState(false);
@@ -126,7 +126,10 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
           });
         }
 
-        updateSendLog(logId, { status: 'success' });
+        // Queuing is not sending. The row belongs in LATER, and the activity
+        // log gets its entry when the message actually goes out — which is
+        // also the only way a dispatch fired with no console open is recorded.
+        clearSendLog(logId);
         queryClient.invalidateQueries({ queryKey: ['scheduled'] });
       } else {
         // Immediate Send flow
@@ -164,7 +167,9 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
 
         // The id travels with the log entry so the ACTIVITY rail can focus this
         // message later, not just reopen the conversation.
-        updateSendLog(logId, { status: 'success', messageId: sentResult?.messageId });
+        // The server recorded this send itself; its row is the record now.
+        clearSendLog(logId);
+        queryClient.invalidateQueries({ queryKey: ['activity'] });
 
         // Painting the send into the caches is a nicety on top of a message
         // that has already left. A throw in here is not a failed dispatch, so
@@ -255,7 +260,11 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
       setIsCommitted(false);
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMessage(msg);
-      updateSendLog(logId, { status: 'error', error: msg });
+      // A send that reached the server is already logged there as failed, with
+      // the reason. One that never reached it has this dialog, which stays open
+      // showing the error rather than closing over a silent failure.
+      clearSendLog(logId);
+      queryClient.invalidateQueries({ queryKey: ['activity'] });
     }
   };
 

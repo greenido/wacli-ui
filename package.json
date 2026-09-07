@@ -38,7 +38,7 @@
     "url": "https://github.com/greenido/wacli-ui/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5.0"
   },
   "workspaces": [
     "apps/api",

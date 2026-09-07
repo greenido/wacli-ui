@@ -8,6 +8,7 @@ import type { ScheduledMessage } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
+const getActivity = vi.hoisted(() => vi.fn());
 const cancelScheduled = vi.hoisted(() => vi.fn());
 const resendScheduled = vi.hoisted(() => vi.fn());
 const discardScheduled = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ vi.mock('../../api/client.ts', () => ({
   api: {
     getHealth,
     getScheduled,
+    getActivity,
     cancelScheduled,
     resendScheduled,
     discardScheduled,
@@ -41,6 +43,22 @@ const failedItem: ScheduledMessage = {
   error: 'wacli daemon was not running',
 };
 
+/**
+ * The queue answers with pending and history separated, so a test that thinks
+ * in one flat list says so here rather than at every call site.
+ */
+function mockScheduled(items: ScheduledMessage[]) {
+  const pending = items.filter((i) => i.status === 'pending');
+  const history = items.filter((i) => i.status !== 'pending');
+  getScheduled.mockResolvedValue({
+    pending,
+    history,
+    nextCursor: null,
+    totalPending: pending.length,
+    totalHistory: history.length,
+  });
+}
+
 function renderStrip() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -60,11 +78,13 @@ describe('StatusStrip scheduled failures', () => {
   beforeEach(() => {
     getHealth.mockReset();
     getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
     resendScheduled.mockReset();
     discardScheduled.mockReset();
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
     getMode.mockResolvedValue({ readOnly: false });
-    getScheduled.mockResolvedValue([failedItem]);
+    mockScheduled([failedItem]);
     resendScheduled.mockResolvedValue({ resent: true, item: { ...failedItem, status: 'sent' } });
     discardScheduled.mockResolvedValue({ discarded: true });
     useAppStore.setState({ selectedChat: null, sendLogs: [] });
@@ -165,7 +185,7 @@ describe('StatusStrip scheduled failures', () => {
   });
 
   it('warns that a vanished attachment will go out as text only', async () => {
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       { ...failedItem, fileName: 'report.pdf', filePath: '/tmp/gone.pdf', attachmentMissing: true },
     ]);
     const user = userEvent.setup();
@@ -210,7 +230,7 @@ describe('StatusStrip scheduled failures', () => {
   });
 
   it('says why a cancel was refused', async () => {
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       { ...failedItem, status: 'pending', error: undefined },
     ]);
     cancelScheduled.mockRejectedValue(
@@ -241,7 +261,7 @@ describe('StatusStrip scheduled failures', () => {
   });
 
   it('leaves a sent message alone: no detail panel, no resend', async () => {
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       { ...failedItem, status: 'sent', error: undefined, sentMessageId: 'wamid.OK' },
     ]);
     const user = userEvent.setup();
@@ -266,9 +286,11 @@ describe('StatusStrip jumps to the message a row stands for', () => {
   beforeEach(() => {
     getHealth.mockReset();
     getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
     getMode.mockResolvedValue({ readOnly: false });
-    getScheduled.mockResolvedValue([]);
+    mockScheduled([]);
     useAppStore.setState({ selectedChat: null, sendLogs: [], highlightedMessageId: null });
   });
 
@@ -299,7 +321,7 @@ describe('StatusStrip jumps to the message a row stands for', () => {
   });
 
   it('focuses the message a sent LATER row produced', async () => {
-    getScheduled.mockResolvedValue([sentItem]);
+    mockScheduled([sentItem]);
     const user = userEvent.setup();
     renderStrip();
 
@@ -315,7 +337,7 @@ describe('StatusStrip jumps to the message a row stands for', () => {
     // A pending item was never delivered, so there is nothing to focus. Leaving
     // the previous target set sent the newly opened thread looking for another
     // chat's message, and it answered that the archive did not have it.
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       { ...failedItem, id: 'sched-3', status: 'pending', error: undefined },
     ]);
     useAppStore.setState({ highlightedMessageId: 'wamid.FROM-ANOTHER-CHAT' });
@@ -333,9 +355,11 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
   beforeEach(() => {
     getHealth.mockReset();
     getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
     getMode.mockResolvedValue({ readOnly: false });
-    getScheduled.mockResolvedValue([]);
+    mockScheduled([]);
     useAppStore.setState({
       selectedChat: null,
       sendLogs: [],
@@ -347,7 +371,7 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
   it('describes the message when a LATER row only has a placeholder id', async () => {
     // This is what every scheduled send already on disk looks like: `out-<ms>`,
     // a value wacli never produced and no archive can match.
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       {
         ...failedItem,
         id: 'sched-legacy',
@@ -402,7 +426,7 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
   });
 
   it('offers nothing to focus for a message that never went out', async () => {
-    getScheduled.mockResolvedValue([
+    mockScheduled([
       { ...failedItem, id: 'sched-pending', status: 'pending', error: undefined },
     ]);
     useAppStore.setState({ highlightedMessageId: 'wamid.FROM-ANOTHER-CHAT' });

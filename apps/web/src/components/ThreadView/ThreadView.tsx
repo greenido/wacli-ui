@@ -251,15 +251,16 @@ export const ThreadView: React.FC = () => {
     },
   });
 
-  // Scheduled messages for current chat
-  const { data: scheduledList = [] } = useQuery({
+  // Scheduled messages for current chat. The queue answers with its pending
+  // messages already separated, so there is nothing to filter here.
+  const { data: scheduledForChat } = useQuery({
     queryKey: ['scheduled', selectedChat?.jid],
-    queryFn: () => (selectedChat ? api.getScheduled({ chat: selectedChat.jid }) : []),
+    queryFn: () => api.getScheduled({ chat: selectedChat!.jid }),
     enabled: Boolean(selectedChat?.jid),
     refetchInterval: POLL_SCHEDULED_MS,
   });
 
-  const pendingScheduled = scheduledList.filter((s) => s.status === 'pending');
+  const pendingScheduled = scheduledForChat?.pending ?? [];
 
   const cancelScheduledMutation = useMutation({
     mutationFn: (id: string) => api.cancelScheduled(id),
