@@ -54,6 +54,9 @@ export function findWebDistDir(): string | null {
  */
 const SLOW_REQUEST_MS = 1_500;
 
+/** How long a shutdown waits on connections before it stops being polite. */
+const SHUTDOWN_GRACE_MS = 5_000;
+
 /** Query params are usually the only thing separating two identical lines. */
 function formatQuery(query: Request['query']): string | undefined {
   const entries = Object.entries(query);
@@ -241,12 +244,34 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
 
   const gracefulShutdown = async (signal: string) => {
     logger.info('process', 'Shutting down gracefully', { signal });
+
+    // Both of these hold the process open on their own, and `server.close()`
+    // waits for every connection still standing — so with a tab open its
+    // callback never ran and Ctrl+C did nothing until it was pressed twice.
+    // The scheduler's interval is the event loop's; the bridge's sockets are
+    // upgraded connections that close only when told to.
+    scheduler.stop();
+    eventBridge.close();
+
     try {
       await pm.stop();
     } catch (err) {
       logger.debug('process', 'Sync daemon did not stop cleanly', { err });
     }
+
+    // Whatever else is still in flight — a media stream mid-body, a wacli read
+    // that has not come back — is not worth hanging a shutdown on. Unref'd, so
+    // it is only ever a backstop: when the close lands first the process exits
+    // on its own and this never fires.
+    const forceExit = setTimeout(() => {
+      logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
+      logger.close();
+      process.exit(0);
+    }, SHUTDOWN_GRACE_MS);
+    forceExit.unref();
+
     server.close(() => {
+      clearTimeout(forceExit);
       // Flush the tail of any collapsed repeat before the process is gone.
       logger.close();
       process.exit(0);
