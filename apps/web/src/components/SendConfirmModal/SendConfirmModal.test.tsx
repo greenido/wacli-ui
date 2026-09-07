@@ -53,6 +53,9 @@ const composerBox = () => screen.findByPlaceholderText(/Message Alice/);
 const composerBoxNow = () => screen.getByPlaceholderText(/Message Alice/);
 const confirmButton = () =>
   within(screen.getByRole('dialog')).getByRole('button', { name: /CONFIRM & SEND/i });
+/** For a dialog staged after render, which has to be waited for. */
+const confirmButtonWhenOpen = async () =>
+  within(await screen.findByRole('dialog')).getByRole('button', { name: /CONFIRM & SEND/i });
 
 describe('SendConfirmModal keyboard flow', () => {
   beforeEach(() => {
@@ -354,5 +357,98 @@ describe('SendConfirmModal thread reconciliation', () => {
     expect(useAppStore.getState().sendLogs[0]?.status).toBe('success');
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+});
+
+/**
+ * Confirming an immediate send is taken as the operator's decision to go live,
+ * so the lock comes off as part of dispatching. Reviewed and kept deliberately
+ * — these pin it, so it stays a decision rather than drifting.
+ */
+describe('SendConfirmModal and safe mode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    setMode.mockResolvedValue({ readOnly: false });
+    sendText.mockResolvedValue({ sent: true, messageId: 'wamid.1' });
+    useAppStore.setState({
+      selectedChat: CHAT,
+      activeModal: null,
+      sendConfirmData: null,
+      composerDrafts: {},
+      composerFiles: {},
+      replyingToByChat: {},
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, activeModal: null, sendConfirmData: null });
+  });
+
+  it('does not touch the mode when sends are already live', async () => {
+    getMode.mockResolvedValue({ readOnly: false });
+    const user = userEvent.setup();
+    renderConsole();
+
+    await user.type(await composerBox(), 'ping');
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
+    expect(setMode).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Safe mode replaces the composer with its own banner, so a send staged while
+   * locked cannot be driven through it. Staging the dialog directly is what the
+   * composer does anyway, and it is the dialog under test here.
+   */
+  function stageSend(): void {
+    useAppStore.setState({
+      selectedChat: CHAT,
+      sendConfirmData: {
+        toJid: CHAT.jid,
+        recipientName: CHAT.name,
+        messageText: 'ping',
+        scheduleMode: false,
+      },
+      activeModal: 'send-confirm',
+    });
+  }
+
+  it('unlocks before dispatching, when the operator confirms from safe mode', async () => {
+    getMode.mockResolvedValue({ readOnly: true });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SendConfirmModal />
+      </QueryClientProvider>
+    );
+    stageSend();
+
+    await user.click(await confirmButtonWhenOpen());
+
+    await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
+    expect(setMode).toHaveBeenCalledWith(false);
+  });
+
+  it('does not send when the server refuses to unlock', async () => {
+    // The unlock is awaited, so a refusal throws before anything is dispatched
+    // rather than leaving the console claiming live sends it cannot make.
+    getMode.mockResolvedValue({ readOnly: true });
+    setMode.mockRejectedValue(new Error('Safe read-only mode is active.'));
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SendConfirmModal />
+      </QueryClientProvider>
+    );
+    stageSend();
+
+    await user.click(await confirmButtonWhenOpen());
+
+    await waitFor(() => expect(setMode).toHaveBeenCalled());
+    expect(sendText).not.toHaveBeenCalled();
+    expect(localStorage.getItem('wacli_safe_mode')).not.toBe('false');
   });
 });
