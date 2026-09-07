@@ -235,11 +235,14 @@ Create an optional `.env` file in `apps/api/.env` or specify environment variabl
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `PORT` | `3002` | HTTP port for the Express API server |
-| `HOST` | `127.0.0.1` | Loopback binding address |
 | `WACLI_STORE_DIR` | Auto (`~/.wacli` or `~/.local/state/wacli`) | Path to the wacli SQLite data store |
 | `WACLI_BIN` | `wacli` | Path or command name for the `wacli` binary |
 | `WACLI_DISABLE_SYNC` | `0` | Set to `1` to run API without spawning `wacli sync --follow` |
 | `WACLI_WEBHOOK_SECRET`| Auto-generated per session | HMAC secret used for internal webhook validation |
+
+The bind address is not configurable. Mission Control always listens on
+`127.0.0.1`: it holds a live WhatsApp session and authenticates nothing, so
+"the request came from this machine" is the whole of its access control.
 | `WACLI_SETTINGS_FILE` | `~/.wacli-mission-control/settings.json` | Where operator mode and store settings persist |
 | `WACLI_SCHEDULED_FILE`| `~/.wacli-mission-control/scheduled.json` | Where scheduled messages persist |
 | `WACLI_BOOKMARKS_FILE`| `~/.wacli-mission-control/bookmarks.json` | Where local message bookmarks persist |

@@ -215,9 +215,15 @@ async function execWacliOnce<T>(
   const storeDir = options.storeDir ?? settings.storeDir ?? process.env.WACLI_STORE_DIR;
   const account = options.account ?? settings.account ?? process.env.WACLI_ACCOUNT;
 
+  // Independent flags, not alternatives: a store directory says which database
+  // to open, an account says which of the sessions inside it to act as. Chained
+  // with `else if`, configuring a store silently dropped the account and every
+  // command ran as whichever session wacli picked by default.
   if (storeDir && !fullArgs.includes('--store')) {
     fullArgs.push('--store', storeDir);
-  } else if (account && !fullArgs.includes('--account')) {
+  }
+
+  if (account && !fullArgs.includes('--account')) {
     fullArgs.push('--account', account);
   }
 

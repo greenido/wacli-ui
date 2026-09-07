@@ -1,9 +1,8 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert, X } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 
 /**
  * The confirmation behind the mode shortcut. Safe read-only mode is the one
@@ -13,33 +12,28 @@ import { useModalDialog } from '../../hooks/useModalDialog.ts';
 export const ModeConfirmModal: React.FC = () => {
   const activeModal = useAppStore((s) => s.activeModal);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
-  const queryClient = useQueryClient();
 
   const dialogRef = useModalDialog<HTMLDivElement>(activeModal === 'mode-confirm', () =>
     setActiveModal(null)
   );
 
-  const { data: modeData } = useQuery({
-    queryKey: ['mode'],
-    queryFn: () => api.getMode(),
-  });
+  const { isReadOnly, setSafeMode, isSettingMode, setModeError } = useSafeMode();
 
-  const modeMutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => {
-      localStorage.setItem('wacli_safe_mode', String(newReadOnly));
-      return api.setMode(newReadOnly);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mode'] });
-      queryClient.invalidateQueries({ queryKey: ['health'] });
-      queryClient.invalidateQueries({ queryKey: ['settings'] });
-      setActiveModal(null);
-    },
-  });
+  /**
+   * Closes only once the server has actually taken the new mode. A refusal
+   * leaves the dialog open, where `setModeError` explains it — closing on a
+   * failed flip would report the change as done.
+   */
+  const confirmMode = (readOnly: boolean) => {
+    void setSafeMode(readOnly)
+      .then(() => setActiveModal(null))
+      .catch(() => {
+        // Surfaced below as setModeError.
+      });
+  };
 
   if (activeModal !== 'mode-confirm') return null;
 
-  const isReadOnly = modeData?.readOnly ?? true;
   const goingLive = isReadOnly;
 
   return (
@@ -88,9 +82,9 @@ export const ModeConfirmModal: React.FC = () => {
               {goingLive ? 'LIVE' : 'SAFE (R/O)'}
             </span>
           </p>
-          {modeMutation.isError && (
+          {setModeError && (
             <p className="text-mc-danger font-mono text-[11px]">
-              {(modeMutation.error as Error).message}
+              {setModeError.message}
             </p>
           )}
         </div>
@@ -104,15 +98,15 @@ export const ModeConfirmModal: React.FC = () => {
           </button>
           <button
             data-autofocus
-            onClick={() => modeMutation.mutate(!isReadOnly)}
-            disabled={modeMutation.isPending}
+            onClick={() => confirmMode(!isReadOnly)}
+            disabled={isSettingMode}
             className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all disabled:opacity-50 ${
               goingLive
                 ? 'bg-mc-live/20 text-mc-live border border-mc-live/60 hover:bg-mc-live/30'
                 : 'bg-mc-safe/20 text-mc-safe border border-mc-safe/60 hover:bg-mc-safe/30'
             }`}
           >
-            {modeMutation.isPending
+            {isSettingMode
               ? 'SWITCHING...'
               : goingLive
               ? 'UNLOCK LIVE SENDS'

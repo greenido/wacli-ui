@@ -1,8 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client.ts';
-import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -36,26 +34,8 @@ export const Composer: React.FC = () => {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
 
-  const { data: modeData } = useQuery({
-    queryKey: ['mode'],
-    queryFn: () => api.getMode(),
-    refetchInterval: POLL_MODE_MS,
-  });
-
-  const modeMutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => {
-      localStorage.setItem('wacli_safe_mode', String(newReadOnly));
-      return api.setMode(newReadOnly);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mode'] });
-      queryClient.invalidateQueries({ queryKey: ['health'] });
-    },
-  });
-
-  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
+  const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
 
   // Opening a chat by clicking it means you intend to write, so the caret
   // follows. Stepping through the rail on the keyboard does not: a composer
@@ -116,8 +96,8 @@ export const Composer: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => modeMutation.mutate(false)}
-            disabled={modeMutation.isPending}
+            onClick={() => void setSafeMode(false)}
+            disabled={isSettingMode}
             className="shrink-0 flex items-center gap-1.5 bg-[#E8B96A]/20 hover:bg-[#E8B96A]/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2.5 py-1.5 rounded text-[11px] font-semibold transition-all"
             title="Switch to live write mode to send messages"
           >

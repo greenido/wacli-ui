@@ -12,6 +12,10 @@ const cancelScheduled = vi.hoisted(() => vi.fn());
 const resendScheduled = vi.hoisted(() => vi.fn());
 const discardScheduled = vi.hoisted(() => vi.fn());
 const restartDaemon = vi.hoisted(() => vi.fn());
+// StatusStrip reads safe mode through useSafeMode, which asks /api/mode rather
+// than reading it off the health payload.
+const getMode = vi.hoisted(() => vi.fn());
+const setMode = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
   api: {
@@ -21,6 +25,8 @@ vi.mock('../../api/client.ts', () => ({
     resendScheduled,
     discardScheduled,
     restartDaemon,
+    getMode,
+    setMode,
   },
 }));
 
@@ -57,6 +63,7 @@ describe('StatusStrip scheduled failures', () => {
     resendScheduled.mockReset();
     discardScheduled.mockReset();
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getMode.mockResolvedValue({ readOnly: false });
     getScheduled.mockResolvedValue([failedItem]);
     resendScheduled.mockResolvedValue({ resent: true, item: { ...failedItem, status: 'sent' } });
     discardScheduled.mockResolvedValue({ discarded: true });
@@ -129,6 +136,7 @@ describe('StatusStrip scheduled failures', () => {
 
   it('blocks an immediate resend in safe read-only mode but still allows requeueing', async () => {
     getHealth.mockResolvedValue({ readOnly: true, processState: 'running' });
+    getMode.mockResolvedValue({ readOnly: true });
     const user = userEvent.setup();
     renderStrip();
     await openFailedDetail(user);
@@ -209,6 +217,7 @@ describe('StatusStrip jumps to the message a row stands for', () => {
     getHealth.mockReset();
     getScheduled.mockReset();
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getMode.mockResolvedValue({ readOnly: false });
     getScheduled.mockResolvedValue([]);
     useAppStore.setState({ selectedChat: null, sendLogs: [], highlightedMessageId: null });
   });
@@ -275,6 +284,7 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
     getHealth.mockReset();
     getScheduled.mockReset();
     getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getMode.mockResolvedValue({ readOnly: false });
     getScheduled.mockResolvedValue([]);
     useAppStore.setState({
       selectedChat: null,
