@@ -203,6 +203,61 @@ export interface ServerInstance {
   processManager: WacliProcessManager;
 }
 
+/** Everything a shutdown has to put down, narrowed so a test can stand it up. */
+export interface ShutdownDeps {
+  server: Pick<http.Server, 'close'>;
+  processManager: Pick<WacliProcessManager, 'stop'>;
+  bridge: Pick<EventBridge, 'close'>;
+  /** The scheduler's timer, which keeps the event loop alive on its own. */
+  jobs: { stop: () => void };
+  /** What "done" means. Separated so this is testable without leaving. */
+  exit: () => void;
+  graceMs?: number;
+}
+
+/**
+ * Puts the process down in an order that actually reaches its own last line.
+ *
+ * `http.Server.close()` waits for every connection still standing, and an
+ * upgraded WebSocket closes only when told to — so with a browser tab open its
+ * callback never ran, `exit` never fired, and Ctrl+C did nothing until it was
+ * pressed a second time. The scheduler's interval holds the loop open the same
+ * way. Both go first, and the order is the point: releasing them after
+ * `server.close()` would be releasing them after the wait they cause.
+ */
+export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void> {
+  const { server, processManager, bridge, jobs, exit, graceMs = SHUTDOWN_GRACE_MS } = deps;
+
+  logger.info('process', 'Shutting down gracefully', { signal });
+
+  jobs.stop();
+  bridge.close();
+
+  try {
+    await processManager.stop();
+  } catch (err) {
+    logger.debug('process', 'Sync daemon did not stop cleanly', { err });
+  }
+
+  // Whatever else is still in flight — a media stream mid-body, a wacli read
+  // that has not come back — is not worth hanging a shutdown on. Unref'd, so it
+  // is only ever a backstop: when the close lands first the process exits on
+  // its own and this never fires.
+  const forceExit = setTimeout(() => {
+    logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
+    logger.close();
+    exit();
+  }, graceMs);
+  forceExit.unref();
+
+  server.close(() => {
+    clearTimeout(forceExit);
+    // Flush the tail of any collapsed repeat before the process is gone.
+    logger.close();
+    exit();
+  });
+}
+
 export function startServer(port = PORT, host = HOST): ServerInstance {
   const pm = new WacliProcessManager({
     apiPort: port,
@@ -242,41 +297,14 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
     }
   });
 
-  const gracefulShutdown = async (signal: string) => {
-    logger.info('process', 'Shutting down gracefully', { signal });
-
-    // Both of these hold the process open on their own, and `server.close()`
-    // waits for every connection still standing — so with a tab open its
-    // callback never ran and Ctrl+C did nothing until it was pressed twice.
-    // The scheduler's interval is the event loop's; the bridge's sockets are
-    // upgraded connections that close only when told to.
-    scheduler.stop();
-    eventBridge.close();
-
-    try {
-      await pm.stop();
-    } catch (err) {
-      logger.debug('process', 'Sync daemon did not stop cleanly', { err });
-    }
-
-    // Whatever else is still in flight — a media stream mid-body, a wacli read
-    // that has not come back — is not worth hanging a shutdown on. Unref'd, so
-    // it is only ever a backstop: when the close lands first the process exits
-    // on its own and this never fires.
-    const forceExit = setTimeout(() => {
-      logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
-      logger.close();
-      process.exit(0);
-    }, SHUTDOWN_GRACE_MS);
-    forceExit.unref();
-
-    server.close(() => {
-      clearTimeout(forceExit);
-      // Flush the tail of any collapsed repeat before the process is gone.
-      logger.close();
-      process.exit(0);
+  const gracefulShutdown = (signal: string) =>
+    shutdown(signal, {
+      server,
+      processManager: pm,
+      bridge: eventBridge,
+      jobs: scheduler,
+      exit: () => process.exit(0),
     });
-  };
 
   process.once('SIGINT', () => void gracefulShutdown('SIGINT'));
   process.once('SIGTERM', () => void gracefulShutdown('SIGTERM'));
