@@ -15,3 +15,5 @@ coverage/
 *.sqlite3
 *.jsonl
 docs/wacrawl-history-tier-PRD.md
+*.db-wal
+*.db-shm
