@@ -392,16 +392,39 @@ export function createSendRouter(): Router {
     });
   });
 
+  /**
+   * Answers a request that changed nothing as a failure.
+   *
+   * These used to reply `success: true` *with* an error string, which the
+   * client reads as success and shows as done — so cancelling a message that
+   * had already gone out, or discarding one twice, looked like it worked. 409
+   * rather than 404 because the id usually does exist; it is the state that
+   * refuses, which is what the message has to say.
+   */
+  function answerStateChange(
+    res: Response,
+    changed: boolean,
+    field: 'cancelled' | 'discarded',
+    reason: string
+  ): void {
+    if (!changed) {
+      res.status(409).json({ success: false, data: { [field]: false }, error: reason });
+      return;
+    }
+    res.json({ success: true, data: { [field]: true }, error: null });
+  }
+
   // DELETE & POST cancel scheduled message
   router.delete(['/scheduled/:id', '/send/scheduled/:id'], (req: Request, res: Response) => {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const cancelled = id ? scheduler.cancel(id) : false;
-    res.json({
-      success: true,
-      data: { cancelled },
-      error: cancelled ? null : 'Scheduled message not found or not in pending state.',
-    });
+    answerStateChange(
+      res,
+      cancelled,
+      'cancelled',
+      'Scheduled message not found, or no longer pending.'
+    );
   });
 
   // POST resend a failed scheduled message. requireMutationPermission already
@@ -469,22 +492,24 @@ export function createSendRouter(): Router {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const discarded = id ? scheduler.discard(id) : false;
-    res.json({
-      success: true,
-      data: { discarded },
-      error: discarded ? null : 'Scheduled message not found or not in failed state.',
-    });
+    answerStateChange(
+      res,
+      discarded,
+      'discarded',
+      'Scheduled message not found, or not in a failed state.'
+    );
   });
 
   router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], (req: Request, res: Response) => {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const cancelled = id ? scheduler.cancel(id) : false;
-    res.json({
-      success: true,
-      data: { cancelled },
-      error: cancelled ? null : 'Scheduled message not found or not in pending state.',
-    });
+    answerStateChange(
+      res,
+      cancelled,
+      'cancelled',
+      'Scheduled message not found, or no longer pending.'
+    );
   });
 
   return router;

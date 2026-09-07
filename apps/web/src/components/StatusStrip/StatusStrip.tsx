@@ -10,7 +10,7 @@ import {
   RotateCw,
   ChevronDown,
   ChevronRight,
-  Loader2, LifeBuoy } from 'lucide-react';
+  Loader2, LifeBuoy, X } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
@@ -47,6 +47,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const [expandedScheduledId, setExpandedScheduledId] = useState<string | null>(null);
   const [resendTarget, setResendTarget] = useState<ScheduledMessage | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
+
+  /**
+   * Why a cancel or discard did not happen. These are refusals about state the
+   * operator cannot see — the message went out a second ago, another pane got
+   * there first — so they belong on screen rather than in a console log.
+   */
+  const [scheduledActionError, setScheduledActionError] = useState<string | null>(null);
 
   const sortedSendLogs = useMemo(
     () =>
@@ -146,6 +153,14 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled'] });
     },
+    onError: (err: unknown) => {
+      // The server refuses a cancel it cannot honour — the message already went
+      // out, or was cancelled a moment ago in another pane. It used to answer
+      // those as successes, so the row simply stopped responding; now the
+      // reason is on screen, next to the same list the resend refusals use.
+      setScheduledActionError(err instanceof Error ? err.message : String(err));
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
   });
 
   const resendMutation = useMutation({
@@ -166,6 +181,10 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const discardMutation = useMutation({
     mutationFn: (id: string) => api.discardScheduled(id),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
+    onError: (err: unknown) => {
+      setScheduledActionError(err instanceof Error ? err.message : String(err));
       queryClient.invalidateQueries({ queryKey: ['scheduled'] });
     },
   });
@@ -480,6 +499,22 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            {scheduledActionError && (
+              <div
+                role="alert"
+                className="flex items-start justify-between gap-2 rounded border border-mc-danger/50 bg-mc-danger/10 px-2 py-1.5 text-[11px] text-mc-danger"
+              >
+                <span className="min-w-0 break-words">{scheduledActionError}</span>
+                <button
+                  type="button"
+                  onClick={() => setScheduledActionError(null)}
+                  aria-label="Dismiss"
+                  className="shrink-0 text-mc-danger/70 hover:text-mc-danger"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
             {scheduledItems.length === 0 ? (
               <div className="text-center py-6 text-mc-textMuted/60 text-[11px]">
                 No scheduled messages queued.
