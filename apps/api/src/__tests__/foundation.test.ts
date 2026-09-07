@@ -11,6 +11,7 @@ import {
   normalizeWebhookMessage,
 } from '../wacli/normalize.js';
 import { ModeManager } from '../wacli/mode.js';
+import { openDatabaseAt } from '../db/index.js';
 import { isDiskLoggingEnabled, LOG_RETENTION_DAYS, parseLogLevel, RunLogger } from '../logger.js';
 import type { RawChat, RawMessage, UnifiedMessage } from '../types.js';
 
@@ -133,7 +134,7 @@ describe('ModeManager', () => {
   let tmpSettingsPath: string;
 
   beforeEach(() => {
-    tmpSettingsPath = path.join(os.tmpdir(), `wacli-test-settings-${Date.now()}.json`);
+    tmpSettingsPath = path.join(os.tmpdir(), `wacli-test-settings-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   });
 
   afterEach(() => {
@@ -179,9 +180,18 @@ describe('ModeManager', () => {
     expect(mm.isReadOnly()).toBe(false);
     expect(new ModeManager(tmpSettingsPath).isReadOnly()).toBe(false);
 
-    const onDisk = JSON.parse(fs.readFileSync(tmpSettingsPath, 'utf8')) as Record<string, unknown>;
-    expect(onDisk.readOnly).toBe(false);
-    expect(onDisk.storeDir).toBe('/tmp/store');
+    // Read back out of the table rather than through the manager, so a cache
+    // that never wrote would still fail this.
+    const stored = Object.fromEntries(
+      (
+        openDatabaseAt(tmpSettingsPath).prepare('SELECT key, value FROM settings').all() as Array<{
+          key: string;
+          value: string;
+        }>
+      ).map((row) => [row.key, JSON.parse(row.value)])
+    );
+    expect(stored.readOnly).toBe(false);
+    expect(stored.storeDir).toBe('/tmp/store');
   });
 });
 

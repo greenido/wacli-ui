@@ -1,6 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import type { DatabaseSync } from 'node:sqlite';
+import { getDb, openDatabaseAt } from '../db/index.js';
+import { logger } from '../logger.js';
 
 export interface AppSettings {
   readOnly: boolean;
@@ -15,89 +15,105 @@ export interface AppSettings {
 export const FIRST_RUN_READ_ONLY = true;
 
 export class ModeManager {
-  private settingsFilePath: string;
-  private settings: AppSettings;
+  /**
+   * Loaded on first use, not in the constructor.
+   *
+   * This is a module singleton, so a constructor that read the database would
+   * read it at import time — before startup has had a chance to open it and
+   * report a failure properly. Lazy means the first caller gets a live value
+   * and a dead database is still announced by `bootDatabase`.
+   */
+  private settings: AppSettings | null = null;
+  /** Set only when a caller asked for its own file, so tests get one store per case. */
+  private ownDb: DatabaseSync | null = null;
 
-  constructor(customPath?: string) {
-    if (customPath) {
-      this.settingsFilePath = customPath;
-    } else if (process.env.WACLI_SETTINGS_FILE) {
-      this.settingsFilePath = process.env.WACLI_SETTINGS_FILE;
-    } else {
-      let configDir = path.join(os.homedir(), '.wacli-mission-control');
-      try {
-        if (!fs.existsSync(configDir)) {
-          fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-        }
-      } catch {
-        configDir = path.join(process.cwd(), '.wacli-mission-control');
-        try {
-          if (!fs.existsSync(configDir)) {
-            fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-          }
-        } catch {
-          configDir = os.tmpdir();
-        }
-      }
-      this.settingsFilePath = path.join(configDir, 'settings.json');
-    }
-
-    this.settings = this.loadSettings();
+  constructor(customDbPath?: string) {
+    this.ownDb = customDbPath ? openDatabaseAt(customDbPath) : null;
   }
 
+  private db(): DatabaseSync {
+    return this.ownDb ?? getDb();
+  }
+
+  private current(): AppSettings {
+    if (!this.settings) {
+      this.settings = this.loadSettings();
+    }
+    return this.settings;
+  }
+
+  /**
+   * Settings are a key/value table rather than a row of columns, so adding one
+   * later is an insert and not a schema migration. Values are JSON-encoded, so
+   * a boolean comes back a boolean instead of the string "false" — which is
+   * truthy, and would have unlocked sends on every machine that had ever
+   * locked them.
+   */
   private loadSettings(): AppSettings {
+    const stored: Record<string, unknown> = {};
     try {
-      if (fs.existsSync(this.settingsFilePath)) {
-        const raw = fs.readFileSync(this.settingsFilePath, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<AppSettings>;
-        return {
-          // A stored choice always wins, so the operator's decision survives restarts.
-          readOnly: parsed.readOnly !== undefined ? Boolean(parsed.readOnly) : FIRST_RUN_READ_ONLY,
-          storeDir: parsed.storeDir,
-          account: parsed.account,
-        };
+      const rows = this.db().prepare('SELECT key, value FROM settings').all() as Array<{
+        key: string;
+        value: string;
+      }>;
+      for (const row of rows) {
+        try {
+          stored[row.key] = JSON.parse(row.value);
+        } catch {
+          logger.warn('api', 'Ignoring an unreadable setting', { key: row.key });
+        }
       }
-    } catch {
-      // fallback to default
+    } catch (err) {
+      // getDb() only throws when the database is gone, and startup refuses to
+      // boot in that case. Reaching here means it went away mid-run, so take
+      // the safe side of the only setting that can do harm.
+      logger.error('api', 'Could not read settings; locking sends', { err });
+      return { readOnly: true };
     }
 
-    // No settings file yet: this is a first run, so start locked.
-    return { readOnly: FIRST_RUN_READ_ONLY };
+    return {
+      // A stored choice always wins, so the operator's decision survives restarts.
+      readOnly: stored.readOnly !== undefined ? Boolean(stored.readOnly) : FIRST_RUN_READ_ONLY,
+      storeDir: typeof stored.storeDir === 'string' ? stored.storeDir : undefined,
+      account: typeof stored.account === 'string' ? stored.account : undefined,
+    };
   }
 
   private saveSettings(): void {
     try {
-      const dir = path.dirname(this.settingsFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const db = this.db();
+      const upsert = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+      const clear = db.prepare('DELETE FROM settings WHERE key = ?');
+      for (const [key, value] of Object.entries(this.current())) {
+        if (value === undefined) {
+          clear.run(key);
+        } else {
+          upsert.run(key, JSON.stringify(value));
+        }
       }
-      fs.writeFileSync(this.settingsFilePath, JSON.stringify(this.settings, null, 2), {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
     } catch (err) {
-      console.warn('Failed to persist settings:', err);
+      logger.error('api', 'Failed to persist settings', { err });
     }
   }
 
   public isReadOnly(): boolean {
-    return this.settings.readOnly;
+    return this.current().readOnly;
   }
 
   public setReadOnly(readOnly: boolean): void {
-    this.settings.readOnly = readOnly;
+    this.current().readOnly = readOnly;
     this.saveSettings();
   }
 
   public getSettings(): AppSettings {
-    return { ...this.settings };
+    return { ...this.current() };
   }
 
   public updateSettings(partial: Partial<AppSettings>): AppSettings {
     // Spreading the raw partial would let an explicit `undefined` (a field the
     // caller simply did not set) erase a stored value — which previously wiped
     // `readOnly` off disk whenever settings were saved without it.
-    const next = { ...this.settings };
+    const next = { ...this.current() };
     for (const [key, value] of Object.entries(partial)) {
       if (value !== undefined) {
         (next as Record<string, unknown>)[key] = value;
@@ -105,7 +121,13 @@ export class ModeManager {
     }
     this.settings = next;
     this.saveSettings();
-    return { ...this.settings };
+    return { ...next };
+  }
+
+  /** Drops the cache so the next read comes from the database again. Used by
+   * tests that swap the file underneath a long-lived singleton. */
+  public reload(): void {
+    this.settings = null;
   }
 }
 

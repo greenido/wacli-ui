@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import type { DatabaseSync } from 'node:sqlite';
+import { getDb, openDatabaseAt } from '../db/index.js';
 import { logger } from '../logger.js';
 
 export interface Bookmark {
@@ -19,72 +18,40 @@ export interface Bookmark {
  * never pretends to have left the building.
  */
 export class BookmarkStore {
-  private filePath: string;
-  private items: Map<string, Bookmark> = new Map();
+  /** Set only when a caller asked for its own file, so tests get one store per case. */
+  private ownDb: DatabaseSync | null = null;
 
-  constructor(customPath?: string) {
-    if (customPath) {
-      this.filePath = customPath;
-    } else if (process.env.WACLI_BOOKMARKS_FILE) {
-      this.filePath = process.env.WACLI_BOOKMARKS_FILE;
-    } else {
-      let configDir = path.join(os.homedir(), '.wacli-mission-control');
-      try {
-        if (!fs.existsSync(configDir)) {
-          fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-        }
-      } catch {
-        configDir = os.tmpdir();
-      }
-      this.filePath = path.join(configDir, 'bookmarks.json');
-    }
-
-    this.load();
+  constructor(customDbPath?: string) {
+    this.ownDb = customDbPath ? openDatabaseAt(customDbPath) : null;
   }
 
-  private load(): void {
-    try {
-      if (!fs.existsSync(this.filePath)) return;
-      const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8')) as Bookmark[];
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item.msgId === 'string') {
-            this.items.set(item.msgId, item);
-          }
-        }
-      }
-    } catch (err) {
-      logger.warn('api', 'Failed to load bookmarks', { file: this.filePath, err });
-    }
-  }
-
-  private save(): void {
-    try {
-      const dir = path.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-      fs.writeFileSync(this.filePath, JSON.stringify(Array.from(this.items.values()), null, 2), {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
-    } catch (err) {
-      logger.warn('api', 'Failed to persist bookmarks', { file: this.filePath, err });
-    }
+  private db(): DatabaseSync {
+    return this.ownDb ?? getDb();
   }
 
   public has(msgId: string): boolean {
-    return this.items.has(msgId);
+    try {
+      return this.db().prepare('SELECT 1 FROM bookmarks WHERE msg_id = ?').get(msgId) !== undefined;
+    } catch (err) {
+      logger.warn('api', 'Failed to read a bookmark', { err });
+      return false;
+    }
   }
 
   public set(msgId: string, chatJid: string, bookmarked: boolean): boolean {
-    if (bookmarked) {
-      if (!this.items.has(msgId)) {
-        this.items.set(msgId, { msgId, chatJid, createdAt: new Date().toISOString() });
-        this.save();
+    try {
+      const db = this.db();
+      if (bookmarked) {
+        // OR IGNORE keeps the original createdAt when a message is bookmarked
+        // twice, which is what the Map-and-file version did by checking first.
+        db.prepare(
+          'INSERT OR IGNORE INTO bookmarks (msg_id, chat_jid, created_at) VALUES (?, ?, ?)'
+        ).run(msgId, chatJid, new Date().toISOString());
+      } else {
+        db.prepare('DELETE FROM bookmarks WHERE msg_id = ?').run(msgId);
       }
-    } else if (this.items.delete(msgId)) {
-      this.save();
+    } catch (err) {
+      logger.warn('api', 'Failed to persist a bookmark', { err });
     }
     return bookmarked;
   }

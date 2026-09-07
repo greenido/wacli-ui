@@ -5,14 +5,11 @@ import path from 'node:path';
 /**
  * Point every on-disk singleton at a throwaway directory before the modules that
  * read them are imported. Without this the suite loads — and `setReadOnly`
- * rewrites — the developer's real ~/.wacli-mission-control/settings.json.
+ * rewrites — the developer's real ~/.wacli-mission-control database.
  */
 const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-test-'));
 
-process.env.WACLI_SETTINGS_FILE = path.join(sandbox, 'settings.json');
-process.env.WACLI_SCHEDULED_FILE = path.join(sandbox, 'scheduled.json');
-process.env.WACLI_BOOKMARKS_FILE = path.join(sandbox, 'bookmarks.json');
-process.env.WACLI_TAGS_FILE = path.join(sandbox, 'tags.json');
+process.env.WACLI_DB_FILE = path.join(sandbox, 'mission-control.db');
 process.env.WACLI_STORE_DIR = path.join(sandbox, 'store');
 process.env.WACLI_LOG_DIR = path.join(sandbox, 'logs');
 

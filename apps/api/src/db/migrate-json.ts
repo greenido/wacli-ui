@@ -150,7 +150,7 @@ export function migrateJsonStores(db: DatabaseSync): void {
       continue;
     }
 
-    let imported = 0;
+    let imported: number;
     try {
       const parsed: unknown = JSON.parse(raw);
       // One transaction per file: a row that fails to parse halfway through

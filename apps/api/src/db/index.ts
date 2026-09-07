@@ -36,6 +36,15 @@ function open(dbPath: string): DatabaseSync {
 
   const handle = new DatabaseSync(dbPath);
 
+  // A home-directory file holding chat JIDs and message bodies; it gets the
+  // same 0600 the JSON files had. Here rather than in initDatabase so a
+  // standalone handle is not the one exception that leaves it world-readable.
+  try {
+    fs.chmodSync(dbPath, 0o600);
+  } catch {
+    // Windows, or a filesystem with no notion of modes. Not worth failing on.
+  }
+
   // WAL keeps the 3s scheduler tick from blocking a read the UI is waiting on.
   handle.exec('PRAGMA journal_mode = WAL');
   // The scheduler's dispatch and an interactive write can still collide; wait
@@ -45,6 +54,21 @@ function open(dbPath: string): DatabaseSync {
   applySchema(handle);
 
   return handle;
+}
+
+/**
+ * Opens a database at an explicit path without touching the process-wide one.
+ *
+ * For a caller that needs its own isolated handle — chiefly a test standing up
+ * one store per case — where going through the singleton would have every
+ * instance share, and clobber, the same file.
+ */
+export function openDatabaseAt(dbPath: string): DatabaseSync {
+  try {
+    return open(dbPath);
+  } catch (err) {
+    throw new DatabaseUnavailableError(dbPath, err);
+  }
 }
 
 /**
@@ -61,13 +85,6 @@ export function initDatabase(dbPath = resolveDbPath()): DatabaseSync {
   try {
     db = open(dbPath);
     openedPath = dbPath;
-    // A store this permissive is a home-directory file holding chat JIDs and
-    // message bodies; it gets the same 0600 the JSON files had.
-    try {
-      fs.chmodSync(dbPath, 0o600);
-    } catch {
-      // Windows, or a filesystem with no notion of modes. Not worth failing on.
-    }
     return db;
   } catch (err) {
     db = null;
