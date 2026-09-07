@@ -291,9 +291,14 @@ export class WacliProcessManager {
     const storeDir = settings.storeDir ?? process.env.WACLI_STORE_DIR;
     const account = settings.account ?? process.env.WACLI_ACCOUNT;
 
+    // Independent flags — see the same pairing in commands.ts. The daemon has
+    // to open the same store as the reads do, as the same account, or the
+    // console follows one session while every command runs against another.
     if (storeDir) {
       args.push('--store', storeDir);
-    } else if (account) {
+    }
+
+    if (account) {
       args.push('--account', account);
     }
 
