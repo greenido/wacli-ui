@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
+import { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
 import { createHealthRouter } from './routes/health.js';
@@ -24,31 +25,9 @@ import { StoreLockedError } from './wacli/store-lock.js';
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
 
-export function isLoopbackHost(hostHeader?: string): boolean {
-  if (!hostHeader) return false;
-  try {
-    const rawHost = hostHeader.startsWith('[')
-      ? hostHeader.slice(1, hostHeader.indexOf(']'))
-      : hostHeader.split(':')[0];
-    const h = (rawHost ?? '').toLowerCase();
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1';
-  } catch {
-    return false;
-  }
-}
-
-export function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const url = new URL(origin);
-    const h = url.hostname;
-    return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]')
-    );
-  } catch {
-    return false;
-  }
-}
+// Re-exported from their own module so the WebSocket upgrade can apply the same
+// rule without importing this file back.
+export { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
 
 export function findWebDistDir(): string | null {
   if (process.env.STATIC_WEB_DIR && fs.existsSync(process.env.STATIC_WEB_DIR)) {
@@ -74,6 +53,9 @@ export function findWebDistDir(): string | null {
  * line is promoted so a slow read stands out without raising the log level.
  */
 const SLOW_REQUEST_MS = 1_500;
+
+/** How long a shutdown waits on connections before it stops being polite. */
+const SHUTDOWN_GRACE_MS = 5_000;
 
 /** Query params are usually the only thing separating two identical lines. */
 function formatQuery(query: Request['query']): string | undefined {
@@ -221,6 +203,61 @@ export interface ServerInstance {
   processManager: WacliProcessManager;
 }
 
+/** Everything a shutdown has to put down, narrowed so a test can stand it up. */
+export interface ShutdownDeps {
+  server: Pick<http.Server, 'close'>;
+  processManager: Pick<WacliProcessManager, 'stop'>;
+  bridge: Pick<EventBridge, 'close'>;
+  /** The scheduler's timer, which keeps the event loop alive on its own. */
+  jobs: { stop: () => void };
+  /** What "done" means. Separated so this is testable without leaving. */
+  exit: () => void;
+  graceMs?: number;
+}
+
+/**
+ * Puts the process down in an order that actually reaches its own last line.
+ *
+ * `http.Server.close()` waits for every connection still standing, and an
+ * upgraded WebSocket closes only when told to — so with a browser tab open its
+ * callback never ran, `exit` never fired, and Ctrl+C did nothing until it was
+ * pressed a second time. The scheduler's interval holds the loop open the same
+ * way. Both go first, and the order is the point: releasing them after
+ * `server.close()` would be releasing them after the wait they cause.
+ */
+export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void> {
+  const { server, processManager, bridge, jobs, exit, graceMs = SHUTDOWN_GRACE_MS } = deps;
+
+  logger.info('process', 'Shutting down gracefully', { signal });
+
+  jobs.stop();
+  bridge.close();
+
+  try {
+    await processManager.stop();
+  } catch (err) {
+    logger.debug('process', 'Sync daemon did not stop cleanly', { err });
+  }
+
+  // Whatever else is still in flight — a media stream mid-body, a wacli read
+  // that has not come back — is not worth hanging a shutdown on. Unref'd, so it
+  // is only ever a backstop: when the close lands first the process exits on
+  // its own and this never fires.
+  const forceExit = setTimeout(() => {
+    logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
+    logger.close();
+    exit();
+  }, graceMs);
+  forceExit.unref();
+
+  server.close(() => {
+    clearTimeout(forceExit);
+    // Flush the tail of any collapsed repeat before the process is gone.
+    logger.close();
+    exit();
+  });
+}
+
 export function startServer(port = PORT, host = HOST): ServerInstance {
   const pm = new WacliProcessManager({
     apiPort: port,
@@ -260,19 +297,14 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
     }
   });
 
-  const gracefulShutdown = async (signal: string) => {
-    logger.info('process', 'Shutting down gracefully', { signal });
-    try {
-      await pm.stop();
-    } catch (err) {
-      logger.debug('process', 'Sync daemon did not stop cleanly', { err });
-    }
-    server.close(() => {
-      // Flush the tail of any collapsed repeat before the process is gone.
-      logger.close();
-      process.exit(0);
+  const gracefulShutdown = (signal: string) =>
+    shutdown(signal, {
+      server,
+      processManager: pm,
+      bridge: eventBridge,
+      jobs: scheduler,
+      exit: () => process.exit(0),
     });
-  };
 
   process.once('SIGINT', () => void gracefulShutdown('SIGINT'));
   process.once('SIGTERM', () => void gracefulShutdown('SIGTERM'));
