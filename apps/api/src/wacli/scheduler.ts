@@ -36,11 +36,17 @@ export type ResendOutcome =
   | { ok: true; item: ScheduledMessage }
   | { ok: false; error: string };
 
+/** The one thing the scheduler needs from the process manager. */
+export interface ExclusiveRunner {
+  executeExclusive<T>(action: () => Promise<T>): Promise<T>;
+}
+
 export class Scheduler {
   private filePath: string;
   private items: Map<string, ScheduledMessage> = new Map();
   private timer: NodeJS.Timeout | null = null;
   private eventBridge: EventBridge | null = null;
+  private exclusiveRunner: ExclusiveRunner | null = null;
   /** Ids currently being dispatched, to prevent overlapping ticks double-sending. */
   private inFlight: Set<string> = new Set();
   private isChecking = false;
@@ -75,6 +81,25 @@ export class Scheduler {
 
   public setEventBridge(bridge: EventBridge): void {
     this.eventBridge = bridge;
+  }
+
+  public setExclusiveRunner(runner: ExclusiveRunner): void {
+    this.exclusiveRunner = runner;
+  }
+
+  /**
+   * Runs a send with the store to itself.
+   *
+   * A due message dispatches on a 3s timer, which means it almost always fires
+   * while the sync daemon is up and holding the store lock — and the daemon
+   * never releases it between polls, so the send simply fails. Pausing the
+   * daemon around the send is what makes it land, the same as for the
+   * interactive routes. Left unset the action runs as-is, which is what the
+   * scheduler tests want.
+   */
+  private async exclusively<T>(action: () => Promise<T>): Promise<T> {
+    if (!this.exclusiveRunner) return action();
+    return this.exclusiveRunner.executeExclusive(action);
   }
 
   private load(): void {
@@ -391,10 +416,12 @@ export class Scheduler {
           args.push('--reply-to', item.replyTo);
         }
 
-        result = await execWacli<Record<string, unknown>>(args, {
-          allowMutation: true,
-          timeoutMs: 120000,
-        });
+        result = await this.exclusively(() =>
+          execWacli<Record<string, unknown>>(args, {
+            allowMutation: true,
+            timeoutMs: 120000,
+          })
+        );
 
         // Clean up scheduled attachment file
         try {
@@ -408,10 +435,12 @@ export class Scheduler {
           args.push('--reply-to', item.replyTo);
         }
 
-        result = await execWacli<Record<string, unknown>>(args, {
-          allowMutation: true,
-          timeoutMs: 60000,
-        });
+        result = await this.exclusively(() =>
+          execWacli<Record<string, unknown>>(args, {
+            allowMutation: true,
+            timeoutMs: 60000,
+          })
+        );
       }
 
       item.status = 'sent';

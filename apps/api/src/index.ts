@@ -154,7 +154,7 @@ export function createApp(
   app.use('/api', createSearchRouter());
   app.use('/api', createHistoryRouter(processManager));
   app.use('/api', createContactsRouter(processManager));
-  app.use('/api', createSendRouter());
+  app.use('/api', createSendRouter(processManager));
   app.use('/api', createMediaRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
 
@@ -282,6 +282,9 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
 
   eventBridge.initialize(server);
   scheduler.setEventBridge(eventBridge);
+  // Due messages fire on a timer, so they collide with the running sync daemon
+  // exactly the way an interactive send does. Same fix: pause it for the send.
+  scheduler.setExclusiveRunner(pm);
   scheduler.start();
 
   server.listen(port, host, () => {

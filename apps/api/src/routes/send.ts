@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { scheduler } from '../wacli/scheduler.js';
+import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { sentMessageIdFrom } from '../wacli/normalize.js';
 import { logger } from '../logger.js';
 
@@ -42,7 +43,22 @@ function requireMutationPermission(req: Request, res: Response, next: NextFuncti
   next();
 }
 
-export function createSendRouter(): Router {
+/**
+ * Every outgoing command here runs through `executeExclusive`.
+ *
+ * The sync daemon holds the store lock for as long as it is up, and it does not
+ * let go between polls — so a send fired while it runs loses the race every
+ * time, and `execWacli`'s own three retries are three more losses, not a
+ * recovery. That is what put `503 store is locked (another wacli is running?)`
+ * on a plain text send. Pausing the daemon for the duration is the only thing
+ * that makes the send land; it also queues sends behind the other exclusive
+ * commands (mark-read, history, contacts) instead of racing those too.
+ *
+ * The cost is real and deliberate: the daemon is down for the whole send, so
+ * nothing arrives over the webhook until it respawns. That is why the timeouts
+ * below are downtime budgets as much as patience settings.
+ */
+export function createSendRouter(processManager: WacliProcessManager): Router {
   const router = Router();
 
   // POST /api/send/text
@@ -80,10 +96,12 @@ export function createSendRouter(): Router {
 
       logger.info('send', 'Dispatching text', { to, replyTo: replyTo || undefined });
 
-      const result = await execWacli<Record<string, unknown>>(args, {
-        allowMutation: true,
-        timeoutMs: 60000,
-      });
+      const result = await processManager.executeExclusive(async () =>
+        execWacli<Record<string, unknown>>(args, {
+          allowMutation: true,
+          timeoutMs: 60000,
+        })
+      );
 
       res.json({
         success: true,
@@ -163,10 +181,12 @@ export function createSendRouter(): Router {
 
         logger.info('send', 'Dispatching file', { to, file: file.originalname, bytes: file.size });
 
-        const result = await execWacli<Record<string, unknown>>(args, {
-          allowMutation: true,
-          timeoutMs: 120000,
-        });
+        const result = await processManager.executeExclusive(async () =>
+          execWacli<Record<string, unknown>>(args, {
+            allowMutation: true,
+            timeoutMs: 120000,
+          })
+        );
 
         res.json({
           success: true,
@@ -228,10 +248,12 @@ export function createSendRouter(): Router {
 
       logger.info('send', 'Dispatching reaction', { to, id, reaction: reaction ?? '👍' });
 
-      const result = await execWacli<Record<string, unknown>>(args, {
-        allowMutation: true,
-        timeoutMs: 30000,
-      });
+      const result = await processManager.executeExclusive(async () =>
+        execWacli<Record<string, unknown>>(args, {
+          allowMutation: true,
+          timeoutMs: 30000,
+        })
+      );
 
       res.json({
         success: true,

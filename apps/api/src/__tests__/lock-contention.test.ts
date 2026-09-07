@@ -156,4 +156,111 @@ describe('Store lock contention through the routes', () => {
 
     expect(spawn).toHaveBeenCalledTimes(1);
   });
+  /**
+   * The regression these were written for: sends called `execWacli` directly
+   * while every other mutation went through `executeExclusive`, so a send fired
+   * against a running daemon lost the store lock race and came back 503 —
+   * `store is locked (another wacli is running?)`. The assertion that matters is
+   * that the daemon is paused and respawned, because that is the only thing
+   * that frees the lock.
+   */
+  it('pauses the daemon for a text send instead of racing it for the lock', async () => {
+    const app = createApp(pm);
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
+    await settle();
+
+    expect(res.status).toBe(200);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('pauses the daemon for a reaction send', async () => {
+    const app = createApp(pm);
+
+    const res = await request(app)
+      .post('/api/send/react')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', id: 'ABC123', reaction: '\u2764\ufe0f', confirm: true });
+    await settle();
+
+    expect(res.status).toBe(200);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues a send behind an in-flight mark-read rather than colliding with it', async () => {
+    let releaseMarkRead: () => void = () => {};
+    const markReadRunning = new Promise<void>((resolve) => {
+      releaseMarkRead = resolve;
+    });
+    const order: string[] = [];
+    execWacliMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'chats') {
+        order.push('mark-read');
+        await markReadRunning;
+        return null;
+      }
+      order.push('send');
+      return null;
+    });
+
+    const app = createApp(pm);
+    const markRead = request(app)
+      .post('/api/chats/mark-read')
+      .send({ chat: '15550001@s.whatsapp.net' })
+      .then((r) => r);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const send = request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15550001@s.whatsapp.net', message: 'hi', confirm: true })
+      .then((r) => r);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The send is waiting on the mutex, not running against a held lock.
+    expect(order).toEqual(['mark-read']);
+
+    releaseMarkRead();
+    const [, sendRes] = await Promise.all([markRead, send]);
+    await settle();
+
+    expect(order).toEqual(['mark-read', 'send']);
+    expect(sendRes.status).toBe(200);
+    // Both ran under one pause: the daemon comes back once, at the end.
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pause the daemon when safe mode blocks a send', async () => {
+    modeManager.setReadOnly(true);
+    const app = createApp(pm);
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
+    await settle();
+
+    expect(res.status).toBe(403);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(execWacliMock).not.toHaveBeenCalled();
+  });
+
+  it('still respawns the daemon when a send fails', async () => {
+    execWacliMock.mockRejectedValue(new Error('wacli send text failed'));
+    const app = createApp(pm);
+
+    const res = await request(app)
+      .post('/api/send/text')
+      .set('X-Mission-Control-Request', '1')
+      .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
+    await settle();
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    // A failed send must never leave the store without a daemon.
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(pm.hasPendingExclusiveWork()).toBe(false);
+  });
 });
