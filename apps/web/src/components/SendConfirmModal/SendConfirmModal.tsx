@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Send, X, AlertCircle, FileText, CheckCircle2, ShieldAlert, Clock, Calendar } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
-import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
@@ -57,13 +57,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const [isScheduled, setIsScheduled] = useState(sendConfirmData.scheduleMode ?? false);
   const [scheduleTime, setScheduleTime] = useState(() => getPresetTime(30));
 
-  const { data: modeData } = useQuery({
-    queryKey: ['mode'],
-    queryFn: () => api.getMode(),
-    refetchInterval: POLL_MODE_MS,
-  });
-
-  const isReadOnly = modeData?.readOnly ?? false;
+  const { isReadOnly, setSafeMode } = useSafeMode();
 
   const sendTextMutation = useMutation({
     mutationFn: (data: { to: string; message: string; replyTo?: string }) =>
@@ -136,11 +130,13 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
         queryClient.invalidateQueries({ queryKey: ['scheduled'] });
       } else {
         // Immediate Send flow
+        // Confirming an immediate send is taken as the decision to go live, so
+        // the lock comes off here. Routed through the shared hook so the mode is
+        // only recorded once the server has agreed to it — and so a refusal
+        // throws before anything is dispatched, rather than leaving the console
+        // claiming live sends while the server still refuses them.
         if (isReadOnly) {
-          localStorage.setItem('wacli_safe_mode', 'false');
-          await api.setMode(false);
-          queryClient.invalidateQueries({ queryKey: ['mode'] });
-          queryClient.invalidateQueries({ queryKey: ['health'] });
+          await setSafeMode(false);
         }
 
         let sentResult: { sent: boolean; messageId?: string } | undefined;

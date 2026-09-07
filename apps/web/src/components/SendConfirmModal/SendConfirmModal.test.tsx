@@ -45,7 +45,12 @@ function renderConsole(client = new QueryClient({ defaultOptions: { queries: { r
   );
 }
 
-const composerBox = () => screen.getByPlaceholderText(/Message Alice/);
+/**
+ * The composer only renders a live textarea once the server has confirmed that
+ * safe mode is off — it starts locked, so this waits rather than assuming.
+ */
+const composerBox = () => screen.findByPlaceholderText(/Message Alice/);
+const composerBoxNow = () => screen.getByPlaceholderText(/Message Alice/);
 const confirmButton = () =>
   within(screen.getByRole('dialog')).getByRole('button', { name: /CONFIRM & SEND/i });
 
@@ -74,7 +79,7 @@ describe('SendConfirmModal keyboard flow', () => {
     const user = userEvent.setup();
     renderConsole();
 
-    await user.type(composerBox(), 'ping');
+    await user.type(await composerBox(), 'ping');
     await user.keyboard('{Enter}');
 
     // The dialog opens on the primary action, so the next Enter dispatches
@@ -98,7 +103,7 @@ describe('SendConfirmModal keyboard flow', () => {
     const user = userEvent.setup();
     renderConsole();
 
-    await user.type(composerBox(), 'ping');
+    await user.type(await composerBox(), 'ping');
     // Enter held down: one press opens the dialog, and the repeats that follow
     // land on the now-focused CONFIRM button. Sending on those would mean a
     // message went out with no confirmation at all.
@@ -116,7 +121,7 @@ describe('SendConfirmModal keyboard flow', () => {
     const user = userEvent.setup();
     renderConsole();
 
-    await user.type(composerBox(), 'later');
+    await user.type(await composerBox(), 'later');
     await user.click(screen.getByRole('button', { name: 'LATER' }));
 
     const dialog = await screen.findByRole('dialog');
@@ -131,13 +136,13 @@ describe('SendConfirmModal keyboard flow', () => {
 
     // The dialog is mounted for the life of the app, so state from the LATER
     // opening is still there when the next, immediate send opens it.
-    await user.type(composerBox(), 'later');
+    await user.type(await composerBox(), 'later');
     await user.click(screen.getByRole('button', { name: 'LATER' }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-    composerBox().focus();
+    (await composerBox()).focus();
     await user.keyboard('{Enter}');
 
     const dialog = await screen.findByRole('dialog');
@@ -149,7 +154,7 @@ describe('SendConfirmModal keyboard flow', () => {
     const user = userEvent.setup();
     renderConsole();
 
-    await user.type(composerBox(), 'ping');
+    await user.type(await composerBox(), 'ping');
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
@@ -158,14 +163,14 @@ describe('SendConfirmModal keyboard flow', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(sendText).not.toHaveBeenCalled();
     expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe('ping');
-    expect(composerBox()).toHaveFocus();
+    expect(composerBoxNow()).toHaveFocus();
   });
 
   it('schedules on Enter from the dispatch time field', async () => {
     const user = userEvent.setup();
     renderConsole();
 
-    await user.type(composerBox(), 'later');
+    await user.type(await composerBox(), 'later');
     await user.keyboard('{Enter}');
     const dialog = await screen.findByRole('dialog');
 
@@ -207,7 +212,7 @@ describe('SendConfirmModal teardown', () => {
     const user = userEvent.setup();
     const view = renderConsole();
 
-    await user.type(composerBox(), 'ping');
+    await user.type(await composerBox(), 'ping');
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     await user.keyboard('{Enter}');
@@ -296,7 +301,7 @@ describe('SendConfirmModal thread reconciliation', () => {
 
   async function dispatch(): Promise<void> {
     const user = userEvent.setup();
-    await user.type(composerBox(), 'shalom');
+    await user.type(await composerBox(), 'shalom');
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     await user.keyboard('{Enter}');

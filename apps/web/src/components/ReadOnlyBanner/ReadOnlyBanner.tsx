@@ -1,38 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Unlock, Lock, X } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client.ts';
-import { POLL_MODE_MS } from '../../lib/queryOptions.ts';
-
-const STORAGE_KEY = 'wacli_safe_mode';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 
 export const ReadOnlyBanner: React.FC = () => {
-  const queryClient = useQueryClient();
-
-  const { data: modeData } = useQuery({
-    queryKey: ['mode'],
-    queryFn: () => api.getMode(),
-    refetchInterval: POLL_MODE_MS,
-  });
-
-  React.useEffect(() => {
-    if (modeData && typeof modeData.readOnly === 'boolean') {
-      localStorage.setItem(STORAGE_KEY, String(modeData.readOnly));
-    }
-  }, [modeData]);
-
-  const mutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => {
-      localStorage.setItem(STORAGE_KEY, String(newReadOnly));
-      return api.setMode(newReadOnly);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mode'] });
-      queryClient.invalidateQueries({ queryKey: ['health'] });
-    },
-  });
-
-  const isReadOnly = modeData?.readOnly ?? (localStorage.getItem(STORAGE_KEY) !== null ? localStorage.getItem(STORAGE_KEY) === 'true' : false);
+  const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
 
   const [prevMode, setPrevMode] = useState(isReadOnly);
   const [isDismissed, setIsDismissed] = useState(false);
@@ -64,7 +35,7 @@ export const ReadOnlyBanner: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => mutation.mutate(true)}
+            onClick={() => void setSafeMode(true)}
             className="flex items-center gap-1 text-mc-textMuted hover:text-mc-safe transition-colors px-1.5 py-0.5 rounded border border-mc-border hover:border-mc-safe text-[11px]"
             title="Engage safe read-only lock"
           >
@@ -92,8 +63,8 @@ export const ReadOnlyBanner: React.FC = () => {
       </div>
       <div className="flex items-center gap-2">
         <button
-          onClick={() => mutation.mutate(false)}
-          disabled={mutation.isPending}
+          onClick={() => void setSafeMode(false)}
+          disabled={isSettingMode}
           className="flex items-center gap-1.5 bg-[#E8B96A]/20 hover:bg-[#E8B96A]/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2 py-0.5 rounded text-[11px] font-semibold transition-all"
           title="Switch to live mode to allow outgoing messages"
         >

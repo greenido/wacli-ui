@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import {
   notificationPermission,
   notificationsEnabled,
@@ -94,21 +95,11 @@ export const SettingsModal: React.FC = () => {
     queryFn: () => api.getHealth(),
   });
 
+  const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
+
   const { data: settings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.getSettings(),
-  });
-
-  const modeMutation = useMutation({
-    mutationFn: (newReadOnly: boolean) => {
-      localStorage.setItem('wacli_safe_mode', String(newReadOnly));
-      return api.setMode(newReadOnly);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mode'] });
-      queryClient.invalidateQueries({ queryKey: ['health'] });
-      queryClient.invalidateQueries({ queryKey: ['settings'] });
-    },
   });
 
   const restartDaemonMutation = useMutation({
@@ -120,7 +111,6 @@ export const SettingsModal: React.FC = () => {
 
   if (activeModal !== 'settings') return null;
 
-  const isReadOnly = settings?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
   const doctor = health?.doctor;
 
   return (
@@ -159,8 +149,8 @@ export const SettingsModal: React.FC = () => {
                 OPERATOR MODE
               </span>
               <button
-                onClick={() => modeMutation.mutate(!isReadOnly)}
-                disabled={modeMutation.isPending}
+                onClick={() => void setSafeMode(!isReadOnly)}
+                disabled={isSettingMode}
                 className={`px-3 py-1 rounded text-xs font-bold transition-all ${
                   isReadOnly
                     ? 'bg-mc-safe/20 text-mc-safe border border-mc-safe/60 hover:bg-mc-safe/30'

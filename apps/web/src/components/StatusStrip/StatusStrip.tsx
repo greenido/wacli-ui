@@ -13,6 +13,7 @@ import {
   Loader2, LifeBuoy } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
@@ -179,7 +180,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
 
   const pendingScheduled = scheduledItems.filter((i) => i.status === 'pending');
 
-  const isReadOnly = health?.readOnly ?? (localStorage.getItem('wacli_safe_mode') !== null ? localStorage.getItem('wacli_safe_mode') === 'true' : false);
+  const { isReadOnly } = useSafeMode();
   const processState = health?.processState ?? 'stopped';
   const doctor = health?.doctor;
   const heartbeatAge = health?.heartbeatAgeSeconds;
