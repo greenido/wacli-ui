@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import { logger } from '../logger.js';
+import { isAllowedUpgrade } from '../net/loopback.js';
 import type { MissionControlEvent } from '../types.js';
 
 export class EventBridge {
@@ -8,7 +9,23 @@ export class EventBridge {
   private clients = new Set<WebSocket>();
 
   public initialize(server: Server): void {
-    this.wss = new WebSocketServer({ server, path: '/ws' });
+    this.wss = new WebSocketServer({
+      server,
+      path: '/ws',
+      // The socket carries every message the account receives, and an upgrade
+      // ignores the same-origin policy the REST layer relies on — so this is
+      // the only thing standing between the feed and any page the operator
+      // happens to have open. Refused before the handshake completes, so a
+      // rejected caller never reaches the client set at all.
+      verifyClient: ({ origin, req }: { origin: string; req: IncomingMessage }) => {
+        if (isAllowedUpgrade(origin, req.headers.host)) return true;
+        logger.warn('ws', 'Refused WebSocket upgrade from a non-loopback caller', {
+          origin: origin || undefined,
+          host: req.headers.host,
+        });
+        return false;
+      },
+    });
 
     this.wss.on('connection', (ws, req) => {
       this.clients.add(ws);
@@ -57,12 +74,31 @@ export class EventBridge {
     return this.clients.size;
   }
 
+  /**
+   * Drops every client and stops accepting new ones.
+   *
+   * `wss.close()` on its own only closes the listener: an already-upgraded
+   * socket stays open, and `http.Server.close()` waits for every one of them.
+   * That is what made Ctrl+C hang for as long as a browser tab was open, which
+   * on this console is always. Terminating rather than closing politely is
+   * deliberate — a closing handshake needs the peer to answer, and a shutdown
+   * cannot be left waiting on a client that never will. The tab sees the socket
+   * drop and its own reconnect loop takes it from there.
+   */
   public close(): void {
+    for (const client of this.clients) {
+      try {
+        client.terminate();
+      } catch {
+        // Already gone; nothing left to release.
+      }
+    }
+    this.clients.clear();
+
     if (this.wss) {
       this.wss.close();
       this.wss = null;
     }
-    this.clients.clear();
   }
 }
 

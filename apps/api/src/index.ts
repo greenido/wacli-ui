@@ -6,6 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
+import { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
 import { createHealthRouter } from './routes/health.js';
@@ -24,31 +25,9 @@ import { StoreLockedError } from './wacli/store-lock.js';
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
 
-export function isLoopbackHost(hostHeader?: string): boolean {
-  if (!hostHeader) return false;
-  try {
-    const rawHost = hostHeader.startsWith('[')
-      ? hostHeader.slice(1, hostHeader.indexOf(']'))
-      : hostHeader.split(':')[0];
-    const h = (rawHost ?? '').toLowerCase();
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1';
-  } catch {
-    return false;
-  }
-}
-
-export function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const url = new URL(origin);
-    const h = url.hostname;
-    return (
-      (url.protocol === 'http:' || url.protocol === 'https:') &&
-      (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]')
-    );
-  } catch {
-    return false;
-  }
-}
+// Re-exported from their own module so the WebSocket upgrade can apply the same
+// rule without importing this file back.
+export { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
 
 export function findWebDistDir(): string | null {
   if (process.env.STATIC_WEB_DIR && fs.existsSync(process.env.STATIC_WEB_DIR)) {
