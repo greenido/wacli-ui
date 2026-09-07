@@ -25,7 +25,6 @@ Usage:
 
 Options:
   -p, --port <number>    Port to listen on (default: 3002, or env PORT)
-  -H, --host <string>    Host to bind to (default: 127.0.0.1)
   --no-sync              Disable automatic wacli sync supervisor
   -o, --open             Open browser automatically after startup
   -v, --version          Show version number
@@ -34,6 +33,10 @@ Options:
 Environment Variables:
   PORT                   Port to listen on (default: 3002)
   WACLI_DISABLE_SYNC     Set to 1 to disable sync supervisor
+
+Mission Control always binds 127.0.0.1. It holds a live WhatsApp session and
+authenticates nothing, so "the request came from this machine" is the whole of
+its access control.
 `);
 }
 
@@ -55,7 +58,15 @@ function openBrowser(url) {
 const args = process.argv.slice(2);
 let openAfterStart = false;
 let port = process.env.PORT ? Number(process.env.PORT) : 3002;
-let host = '127.0.0.1';
+
+/**
+ * Not configurable, and deliberately so. The server binds this and nothing
+ * else, so a `--host` flag could only ever have moved the banner — which is
+ * exactly what it used to do: `--host 0.0.0.0` printed a URL, and opened a
+ * browser at, an address the server was never listening on. The loopback bind
+ * is the console's access control, not a default worth overriding.
+ */
+const HOST = '127.0.0.1';
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -87,10 +98,6 @@ for (let i = 0; i < args.length; i++) {
     }
     port = val;
     process.env.PORT = String(port);
-  } else if (arg === '--host' || arg === '-H') {
-    host = args[++i];
-  } else if (arg.startsWith('--host=')) {
-    host = arg.split('=')[1];
   } else if (arg === '--no-sync') {
     process.env.WACLI_DISABLE_SYNC = '1';
   } else if (arg === '--open' || arg === '-o') {
@@ -118,7 +125,7 @@ if (!entrypoint) {
 }
 
 // Start server
-const url = `http://${host}:${port}`;
+const url = `http://${HOST}:${port}`;
 console.log(`
 ┌──────────────────────────────────────────────────────────────┐
 │                    wacli Mission Control                     │
