@@ -596,3 +596,98 @@ describe('Scheduler drops placeholder ids already on disk', () => {
     expect(stored.sent_message_id).toBeNull();
   });
 });
+
+describe('Scheduler paging', () => {
+  let tmpSchedFile: string;
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-page-${Date.now()}-${Math.random()}.db`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpSchedFile)) {
+      fs.unlinkSync(tmpSchedFile);
+    }
+  });
+
+  /** Seeds `count` resolved messages plus `pending` still-queued ones. */
+  function seed(scheduler: Scheduler, resolved: number, pending: number): void {
+    for (let i = 0; i < resolved; i++) {
+      const item = scheduler.schedule({
+        to: 'alice@s.whatsapp.net',
+        message: `done ${i}`,
+        scheduledAt: new Date(Date.now() + 600_000).toISOString(),
+      });
+      scheduler.cancel(item.id);
+    }
+    for (let i = 0; i < pending; i++) {
+      scheduler.schedule({
+        to: 'alice@s.whatsapp.net',
+        message: `queued ${i}`,
+        // Deliberately far out, so a "newest ten" rule would page them away.
+        scheduledAt: new Date(Date.now() + (i + 1) * 86_400_000).toISOString(),
+      });
+    }
+  }
+
+  it('returns ten resolved messages by default', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 25, 0);
+
+    const page = scheduler.getPage();
+    expect(page.history).toHaveLength(10);
+    expect(page.totalHistory).toBe(25);
+    expect(page.nextCursor).not.toBeNull();
+  });
+
+  it('never pages away a pending message, however far out it is scheduled', () => {
+    // The whole point of the tab: a queue that hides what is about to go out
+    // because it fell past row ten is a queue the operator cannot trust.
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 30, 4);
+
+    const page = scheduler.getPage();
+    expect(page.pending).toHaveLength(4);
+    expect(page.totalPending).toBe(4);
+    expect(page.history).toHaveLength(10);
+  });
+
+  it('orders pending soonest-first, because it is a queue and not a history', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 0, 3);
+
+    const due = scheduler.getPage().pending.map((i) => i.scheduledAt);
+    expect([...due]).toEqual([...due].sort());
+  });
+
+  it('walks the resolved history through its cursor without repeating a row', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 25, 0);
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = scheduler.getPage({ before: cursor ?? undefined });
+      seen.push(...page.history.map((i) => i.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(25);
+    expect(new Set(seen).size).toBe(25);
+  });
+
+  it('filters to one chat without losing the paging', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 12, 2);
+    scheduler.schedule({
+      to: 'bob@s.whatsapp.net',
+      message: 'someone else',
+      scheduledAt: new Date(Date.now() + 600_000).toISOString(),
+    });
+
+    const page = scheduler.getPage({ chat: 'alice@s.whatsapp.net' });
+    expect(page.pending).toHaveLength(2);
+    expect(page.totalHistory).toBe(12);
+    expect(page.history).toHaveLength(10);
+  });
+});

@@ -6,9 +6,21 @@ import fs from 'node:fs';
 import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { scheduler } from '../wacli/scheduler.js';
+import { activityStore } from '../wacli/activity.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { sentMessageIdFrom } from '../wacli/normalize.js';
 import { logger } from '../logger.js';
+
+/**
+ * A query-string page size, or undefined to let the store pick its default.
+ * Anything that is not a positive integer is treated as absent rather than
+ * coerced, so `?limit=abc` does not silently become a page of NaN.
+ */
+function parsePositiveInt(raw: unknown): number | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
 
 const upload = multer({
   dest: os.tmpdir(),
@@ -96,25 +108,45 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
 
       logger.info('send', 'Dispatching text', { to, replyTo: replyTo || undefined });
 
-      const result = await processManager.executeExclusive(async () =>
-        execWacli<Record<string, unknown>>(args, {
-          allowMutation: true,
-          timeoutMs: 60000,
-        })
-      );
-
-      res.json({
-        success: true,
-        data: {
-          sent: true,
-          // Hoisted out of the raw result so the console can jump to what it
-          // just sent. Buried inside `details` it was never read, and the send
-          // log had no id to point the thread at.
-          messageId: sentMessageIdFrom(result),
-          details: result,
-        },
-        error: null,
+      // Recorded before the send, settled after, so a send that never returns
+      // leaves a row saying it was attempted rather than no row at all.
+      const logId = activityStore.record({
+        to,
+        chatName: typeof req.body?.chatName === 'string' ? req.body.chatName : undefined,
+        message,
+        status: 'pending',
       });
+
+      try {
+        const result = await processManager.executeExclusive(async () =>
+          execWacli<Record<string, unknown>>(args, {
+            allowMutation: true,
+            timeoutMs: 60000,
+          })
+        );
+
+        const messageId = sentMessageIdFrom(result);
+        activityStore.settle(logId, { status: 'success', messageId: messageId ?? undefined });
+
+        res.json({
+          success: true,
+          data: {
+            sent: true,
+            // Hoisted out of the raw result so the console can jump to what it
+            // just sent. Buried inside `details` it was never read, and the send
+            // log had no id to point the thread at.
+            messageId,
+            details: result,
+          },
+          error: null,
+        });
+      } catch (err) {
+        activityStore.settle(logId, {
+          status: 'error',
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     } catch (err) {
       next(err);
     }
@@ -170,6 +202,10 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
+      // Declared out here so the catch can settle a row the try may not have
+      // reached yet — an argument-building throw must not settle nothing.
+      let logId: string | undefined;
+
       try {
         const args = ['send', 'file', '--to', to, '--file', file.path, '--filename', file.originalname, '--post-send-wait', POST_SEND_WAIT];
         if (caption) {
@@ -181,6 +217,15 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
 
         logger.info('send', 'Dispatching file', { to, file: file.originalname, bytes: file.size });
 
+        // The caption alone would leave an attachment-only send as a blank row,
+        // so the filename stands in for what was actually sent.
+        logId = activityStore.record({
+          to,
+          chatName: typeof req.body?.chatName === 'string' ? req.body.chatName : undefined,
+          message: caption || file.originalname,
+          status: 'pending',
+        });
+
         const result = await processManager.executeExclusive(async () =>
           execWacli<Record<string, unknown>>(args, {
             allowMutation: true,
@@ -188,16 +233,25 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
           })
         );
 
+        const messageId = sentMessageIdFrom(result);
+        activityStore.settle(logId, { status: 'success', messageId: messageId ?? undefined });
+
         res.json({
           success: true,
           data: {
             sent: true,
-            messageId: sentMessageIdFrom(result),
+            messageId,
             details: result,
           },
           error: null,
         });
       } catch (err) {
+        if (logId) {
+          activityStore.settle(logId, {
+            status: 'error',
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
         next(err);
       } finally {
         // Always clean up temp file
@@ -404,12 +458,29 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
   );
 
   // GET /api/send/scheduled & /api/scheduled - list scheduled messages
+  //
+  // Everything pending, always, plus one page of resolved history. See
+  // Scheduler.getPage for why pending is never paged.
   router.get(['/send/scheduled', '/scheduled'], (req: Request, res: Response) => {
-    const chat = req.query.chat as string | undefined;
-    const items = scheduler.getList(chat);
     res.json({
       success: true,
-      data: items,
+      data: scheduler.getPage({
+        chat: req.query.chat as string | undefined,
+        limit: parsePositiveInt(req.query.limit),
+        before: typeof req.query.before === 'string' ? req.query.before : undefined,
+      }),
+      error: null,
+    });
+  });
+
+  // GET /api/activity - the send audit stream, newest first
+  router.get('/activity', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      data: activityStore.list({
+        limit: parsePositiveInt(req.query.limit),
+        before: typeof req.query.before === 'string' ? req.query.before : undefined,
+      }),
       error: null,
     });
   });

@@ -23,6 +23,7 @@ import { scheduler } from './wacli/scheduler.js';
 import { StoreLockedError } from './wacli/store-lock.js';
 import { initDatabase, closeDatabase, DatabaseUnavailableError, resolveDbPath } from './db/index.js';
 import { migrateJsonStores } from './db/migrate-json.js';
+import { activityStore } from './wacli/activity.js';
 
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
@@ -281,6 +282,9 @@ export function bootDatabase(exit: (code: number) => never = process.exit): void
   try {
     const db = initDatabase();
     migrateJsonStores(db);
+    // Here rather than on a timer: a console left open for a month is not the
+    // case worth a background job, and a restart is when the count is visible.
+    activityStore.prune();
   } catch (err) {
     const dbPath = err instanceof DatabaseUnavailableError ? err.dbPath : resolveDbPath();
     const detail = err instanceof Error ? err.message : String(err);

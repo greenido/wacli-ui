@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { getDb, openDatabaseAt } from '../db/index.js';
+import { activityStore } from './activity.js';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
@@ -49,6 +50,30 @@ interface ScheduledRow {
   sent_message_id: string | null;
   resend_count: number | null;
   last_attempt_at: string | null;
+}
+
+/** One view of the queue: all of what is pending, a page of what is done. */
+export interface ScheduledPage {
+  pending: ScheduledMessage[];
+  history: ScheduledMessage[];
+  /** Pass back as `before` to continue the history. Null at the end of it. */
+  nextCursor: string | null;
+  totalPending: number;
+  totalHistory: number;
+}
+
+/** The default history page. Ten rows is what the strip shows unscrolled. */
+export const SCHEDULED_PAGE_SIZE = 10;
+
+/** A page nobody should be able to ask past, however the query is crafted. */
+const MAX_SCHEDULED_PAGE = 200;
+
+/**
+ * Sortable and comparable as one string, so a cursor is a single value.
+ * The id breaks ties, since two messages can share a createdAt millisecond.
+ */
+function cursorFor(item: ScheduledMessage): string {
+  return `${item.createdAt}|${item.id}`;
 }
 
 export type ResendOutcome =
@@ -406,6 +431,52 @@ export class Scheduler {
   }
 
   /**
+   * The queue as the strip shows it: everything still pending, then a page of
+   * what has already resolved.
+   *
+   * Pending is never paged. There are only ever a handful, and a queue that
+   * hides what is about to go out because it fell past row ten is a queue the
+   * operator cannot trust. Only the finished tail — sent, cancelled, failed —
+   * is worth asking for ten at a time.
+   *
+   * This pages the in-memory map rather than issuing a LIMIT, because the map
+   * is already the scheduler's working set and has to be complete for the tick
+   * regardless. The table is what makes it durable, not what makes it readable.
+   */
+  public getPage(opts: { chat?: string; limit?: number; before?: string } = {}): ScheduledPage {
+    this.ensureLoaded();
+    const limit = Math.min(Math.max(1, opts.limit ?? SCHEDULED_PAGE_SIZE), MAX_SCHEDULED_PAGE);
+
+    const all = Array.from(this.items.values())
+      .filter((item) => !opts.chat || item.to === opts.chat)
+      .map((item) => this.decorate(item));
+
+    // Soonest first: this is a queue of what happens next, not a history.
+    const pending = all
+      .filter((i) => i.status === 'pending')
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+    const finished = all
+      .filter((i) => i.status !== 'pending')
+      .sort((a, b) => cursorFor(b).localeCompare(cursorFor(a)));
+
+    // A cursor rather than an offset: a message resolving mid-scroll shifts
+    // every offset by one and would show the operator the same row twice.
+    const start = opts.before ? finished.findIndex((i) => cursorFor(i) < opts.before!) : 0;
+    const from = start === -1 ? finished.length : start;
+    const page = finished.slice(from, from + limit);
+    const last = page[page.length - 1];
+
+    return {
+      pending,
+      history: page,
+      nextCursor: from + limit < finished.length && last ? cursorFor(last) : null,
+      totalPending: pending.length,
+      totalHistory: finished.length,
+    };
+  }
+
+  /**
    * Copies an item for the wire and answers the one question the operator
    * cannot see from the UI: is the attachment still there? dispatch() silently
    * falls back to a plain text send when the file has gone, so the resend
@@ -483,7 +554,26 @@ export class Scheduler {
     item.error = error;
     this.save();
     logger.error('send', 'Scheduled message failed', { id: item.id, to: item.to, reason: error });
+    this.recordActivity(item, 'error', error);
     this.broadcastUpdate(item);
+  }
+
+  /**
+   * Puts a dispatch on the activity log.
+   *
+   * This is the half the browser could never record: a due message fires on a
+   * timer whether or not a console is open, so the sends least likely to be
+   * watched were exactly the ones the old in-memory log never saw.
+   */
+  private recordActivity(item: ScheduledMessage, status: 'success' | 'error', error?: string): void {
+    activityStore.record({
+      to: item.to,
+      chatName: item.recipientName,
+      message: item.message || item.fileName || '',
+      status,
+      error,
+      messageId: item.sentMessageId,
+    });
   }
 
   private broadcastUpdate(item: ScheduledMessage): void {
@@ -554,6 +644,7 @@ export class Scheduler {
       this.save();
       logger.info('send', 'Scheduled message sent', { id: item.id });
 
+      this.recordActivity(item, 'success');
       this.broadcastUpdate(item);
 
       if (this.eventBridge) {
