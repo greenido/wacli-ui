@@ -69,6 +69,29 @@ const SLOW_COMMAND_MS = 1_000;
  */
 export const POST_SEND_WAIT = process.env.WACLI_POST_SEND_WAIT ?? '500ms';
 
+/** wacli's own duration spelling — `500ms`, `2s`, `1m` — in milliseconds. */
+function parseDurationMs(value: string): number {
+  const match = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(value.trim());
+  if (!match) return 0;
+  const scale = match[2] === 'ms' ? 1 : match[2] === 's' ? 1_000 : 60_000;
+  return Number(match[1]) * scale;
+}
+
+/**
+ * How long this command may take before it is worth saying out loud.
+ *
+ * A send is not a read: it deliberately holds its connection open for
+ * --post-send-wait after the message is on the wire, so that wait is dead time
+ * the send is *supposed* to spend. Counting it against the read budget warned
+ * on every healthy send — a message acked in half a second logged as slow at
+ * 1030ms, which reads in the operator's log like a dispatch that went wrong.
+ */
+function slowThresholdFor(args: string[]): number {
+  const waitIdx = args.indexOf('--post-send-wait');
+  if (waitIdx === -1) return SLOW_COMMAND_MS;
+  return SLOW_COMMAND_MS + parseDurationMs(args[waitIdx + 1] ?? '');
+}
+
 let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
 
 export function resetWacliInstallCache(): void {
@@ -240,7 +263,7 @@ async function execWacliOnce<T>(
     // Every read spawns a subprocess against SQLite, so this is where the app's
     // latency actually goes. At DEBUG it is the trace that names the slow read;
     // past the threshold it is worth saying out loud without being asked.
-    if (durationMs >= SLOW_COMMAND_MS) {
+    if (durationMs >= slowThresholdFor(args)) {
       logger.warn('api', 'wacli command was slow', { cmd, durationMs, bytes: output.length });
     } else {
       logger.debug('api', 'wacli command completed', { cmd, durationMs, bytes: output.length });

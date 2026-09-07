@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Composer } from '../Composer/Composer.tsx';
 import { SendConfirmModal } from './SendConfirmModal.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedChat } from '../../types.ts';
+import { flattenMessagePages, type MessagePages } from '../../lib/messagePages.ts';
+import type { UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const getMode = vi.hoisted(() => vi.fn());
 const setMode = vi.hoisted(() => vi.fn());
@@ -35,8 +36,7 @@ const CHAT: UnifiedChat = {
 };
 
 /** Composer and dialog together, as App mounts them: one drives the other. */
-function renderConsole() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderConsole(client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={client}>
       <Composer />
@@ -232,5 +232,122 @@ describe('SendConfirmModal teardown', () => {
     // was on screen 400ms later, closing this one on its way past.
     expect(useAppStore.getState().activeModal).toBe('send-confirm');
     expect(useAppStore.getState().sendConfirmData?.messageText).toBe('the next one');
+  });
+});
+
+describe('SendConfirmModal thread reconciliation', () => {
+  let client: QueryClient;
+
+  const HISTORY: UnifiedMessage = {
+    chatJid: CHAT.jid,
+    chatName: 'Alice',
+    msgId: 'MSG-OLD',
+    senderJid: CHAT.jid,
+    senderName: 'Alice',
+    ts: '2026-09-07T12:00:00.000Z',
+    fromMe: false,
+    text: 'earlier line',
+    displayText: 'earlier line',
+    isForwarded: false,
+    reactionToId: null,
+    reactionEmoji: null,
+    mediaType: null,
+    mediaCaption: null,
+    filename: null,
+    mimeType: null,
+    localPath: null,
+    starred: false,
+    bookmarked: false,
+    edited: false,
+    revoked: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getMode.mockResolvedValue({ readOnly: false });
+    sendText.mockResolvedValue({ sent: true, messageId: 'wamid.1' });
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    useAppStore.setState({
+      selectedChat: CHAT,
+      activeModal: null,
+      sendConfirmData: null,
+      composerDrafts: {},
+      composerFiles: {},
+      replyingToByChat: {},
+      sendLogs: [],
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, activeModal: null, sendConfirmData: null });
+  });
+
+  /** The thread as the infinite query holds it: pages, newest first. */
+  function seedThread(): void {
+    client.setQueryData<MessagePages>(['messages', CHAT.jid], {
+      pages: [{ messages: [HISTORY], hasMore: false }],
+      pageParams: [undefined],
+    });
+  }
+
+  function thread(): MessagePages {
+    return client.getQueryData<MessagePages>(['messages', CHAT.jid])!;
+  }
+
+  async function dispatch(): Promise<void> {
+    const user = userEvent.setup();
+    await user.type(composerBox(), 'shalom');
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1));
+  }
+
+  it('puts a sent message at the front of an open thread', async () => {
+    seedThread();
+    renderConsole(client);
+
+    await dispatch();
+
+    // The dialog used to write the thread as a flat `{ messages }` object,
+    // which is not the shape an infinite query holds. Spreading the `messages`
+    // that were not there threw, so an open thread never saw its own send.
+    await waitFor(() =>
+      expect(flattenMessagePages(thread()).map((m) => m.msgId)).toEqual(['wamid.1', 'MSG-OLD'])
+    );
+  });
+
+  it('does not report a delivered message as failed', async () => {
+    seedThread();
+    renderConsole(client);
+
+    await dispatch();
+
+    // That throw landed in the send's own catch, which overwrote the success it
+    // had already recorded and told the operator to send a message that had
+    // gone out — the one thing a dispatch console must never do. The dialog
+    // stayed open on its error banner instead of closing on the sent tick.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(useAppStore.getState().sendLogs[0]?.status).toBe('success');
+    expect(useAppStore.getState().sendLogs[0]?.error).toBeUndefined();
+  });
+
+  it('still closes the dialog when the caches cannot be painted', async () => {
+    seedThread();
+    const boom = new Error('cache is wedged');
+    vi.spyOn(client, 'setQueriesData').mockImplementation(() => {
+      throw boom;
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderConsole(client);
+
+    await dispatch();
+
+    // Local bookkeeping is not the dispatch. Whatever goes wrong after the
+    // message has left, the operator is told it left.
+    await waitFor(() => expect(useAppStore.getState().activeModal).toBeNull());
+    expect(useAppStore.getState().sendLogs[0]?.status).toBe('success');
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

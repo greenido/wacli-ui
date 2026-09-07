@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFile } from 'node:child_process';
 import { execWacli, WacliCommandError } from '../wacli/commands.js';
 import { isTransientFailure } from '../wacli/failures.js';
+import { logger } from '../logger.js';
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 
@@ -124,5 +125,83 @@ describe('wacli command timeouts', () => {
 
     expect(err.message).toContain('timed out');
     expect(err.exitCode).toBeUndefined();
+  });
+});
+
+describe('slow command reporting', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * Resolves the command successfully, having apparently taken `elapsedMs`.
+   * `execFile` is a bare mock here, so it has lost the promisify hook that
+   * splits stdout from stderr — the generic path hands back whatever single
+   * value the callback carries, which is the object the caller destructures.
+   */
+  function resolveAfter(elapsedMs: number): void {
+    let now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    execFileMock.mockImplementation(((_bin: string, _args: string[], _opts: unknown, cb: any) => {
+      now += elapsedMs;
+      const stdout = JSON.stringify({ success: true, data: {} });
+      process.nextTick(() => cb(null, { stdout, stderr: '' }));
+      return {} as never;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+  }
+
+  it('does not call a send slow for the wait it was told to take', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    resolveAfter(1_030);
+
+    await execWacli(
+      ['send', 'text', '--to', 'a@s.whatsapp.net', '--message', 'hi', '--post-send-wait', '500ms'],
+      { timeoutMs: 30_000 }
+    );
+
+    // A send holds its connection open for --post-send-wait *after* the message
+    // is on the wire, so half of this was dead time it was asked to spend. The
+    // flat read budget warned on every healthy send, and an operator reading
+    // `wacli command was slow` next to their dispatch reads it as a failure.
+    expect(warn).not.toHaveBeenCalledWith(
+      'api',
+      'wacli command was slow',
+      expect.anything()
+    );
+  });
+
+  it('still calls a send slow once it is slow beyond that wait', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    resolveAfter(2_400);
+
+    await execWacli(
+      ['send', 'text', '--to', 'a@s.whatsapp.net', '--message', 'hi', '--post-send-wait', '500ms'],
+      { timeoutMs: 30_000 }
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      'api',
+      'wacli command was slow',
+      expect.objectContaining({ durationMs: 2_400 })
+    );
+  });
+
+  it('holds a read to the read budget', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    resolveAfter(1_030);
+
+    await execWacli(['chats', 'list'], { timeoutMs: 30_000 });
+
+    expect(warn).toHaveBeenCalledWith(
+      'api',
+      'wacli command was slow',
+      expect.objectContaining({ durationMs: 1_030 })
+    );
   });
 });

@@ -7,6 +7,7 @@ import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { getPresetTime, getTomorrowMorning } from '../../lib/scheduleTime.ts';
+import { prependMessage, type MessagePages } from '../../lib/messagePages.ts';
 import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
 
 type SendConfirmRequest = NonNullable<ReturnType<typeof useAppStore.getState>['sendConfirmData']>;
@@ -169,73 +170,78 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
         // message later, not just reopen the conversation.
         updateSendLog(logId, { status: 'success', messageId: sentResult?.messageId });
 
-        // Optimistic message append in active thread
-        const optimisticMsg: UnifiedMessage = {
-          chatJid: sendConfirmData.toJid,
-          chatName: sendConfirmData.recipientName,
-          msgId: sentResult?.messageId || `out-${Date.now()}`,
-          senderJid: '',
-          senderName: 'Me',
-          ts: new Date().toISOString(),
-          fromMe: true,
-          text: sendConfirmData.messageText,
-          displayText: sendConfirmData.messageText,
-          isForwarded: false,
-          reactionToId: null,
-          reactionEmoji: null,
-          mediaType: sendConfirmData.fileAttachment ? 'document' : null,
-          mediaCaption: sendConfirmData.messageText || null,
-          filename: sendConfirmData.fileAttachment?.name || null,
-          mimeType: sendConfirmData.fileAttachment?.type || null,
-          localPath: null,
-          starred: false,
-          bookmarked: false,
-          edited: false,
-          revoked: false,
-          deliveryStatus: 'sent',
-        };
+        // Painting the send into the caches is a nicety on top of a message
+        // that has already left. A throw in here is not a failed dispatch, so
+        // it must not reach the catch below and report a delivered message as
+        // undelivered — the invalidations after it fetch the truth regardless.
+        try {
+          const optimisticMsg: UnifiedMessage = {
+            chatJid: sendConfirmData.toJid,
+            chatName: sendConfirmData.recipientName,
+            msgId: sentResult?.messageId || `out-${Date.now()}`,
+            senderJid: '',
+            senderName: 'Me',
+            ts: new Date().toISOString(),
+            fromMe: true,
+            text: sendConfirmData.messageText,
+            displayText: sendConfirmData.messageText,
+            isForwarded: false,
+            reactionToId: null,
+            reactionEmoji: null,
+            mediaType: sendConfirmData.fileAttachment ? 'document' : null,
+            mediaCaption: sendConfirmData.messageText || null,
+            filename: sendConfirmData.fileAttachment?.name || null,
+            mimeType: sendConfirmData.fileAttachment?.type || null,
+            localPath: null,
+            starred: false,
+            bookmarked: false,
+            edited: false,
+            revoked: false,
+            deliveryStatus: 'sent',
+          };
 
-        // Prefix match: the thread cache is keyed by chat and window size, and
-        // the chat list by chat, search text and filter. An exact-key write
-        // would land on a key nothing is observing.
-        queryClient.setQueriesData<{ messages: UnifiedMessage[]; hasMore: boolean }>(
-          { queryKey: ['messages', sendConfirmData.toJid] },
-          (old) => {
-            if (!old) return old;
-            return {
-              ...old,
-              messages: [...old.messages, optimisticMsg],
-            };
-          }
-        );
+          // Prefix match: the thread cache is keyed by chat and window size, and
+          // the chat list by chat, search text and filter. An exact-key write
+          // would land on a key nothing is observing.
+          //
+          // The thread holds its history as pages, newest first, so the send
+          // goes on the front of the newest one — the same insert the socket
+          // makes when this message comes back, which is why it dedupes on id.
+          queryClient.setQueriesData<MessagePages>(
+            { queryKey: ['messages', sendConfirmData.toJid] },
+            (old) => prependMessage(old, optimisticMsg)
+          );
 
-        queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
-          const chats = old ? [...old] : [];
-          const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
-          const updatedChat: UnifiedChat = existingIdx >= 0
-            ? {
-                ...chats[existingIdx],
-                lastMessageTs: new Date().toISOString(),
-                lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
-                lastMessageFromMe: true,
-              }
-            : {
-                jid: sendConfirmData.toJid,
-                name: sendConfirmData.recipientName,
-                kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
-                lastMessageTs: new Date().toISOString(),
-                lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
-                lastMessageFromMe: true,
-                archived: false,
-                pinned: false,
-                mutedUntil: 0,
-                unread: false,
-                unreadCount: 0,
-              };
+          queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
+            const chats = old ? [...old] : [];
+            const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
+            const updatedChat: UnifiedChat = existingIdx >= 0
+              ? {
+                  ...chats[existingIdx],
+                  lastMessageTs: new Date().toISOString(),
+                  lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
+                  lastMessageFromMe: true,
+                }
+              : {
+                  jid: sendConfirmData.toJid,
+                  name: sendConfirmData.recipientName,
+                  kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
+                  lastMessageTs: new Date().toISOString(),
+                  lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
+                  lastMessageFromMe: true,
+                  archived: false,
+                  pinned: false,
+                  mutedUntil: 0,
+                  unread: false,
+                  unreadCount: 0,
+                };
 
-          const filtered = chats.filter((c) => c.jid !== sendConfirmData.toJid);
-          return [updatedChat, ...filtered];
-        });
+            const filtered = chats.filter((c) => c.jid !== sendConfirmData.toJid);
+            return [updatedChat, ...filtered];
+          });
+        } catch (err: unknown) {
+          console.error('wacli-ui: could not paint a sent message into the caches', err);
+        }
 
         queryClient.invalidateQueries({ queryKey: ['messages', sendConfirmData.toJid] });
         queryClient.invalidateQueries({ queryKey: ['chats'] });
