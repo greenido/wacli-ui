@@ -180,3 +180,31 @@ export interface SendLogEntry {
    */
   messageId?: string;
 }
+
+/**
+ * One page of the send audit stream, newest first.
+ *
+ * `nextCursor` is a timestamp and id rather than an offset: a send landing
+ * while the operator scrolls shifts every offset by one, and they would read
+ * the same row twice. Null means the last row is already on the page.
+ */
+export interface ActivityPage {
+  items: SendLogEntry[];
+  nextCursor: string | null;
+  total: number;
+}
+
+/**
+ * The scheduled queue as the strip shows it.
+ *
+ * `pending` is always complete — a queue that hides what is about to go out
+ * because it fell past row ten is a queue the operator cannot trust. Only
+ * `history`, the resolved tail, is paged.
+ */
+export interface ScheduledPage {
+  pending: ScheduledMessage[];
+  history: ScheduledMessage[];
+  nextCursor: string | null;
+  totalPending: number;
+  totalHistory: number;
+}

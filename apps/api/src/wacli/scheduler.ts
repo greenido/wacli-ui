@@ -1,6 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
+import type { DatabaseSync } from 'node:sqlite';
+import { getDb, openDatabaseAt } from '../db/index.js';
+import { activityStore } from './activity.js';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
 import { logger } from '../logger.js';
@@ -32,6 +33,49 @@ export interface ScheduledMessage {
   attachmentMissing?: boolean;
 }
 
+/** The `scheduled` table's own shape, snake_case as stored. */
+interface ScheduledRow {
+  id: string;
+  to_jid: string;
+  recipient_name: string | null;
+  message: string;
+  reply_to: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+  scheduled_at: string;
+  created_at: string;
+  status: string;
+  error: string | null;
+  sent_message_id: string | null;
+  resend_count: number | null;
+  last_attempt_at: string | null;
+}
+
+/** One view of the queue: all of what is pending, a page of what is done. */
+export interface ScheduledPage {
+  pending: ScheduledMessage[];
+  history: ScheduledMessage[];
+  /** Pass back as `before` to continue the history. Null at the end of it. */
+  nextCursor: string | null;
+  totalPending: number;
+  totalHistory: number;
+}
+
+/** The default history page. Ten rows is what the strip shows unscrolled. */
+export const SCHEDULED_PAGE_SIZE = 10;
+
+/** A page nobody should be able to ask past, however the query is crafted. */
+const MAX_SCHEDULED_PAGE = 200;
+
+/**
+ * Sortable and comparable as one string, so a cursor is a single value.
+ * The id breaks ties, since two messages can share a createdAt millisecond.
+ */
+function cursorFor(item: ScheduledMessage): string {
+  return `${item.createdAt}|${item.id}`;
+}
+
 export type ResendOutcome =
   | { ok: true; item: ScheduledMessage }
   | { ok: false; error: string };
@@ -42,8 +86,21 @@ export interface ExclusiveRunner {
 }
 
 export class Scheduler {
-  private filePath: string;
+  /**
+   * Set only when a caller asked for its own file, so tests get one store per
+   * case. Otherwise the process-wide handle, resolved per use.
+   */
+  private ownDb: DatabaseSync | null = null;
+  /**
+   * The whole queue, in memory.
+   *
+   * This is not a cache — the 3s tick, the in-flight set and the resend path
+   * all work against it, and a due message has to be found without a query per
+   * beat. The table is the durable copy; the map is the working set, and the
+   * two are written together.
+   */
   private items: Map<string, ScheduledMessage> = new Map();
+  private hydrated = false;
   private timer: NodeJS.Timeout | null = null;
   private eventBridge: EventBridge | null = null;
   private exclusiveRunner: ExclusiveRunner | null = null;
@@ -51,31 +108,28 @@ export class Scheduler {
   private inFlight: Set<string> = new Set();
   private isChecking = false;
 
-  constructor(customPath?: string, bridge?: EventBridge) {
+  constructor(customDbPath?: string, bridge?: EventBridge) {
     this.eventBridge = bridge ?? null;
-    if (customPath) {
-      this.filePath = customPath;
-    } else if (process.env.WACLI_SCHEDULED_FILE) {
-      this.filePath = process.env.WACLI_SCHEDULED_FILE;
-    } else {
-      let configDir = path.join(os.homedir(), '.wacli-mission-control');
-      try {
-        if (!fs.existsSync(configDir)) {
-          fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-        }
-      } catch {
-        configDir = path.join(process.cwd(), '.wacli-mission-control');
-        try {
-          if (!fs.existsSync(configDir)) {
-            fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-          }
-        } catch {
-          configDir = os.tmpdir();
-        }
-      }
-      this.filePath = path.join(configDir, 'scheduled.json');
-    }
+    this.ownDb = customDbPath ? openDatabaseAt(customDbPath) : null;
+  }
 
+  private db(): DatabaseSync {
+    return this.ownDb ?? getDb();
+  }
+
+  /**
+   * Fills the map from the table, once, on first use rather than in the
+   * constructor.
+   *
+   * This is a module singleton: constructing it eagerly would read the table at
+   * import time, which on a first boot is *before* the legacy JSON has been
+   * migrated into it. The queue would come up empty, and stay empty until the
+   * next restart — with 91 records sitting in the table it had already decided
+   * were not there.
+   */
+  private ensureLoaded(): void {
+    if (this.hydrated) return;
+    this.hydrated = true;
     this.load();
   }
 
@@ -102,50 +156,112 @@ export class Scheduler {
     return this.exclusiveRunner.executeExclusive(action);
   }
 
+  /** A stored row, back in the shape the rest of this file works in. */
+  private static fromRow(row: ScheduledRow): ScheduledMessage {
+    const opt = (v: string | null): string | undefined => v ?? undefined;
+    return {
+      id: row.id,
+      to: row.to_jid,
+      recipientName: opt(row.recipient_name),
+      message: row.message,
+      replyTo: opt(row.reply_to),
+      filePath: opt(row.file_path),
+      fileName: opt(row.file_name),
+      mimeType: opt(row.mime_type),
+      scheduledAt: row.scheduled_at,
+      createdAt: row.created_at,
+      status: row.status as ScheduledMessage['status'],
+      error: opt(row.error),
+      sentMessageId: opt(row.sent_message_id),
+      resendCount: row.resend_count ?? undefined,
+      lastAttemptAt: opt(row.last_attempt_at),
+    };
+  }
+
   private load(): void {
     try {
-      if (fs.existsSync(this.filePath)) {
-        const raw = fs.readFileSync(this.filePath, 'utf8');
-        const list = JSON.parse(raw) as ScheduledMessage[];
-        if (Array.isArray(list)) {
-          let healed = 0;
-          for (const item of list) {
-            // Records written before wacli's id was read correctly carry a
-            // placeholder no archive can match. Dropping it on the way in is
-            // what stops every one of them answering a click with "that
-            // message is not in the local archive".
-            if (isSynthesisedMessageId(item.sentMessageId)) {
-              delete item.sentMessageId;
-              healed++;
-            }
-            this.items.set(item.id, item);
-          }
-          if (healed > 0) {
-            logger.info('send', 'Dropped placeholder message ids from scheduled history', {
-              count: healed,
-            });
-            this.save();
-          }
+      const rows = this.db().prepare('SELECT * FROM scheduled').all() as unknown as ScheduledRow[];
+      let healed = 0;
+      for (const row of rows) {
+        const item = Scheduler.fromRow(row);
+        // Records written before wacli's id was read correctly carry a
+        // placeholder no archive can match. Dropping it on the way in is
+        // what stops every one of them answering a click with "that
+        // message is not in the local archive".
+        if (isSynthesisedMessageId(item.sentMessageId)) {
+          delete item.sentMessageId;
+          healed++;
         }
+        this.items.set(item.id, item);
+      }
+      if (healed > 0) {
+        logger.info('send', 'Dropped placeholder message ids from scheduled history', {
+          count: healed,
+        });
+        this.save();
       }
     } catch (err) {
-      logger.warn('send', 'Failed to load scheduled messages', { file: this.filePath, err });
+      logger.warn('send', 'Failed to load scheduled messages', { err });
     }
   }
 
+  /**
+   * Writes the map back to the table.
+   *
+   * Still whole-set rather than per-row, because the callers that reach here
+   * mutate an item in place and then say "persist" without naming it. The
+   * difference from the file it replaces is that this is a transaction over an
+   * indexed table rather than a re-serialisation of every record — and a
+   * partial write can no longer truncate the queue to nothing.
+   */
   private save(): void {
     try {
-      const dir = path.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const db = this.db();
+      const upsert = db.prepare(
+        `INSERT OR REPLACE INTO scheduled
+           (id, to_jid, recipient_name, message, reply_to, file_path, file_name, mime_type,
+            scheduled_at, created_at, status, error, sent_message_id, resend_count, last_attempt_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      db.exec('BEGIN');
+      try {
+        for (const item of this.items.values()) {
+          upsert.run(
+            item.id,
+            item.to,
+            item.recipientName ?? null,
+            item.message,
+            item.replyTo ?? null,
+            item.filePath ?? null,
+            item.fileName ?? null,
+            item.mimeType ?? null,
+            item.scheduledAt,
+            item.createdAt,
+            item.status,
+            item.error ?? null,
+            item.sentMessageId ?? null,
+            item.resendCount ?? null,
+            item.lastAttemptAt ?? null
+          );
+        }
+        // discard() drops an item from the map; this is what makes that reach
+        // the table. Deleting by "not in the map" rather than by id keeps save()
+        // callers from having to say what they removed.
+        const ids = [...this.items.keys()];
+        const placeholders = ids.map(() => '?').join(', ');
+        db.prepare(
+          ids.length
+            ? `DELETE FROM scheduled WHERE id NOT IN (${placeholders})`
+            : 'DELETE FROM scheduled'
+        ).run(...ids);
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
       }
-      const list = Array.from(this.items.values());
-      fs.writeFileSync(this.filePath, JSON.stringify(list, null, 2), {
-        encoding: 'utf8',
-        mode: 0o600,
-      });
     } catch (err) {
-      logger.warn('send', 'Failed to persist scheduled messages', { file: this.filePath, err });
+      logger.warn('send', 'Failed to persist scheduled messages', { err });
     }
   }
 
@@ -159,6 +275,7 @@ export class Scheduler {
     mimeType?: string;
     scheduledAt: string;
   }): ScheduledMessage {
+    this.ensureLoaded();
     const id = `sched-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const item: ScheduledMessage = {
       id,
@@ -184,6 +301,7 @@ export class Scheduler {
   }
 
   public cancel(id: string): boolean {
+    this.ensureLoaded();
     const item = this.items.get(id);
     if (!item || item.status !== 'pending') {
       return false;
@@ -207,6 +325,7 @@ export class Scheduler {
    * that no longer qualifies and are turned away before reaching wacli.
    */
   public async resend(id: string, opts: { scheduledAt?: string } = {}): Promise<ResendOutcome> {
+    this.ensureLoaded();
     const item = this.items.get(id);
     if (!item) {
       return { ok: false, error: 'Scheduled message not found.' };
@@ -277,6 +396,7 @@ export class Scheduler {
    * dispatch writing back into a record that no longer exists.
    */
   public discard(id: string): boolean {
+    this.ensureLoaded();
     const item = this.items.get(id);
     if (!item || item.status !== 'failed' || this.inFlight.has(id)) {
       return false;
@@ -302,11 +422,58 @@ export class Scheduler {
   }
 
   public getList(chatJid?: string): ScheduledMessage[] {
+    this.ensureLoaded();
     const list = Array.from(this.items.values()).map((item) => this.decorate(item));
     if (chatJid) {
       return list.filter((i) => i.to === chatJid);
     }
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  /**
+   * The queue as the strip shows it: everything still pending, then a page of
+   * what has already resolved.
+   *
+   * Pending is never paged. There are only ever a handful, and a queue that
+   * hides what is about to go out because it fell past row ten is a queue the
+   * operator cannot trust. Only the finished tail — sent, cancelled, failed —
+   * is worth asking for ten at a time.
+   *
+   * This pages the in-memory map rather than issuing a LIMIT, because the map
+   * is already the scheduler's working set and has to be complete for the tick
+   * regardless. The table is what makes it durable, not what makes it readable.
+   */
+  public getPage(opts: { chat?: string; limit?: number; before?: string } = {}): ScheduledPage {
+    this.ensureLoaded();
+    const limit = Math.min(Math.max(1, opts.limit ?? SCHEDULED_PAGE_SIZE), MAX_SCHEDULED_PAGE);
+
+    const all = Array.from(this.items.values())
+      .filter((item) => !opts.chat || item.to === opts.chat)
+      .map((item) => this.decorate(item));
+
+    // Soonest first: this is a queue of what happens next, not a history.
+    const pending = all
+      .filter((i) => i.status === 'pending')
+      .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+    const finished = all
+      .filter((i) => i.status !== 'pending')
+      .sort((a, b) => cursorFor(b).localeCompare(cursorFor(a)));
+
+    // A cursor rather than an offset: a message resolving mid-scroll shifts
+    // every offset by one and would show the operator the same row twice.
+    const start = opts.before ? finished.findIndex((i) => cursorFor(i) < opts.before!) : 0;
+    const from = start === -1 ? finished.length : start;
+    const page = finished.slice(from, from + limit);
+    const last = page[page.length - 1];
+
+    return {
+      pending,
+      history: page,
+      nextCursor: from + limit < finished.length && last ? cursorFor(last) : null,
+      totalPending: pending.length,
+      totalHistory: finished.length,
+    };
   }
 
   /**
@@ -338,6 +505,7 @@ export class Scheduler {
   }
 
   public async checkDueMessages(): Promise<void> {
+    this.ensureLoaded();
     // A send can take up to two minutes while the 3s timer keeps firing. Without
     // this guard a slow dispatch is re-entered and the message goes out twice.
     if (this.isChecking) return;
@@ -386,7 +554,26 @@ export class Scheduler {
     item.error = error;
     this.save();
     logger.error('send', 'Scheduled message failed', { id: item.id, to: item.to, reason: error });
+    this.recordActivity(item, 'error', error);
     this.broadcastUpdate(item);
+  }
+
+  /**
+   * Puts a dispatch on the activity log.
+   *
+   * This is the half the browser could never record: a due message fires on a
+   * timer whether or not a console is open, so the sends least likely to be
+   * watched were exactly the ones the old in-memory log never saw.
+   */
+  private recordActivity(item: ScheduledMessage, status: 'success' | 'error', error?: string): void {
+    activityStore.record({
+      to: item.to,
+      chatName: item.recipientName,
+      message: item.message || item.fileName || '',
+      status,
+      error,
+      messageId: item.sentMessageId,
+    });
   }
 
   private broadcastUpdate(item: ScheduledMessage): void {
@@ -457,6 +644,7 @@ export class Scheduler {
       this.save();
       logger.info('send', 'Scheduled message sent', { id: item.id });
 
+      this.recordActivity(item, 'success');
       this.broadcastUpdate(item);
 
       if (this.eventBridge) {

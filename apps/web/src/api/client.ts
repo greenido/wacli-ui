@@ -7,6 +7,8 @@ import type {
   UnifiedMessage,
   MissionControlStatus,
   ScheduledMessage,
+  ScheduledPage,
+  ActivityPage,
 } from '../types.ts';
 
 const API_BASE =
@@ -290,8 +292,17 @@ export const api = {
       body: formData,
     }),
 
-  getScheduled: (params?: { chat?: string }) =>
-    request<ScheduledMessage[]>('/api/send/scheduled', {}, params),
+  /**
+   * One view of the queue: every pending message, and one page of resolved
+   * history. Pending is never paged, so a caller that only wants what is about
+   * to go out can read `pending` and ignore the cursor entirely.
+   */
+  getScheduled: (params?: { chat?: string; limit?: number; before?: string }) =>
+    request<ScheduledPage>('/api/send/scheduled', {}, params),
+
+  /** The send audit stream, newest first. Ten rows unless asked otherwise. */
+  getActivity: (params?: { limit?: number; before?: string }) =>
+    request<ActivityPage>('/api/activity', {}, params),
 
   cancelScheduled: (id: string) =>
     request<{ cancelled: boolean }>(`/api/send/scheduled/${id}`, {

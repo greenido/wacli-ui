@@ -118,7 +118,11 @@ describe('useSafeMode', () => {
     setMode.mockRejectedValue(new Error('Safe read-only mode is active.'));
 
     const { result } = renderSafeMode();
-    await waitFor(() => expect(result.current.isReadOnly).toBe(true));
+    // Waiting on isReadOnly proves nothing here: it reads `true` before the
+    // query resolves too, because that is the locked default. The cache write
+    // is what says the server's answer actually landed — and without waiting
+    // for it, the assertion below raced the effect that performs it.
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBe('true'));
 
     await act(async () => {
       await expect(result.current.setSafeMode(false)).rejects.toThrow();
@@ -130,7 +134,9 @@ describe('useSafeMode', () => {
 
   it('remembers an unlock the server confirmed', async () => {
     const { result } = renderSafeMode();
-    await waitFor(() => expect(result.current.isReadOnly).toBe(true));
+    // Same as above: wait for the locked state to have been *reported*, not
+    // merely defaulted to, before flipping it.
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).toBe('true'));
 
     getMode.mockResolvedValue({ readOnly: false });
     await act(async () => {

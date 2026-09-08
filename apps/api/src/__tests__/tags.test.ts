@@ -3,13 +3,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { TagStore, normalizeTag } from '../wacli/tags.js';
+import { DatabaseUnavailableError, openDatabaseAt } from '../db/index.js';
+
+/** Reads the table directly, so a store bug cannot hide behind its own reader. */
+function tagRowCount(file: string): number {
+  return (openDatabaseAt(file).prepare('SELECT COUNT(*) AS n FROM tags').get() as { n: number }).n;
+}
 
 let dir: string;
 let file: string;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-tags-'));
-  file = path.join(dir, 'tags.json');
+  file = path.join(dir, 'tags.db');
 });
 
 afterEach(() => {
@@ -58,7 +64,7 @@ describe('TagStore', () => {
     store.remove('alice@s.whatsapp.net', 'work');
 
     expect(store.get('alice@s.whatsapp.net')).toEqual([]);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({});
+    expect(tagRowCount(file)).toBe(0);
   });
 
   it('lists every tag in use across chats, deduplicated', () => {
@@ -81,23 +87,14 @@ describe('TagStore', () => {
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  it('starts empty rather than crashing on a corrupt file', () => {
-    fs.writeFileSync(file, '{ this is not json');
-    const store = new TagStore(file);
+  it('refuses to open a corrupt database rather than starting empty', () => {
+    // The shape guards these tests used to need now live in two places: the
+    // schema, which will not hold a tag that is not text, and the JSON import,
+    // covered in db-migration.test.ts. What is left to check here is that a
+    // store which cannot be read says so instead of reading as empty.
+    fs.writeFileSync(file, 'this is not a database');
 
-    expect(store.allTags()).toEqual([]);
-    expect(() => store.add('alice@s.whatsapp.net', 'work')).not.toThrow();
-    expect(store.get('alice@s.whatsapp.net')).toEqual(['work']);
-  });
-
-  it('ignores a file whose shape is wrong instead of trusting it', () => {
-    fs.writeFileSync(file, JSON.stringify(['not', 'a', 'map']));
-    expect(new TagStore(file).allTags()).toEqual([]);
-  });
-
-  it('drops non-string entries while keeping the usable ones', () => {
-    fs.writeFileSync(file, JSON.stringify({ 'alice@s.whatsapp.net': ['work', 42, null, 'family'] }));
-    expect(new TagStore(file).get('alice@s.whatsapp.net')).toEqual(['family', 'work']);
+    expect(() => new TagStore(file)).toThrow(DatabaseUnavailableError);
   });
 });
 
@@ -227,13 +224,15 @@ describe('TagStore.deleteTag', () => {
     store.add('alice@s.whatsapp.net', 'work');
     store.deleteTag('work');
 
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({});
+    expect(tagRowCount(file)).toBe(0);
   });
 
-  it('does not touch the file for a tag nobody carries', () => {
+  it('changes nothing for a tag nobody carries', () => {
     const store = new TagStore(file);
+    store.add('alice@s.whatsapp.net', 'work');
+
     expect(store.deleteTag('nope')).toBe(0);
-    expect(fs.existsSync(file)).toBe(false);
+    expect(tagRowCount(file)).toBe(1);
   });
 
   it('survives a restart', () => {

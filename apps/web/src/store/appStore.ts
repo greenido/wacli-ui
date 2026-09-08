@@ -69,6 +69,15 @@ interface AppState {
    */
   replyingToByChat: Record<string, UnifiedMessage>;
   presenceMap: Record<string, { state: 'composing' | 'paused'; sender: string }>;
+  /**
+   * Sends that are still in flight, and only those.
+   *
+   * The full history lives in the database now and is fetched a page at a
+   * time. What the browser still owns is the moment between clicking send and
+   * the server answering — a row that says "sending" so a 60s dispatch is not
+   * a frozen dialog. Once the server has the outcome, its row is the record
+   * and this entry goes.
+   */
   sendLogs: SendLogEntry[];
   highlightedMessageId: string | null;
   /** Used only when the id is absent or turns out not to be in the thread. */
@@ -105,7 +114,8 @@ interface AppState {
   setPresence: (chatJid: string, state: 'composing' | 'paused', sender: string) => void;
   clearPresence: (chatJid: string) => void;
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
-  updateSendLog: (id: string, update: Partial<SendLogEntry>) => void;
+  /** Drops an in-flight row once the server's own record supersedes it. */
+  clearSendLog: (id: string) => void;
   setHighlightedMessageId: (id: string | null, hint?: MessageJumpHint | null) => void;
   setActiveModal: (modal: ActiveModal | null) => void;
   runCommand: (name: UiCommand) => void;
@@ -208,13 +218,11 @@ export const useAppStore = create<AppState>((set) => ({
       timestamp: new Date().toISOString(),
       ...entry,
     };
-    set((s) => ({ sendLogs: [newEntry, ...s.sendLogs].slice(0, 500) }));
+    set((s) => ({ sendLogs: [newEntry, ...s.sendLogs] }));
     return id;
   },
-  updateSendLog: (id, update) =>
-    set((s) => ({
-      sendLogs: s.sendLogs.map((item) => (item.id === id ? { ...item, ...update } : item)),
-    })),
+  clearSendLog: (id) =>
+    set((s) => ({ sendLogs: s.sendLogs.filter((item) => item.id !== id) })),
   // The hint travels with the id and is replaced with it, so a jump can never
   // be answered with the leftovers of the one before it.
   setHighlightedMessageId: (id, hint = null) =>

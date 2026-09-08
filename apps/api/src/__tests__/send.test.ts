@@ -129,11 +129,14 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.body.data.item.status).toBe('pending');
     expect(res.body.data.item.message).toBe('Reminder for meeting tomorrow');
 
-    // List scheduled
+    // List scheduled. A freshly queued message is pending, and pending is never
+    // paged away — that is the guarantee the tab depends on.
     const listRes = await request(app).get('/api/send/scheduled?chat=15559876543@s.whatsapp.net');
     expect(listRes.status).toBe(200);
-    expect(Array.isArray(listRes.body.data)).toBe(true);
-    expect(listRes.body.data.some((i: { id: string }) => i.id === res.body.data.item.id)).toBe(true);
+    expect(Array.isArray(listRes.body.data.pending)).toBe(true);
+    expect(
+      listRes.body.data.pending.some((i: { id: string }) => i.id === res.body.data.item.id)
+    ).toBe(true);
 
     // Cancel scheduled
     const cancelRes = await request(app).delete(`/api/send/scheduled/${res.body.data.item.id}`);

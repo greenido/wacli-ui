@@ -11,13 +11,14 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
 });
 
 import { Scheduler } from '../wacli/scheduler.js';
+import { openDatabaseAt } from '../db/index.js';
 import { modeManager } from '../wacli/mode.js';
 
 describe('Scheduler Service', () => {
   let tmpSchedFile: string;
 
   beforeEach(() => {
-    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-sched-${Date.now()}.json`);
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-sched-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
   });
 
   afterEach(() => {
@@ -104,7 +105,7 @@ describe('Scheduler dispatch', () => {
   };
 
   beforeEach(() => {
-    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-dispatch-${Date.now()}-${Math.random()}.json`);
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-dispatch-${Date.now()}-${Math.random()}.db`);
     execWacliMock.mockReset();
     modeManager.setReadOnly(false);
   });
@@ -236,7 +237,7 @@ describe('Scheduler resend', () => {
   };
 
   beforeEach(() => {
-    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-resend-${Date.now()}-${Math.random()}.json`);
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-resend-${Date.now()}-${Math.random()}.db`);
     execWacliMock.mockReset();
     modeManager.setReadOnly(false);
   });
@@ -477,9 +478,14 @@ describe('Scheduler resend', () => {
     fs.unlinkSync(attachment);
     expect(scheduler.getList()[0].attachmentMissing).toBe(true);
 
-    // The derived flag is never written back into the persisted record.
-    const raw = JSON.parse(fs.readFileSync(tmpSchedFile, 'utf8')) as Record<string, unknown>[];
-    expect(raw[0].attachmentMissing).toBeUndefined();
+    // The derived flag is never written back into the persisted record: there is
+    // no column for it, so a reload cannot resurrect a stale answer.
+    const columns = (
+      openDatabaseAt(tmpSchedFile).prepare('PRAGMA table_info(scheduled)').all() as Array<{
+        name: string;
+      }>
+    ).map((c) => c.name);
+    expect(columns).not.toContain('attachment_missing');
 
     // Discarding a failed file message cleans up any attachment still around.
     expect(scheduler.discard(item.id)).toBe(true);
@@ -496,7 +502,7 @@ describe('Scheduler records only a real message ID', () => {
   };
 
   beforeEach(() => {
-    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-sentid-${Date.now()}-${Math.random()}.json`);
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-sentid-${Date.now()}-${Math.random()}.db`);
     execWacliMock.mockReset();
     modeManager.setReadOnly(false);
   });
@@ -542,7 +548,7 @@ describe('Scheduler drops placeholder ids already on disk', () => {
   let tmpSchedFile: string;
 
   beforeEach(() => {
-    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-heal-${Date.now()}-${Math.random()}.json`);
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-heal-${Date.now()}-${Math.random()}.db`);
   });
 
   afterEach(() => {
@@ -555,36 +561,133 @@ describe('Scheduler drops placeholder ids already on disk', () => {
     // Exactly what is on disk today: every sent item stamped `out-<millis>`,
     // a value no archive can match, so clicking the row in LATER could only
     // ever answer "that message is not in the local archive".
-    fs.writeFileSync(
-      tmpSchedFile,
-      JSON.stringify([
-        {
-          id: 'sched-legacy',
-          to: '15551234567@s.whatsapp.net',
-          message: 'Ma kore gever?',
-          scheduledAt: '2026-09-04T10:00:00Z',
-          createdAt: '2026-09-04T09:00:00Z',
-          status: 'sent',
-          sentMessageId: 'out-1788203211119',
-        },
-        {
-          id: 'sched-real',
-          to: '15551234567@s.whatsapp.net',
-          message: 'and this one is fine',
-          scheduledAt: '2026-09-04T10:00:00Z',
-          createdAt: '2026-09-04T09:00:00Z',
-          status: 'sent',
-          sentMessageId: '3EB0626F628F3B645B291E',
-        },
-      ])
+    const seed = openDatabaseAt(tmpSchedFile);
+    const insert = seed.prepare(
+      `INSERT INTO scheduled (id, to_jid, message, scheduled_at, created_at, status, sent_message_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    insert.run(
+      'sched-legacy',
+      '15551234567@s.whatsapp.net',
+      'the one with the placeholder',
+      '2026-09-04T10:00:00Z',
+      '2026-09-04T09:00:00Z',
+      'sent',
+      'out-1788203211119'
+    );
+    insert.run(
+      'sched-real',
+      '15551234567@s.whatsapp.net',
+      'and this one is fine',
+      '2026-09-04T10:00:00Z',
+      '2026-09-04T09:00:00Z',
+      'sent',
+      '3EB0626F628F3B645B291E'
     );
 
     const list = new Scheduler(tmpSchedFile).getList();
     expect(list.find((i) => i.id === 'sched-legacy')?.sentMessageId).toBeUndefined();
     expect(list.find((i) => i.id === 'sched-real')?.sentMessageId).toBe('3EB0626F628F3B645B291E');
 
-    // Healed on disk too, so it is a one-off rather than a filter on every read.
-    const onDisk = JSON.parse(fs.readFileSync(tmpSchedFile, 'utf8')) as Record<string, unknown>[];
-    expect(onDisk.find((i) => i.id === 'sched-legacy')?.sentMessageId).toBeUndefined();
+    // Healed in the table too, so it is a one-off rather than a filter on every read.
+    const stored = seed
+      .prepare('SELECT sent_message_id FROM scheduled WHERE id = ?')
+      .get('sched-legacy') as { sent_message_id: string | null };
+    expect(stored.sent_message_id).toBeNull();
+  });
+});
+
+describe('Scheduler paging', () => {
+  let tmpSchedFile: string;
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-page-${Date.now()}-${Math.random()}.db`);
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpSchedFile)) {
+      fs.unlinkSync(tmpSchedFile);
+    }
+  });
+
+  /** Seeds `count` resolved messages plus `pending` still-queued ones. */
+  function seed(scheduler: Scheduler, resolved: number, pending: number): void {
+    for (let i = 0; i < resolved; i++) {
+      const item = scheduler.schedule({
+        to: 'alice@s.whatsapp.net',
+        message: `done ${i}`,
+        scheduledAt: new Date(Date.now() + 600_000).toISOString(),
+      });
+      scheduler.cancel(item.id);
+    }
+    for (let i = 0; i < pending; i++) {
+      scheduler.schedule({
+        to: 'alice@s.whatsapp.net',
+        message: `queued ${i}`,
+        // Deliberately far out, so a "newest ten" rule would page them away.
+        scheduledAt: new Date(Date.now() + (i + 1) * 86_400_000).toISOString(),
+      });
+    }
+  }
+
+  it('returns ten resolved messages by default', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 25, 0);
+
+    const page = scheduler.getPage();
+    expect(page.history).toHaveLength(10);
+    expect(page.totalHistory).toBe(25);
+    expect(page.nextCursor).not.toBeNull();
+  });
+
+  it('never pages away a pending message, however far out it is scheduled', () => {
+    // The whole point of the tab: a queue that hides what is about to go out
+    // because it fell past row ten is a queue the operator cannot trust.
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 30, 4);
+
+    const page = scheduler.getPage();
+    expect(page.pending).toHaveLength(4);
+    expect(page.totalPending).toBe(4);
+    expect(page.history).toHaveLength(10);
+  });
+
+  it('orders pending soonest-first, because it is a queue and not a history', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 0, 3);
+
+    const due = scheduler.getPage().pending.map((i) => i.scheduledAt);
+    expect([...due]).toEqual([...due].sort());
+  });
+
+  it('walks the resolved history through its cursor without repeating a row', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 25, 0);
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = scheduler.getPage({ before: cursor ?? undefined });
+      seen.push(...page.history.map((i) => i.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(25);
+    expect(new Set(seen).size).toBe(25);
+  });
+
+  it('filters to one chat without losing the paging', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    seed(scheduler, 12, 2);
+    scheduler.schedule({
+      to: 'bob@s.whatsapp.net',
+      message: 'someone else',
+      scheduledAt: new Date(Date.now() + 600_000).toISOString(),
+    });
+
+    const page = scheduler.getPage({ chat: 'alice@s.whatsapp.net' });
+    expect(page.pending).toHaveLength(2);
+    expect(page.totalHistory).toBe(12);
+    expect(page.history).toHaveLength(10);
   });
 });

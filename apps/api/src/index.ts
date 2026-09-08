@@ -21,6 +21,9 @@ import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
 import { scheduler } from './wacli/scheduler.js';
 import { StoreLockedError } from './wacli/store-lock.js';
+import { initDatabase, closeDatabase, DatabaseUnavailableError, resolveDbPath } from './db/index.js';
+import { migrateJsonStores } from './db/migrate-json.js';
+import { activityStore } from './wacli/activity.js';
 
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
@@ -245,6 +248,7 @@ export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void
   // its own and this never fires.
   const forceExit = setTimeout(() => {
     logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
+    closeDatabase();
     logger.close();
     exit();
   }, graceMs);
@@ -252,13 +256,67 @@ export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void
 
   server.close(() => {
     clearTimeout(forceExit);
+    // After the scheduler's timer and every in-flight request, so nothing is
+    // still mid-write when the handle goes. WAL checkpoints on close.
+    closeDatabase();
     // Flush the tail of any collapsed repeat before the process is gone.
     logger.close();
     exit();
   });
 }
 
+/**
+ * Opens the database before anything can want it, and refuses to boot without
+ * it.
+ *
+ * There is no degraded mode worth having here. Safe mode lives in this file:
+ * a server that came up with an unreadable store would answer every send check
+ * from a compiled-in default instead of the operator's own choice, which is the
+ * one failure that sends messages nobody authorised. The scheduled queue would
+ * likewise look empty rather than unavailable, and a queue that reports "no
+ * pending messages" when it simply cannot see them is worse than no queue.
+ *
+ * So this is loud and fatal, and it says which file and why.
+ */
+export function bootDatabase(exit: (code: number) => never = process.exit): void {
+  try {
+    const db = initDatabase();
+    migrateJsonStores(db);
+    // Here rather than on a timer: a console left open for a month is not the
+    // case worth a background job, and a restart is when the count is visible.
+    activityStore.prune();
+  } catch (err) {
+    const dbPath = err instanceof DatabaseUnavailableError ? err.dbPath : resolveDbPath();
+    const detail = err instanceof Error ? err.message : String(err);
+
+    logger.error('api', 'Cannot start: the Mission Control database is unavailable', {
+      file: dbPath,
+      err,
+    });
+    // Straight to stderr as well: an operator who started this from a terminal
+    // gets the reason and the fix on screen, not only in a log file they would
+    // have to go find.
+    process.stderr.write(
+      [
+        '',
+        '  wacli Mission Control cannot start.',
+        '',
+        `  ${detail}`,
+        '',
+        '  This database holds safe mode, the scheduled queue and the activity log,',
+        '  so the console will not run without it. Check that the file is readable and',
+        '  the disk is not full, or set WACLI_DB_FILE to a writable path.',
+        '',
+      ].join('\n')
+    );
+    logger.close();
+    exit(1);
+  }
+}
+
 export function startServer(port = PORT, host = HOST): ServerInstance {
+  bootDatabase();
+
   const pm = new WacliProcessManager({
     apiPort: port,
     onStateChange: (state, reason) => {
