@@ -85,6 +85,8 @@ describe('WebSocket upgrade origin check', () => {
       expect(isAllowedUpgrade('http://127.0.0.1:5174', '127.0.0.1:3002')).toBe(true);
       expect(isAllowedUpgrade('http://[::1]:5174', '[::1]:3002')).toBe(true);
       expect(isAllowedUpgrade(undefined, '127.0.0.1:3002')).toBe(true);
+      // What Vite's rewriteWsOrigin would produce — a ws Origin is not a page.
+      expect(isAllowedUpgrade('ws://127.0.0.1:3002', '127.0.0.1:5174')).toBe(false);
 
       expect(isAllowedUpgrade('https://evil.example', '127.0.0.1:3002')).toBe(false);
       expect(isAllowedUpgrade('http://192.168.1.50', '127.0.0.1:3002')).toBe(false);

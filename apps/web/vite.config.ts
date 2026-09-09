@@ -47,7 +47,10 @@ export default defineConfig({
       '/ws': {
         target: 'ws://127.0.0.1:3002',
         ws: true,
-        rewriteWsOrigin: true,
+        // Leave Origin alone. rewriteWsOrigin would rewrite
+        // http://127.0.0.1:5174 → ws://127.0.0.1:3002, and the API's
+        // isLoopbackOrigin only accepts http(s) page origins — so the
+        // upgrade would be refused even though the caller is this UI.
       },
     },
   },
