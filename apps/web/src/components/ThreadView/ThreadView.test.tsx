@@ -11,6 +11,7 @@ const getHealth = vi.hoisted(() => vi.fn());
 const getSleep = vi.hoisted(() =>
   vi.fn(async (): Promise<SleepState> => ({ sleeping: false, since: null }))
 );
+const setSleep = vi.hoisted(() => vi.fn());
 const getMessages = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
 const bookmarkMessage = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock('../../api/client.ts', () => ({
   api: {
     getHealth,
     getSleep,
+    setSleep,
     getMessages,
     getScheduled,
     bookmarkMessage,
@@ -98,11 +100,14 @@ function message(i: number): UnifiedMessage {
 
 function renderThread() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <ThreadView />
-    </QueryClientProvider>
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <ThreadView />
+      </QueryClientProvider>
+    ),
+  };
 }
 
 describe('ThreadView history window', () => {
@@ -382,6 +387,86 @@ describe('ThreadView conversation export', () => {
     await user.click(await screen.findByRole('menuitem', { name: /JSON/i }));
 
     expect(await screen.findByRole('status')).toHaveTextContent(/store is locked/i);
+  });
+});
+
+describe('ThreadView asleep', () => {
+  const ASLEEP: SleepState = { sleeping: true, since: '2026-09-15T22:14:00.000Z' };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    setSleep.mockResolvedValue({ sleeping: false, since: null });
+    exportConversation.mockResolvedValue({
+      chatJid: CHAT.jid,
+      chatName: 'Alice',
+      exportedAt: '2026-09-15T22:30:00.000Z',
+      count: 1,
+      truncated: false,
+      messages: [message(1)],
+    });
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  /** A thread loaded while awake, then frozen by a sleep push. */
+  async function renderAsleep() {
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: true });
+    const view = renderThread();
+    expect(await screen.findByText('message body 1')).toBeInTheDocument();
+    act(() => view.client.setQueryData(['sleep'], ASLEEP));
+    return view;
+  }
+
+  /** Whether `first` had been called by the time of `second`'s latest call. */
+  const calledBefore =(first: ReturnType<typeof vi.fn>, second: ReturnType<typeof vi.fn>) =>
+    first.mock.invocationCallOrder[0] < second.mock.invocationCallOrder.at(-1)!;
+
+  it('wakes the app before loading older messages, then loads them', async () => {
+    const user = userEvent.setup();
+    await renderAsleep();
+    getMessages.mockResolvedValue({ messages: [message(2)], hasMore: false });
+
+    await user.click(screen.getByRole('button', { name: /LOAD OLDER MESSAGES/i }));
+
+    expect(await screen.findByText('message body 2')).toBeInTheDocument();
+    expect(setSleep).toHaveBeenCalledTimes(1);
+    expect(setSleep).toHaveBeenCalledWith(false, 'load older');
+    expect(calledBefore(setSleep, getMessages)).toBe(true);
+  });
+
+  it('wakes the app before exporting', async () => {
+    const user = userEvent.setup();
+    await renderAsleep();
+
+    await user.click(screen.getByRole('button', { name: /EXPORT/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /Text transcript/i }));
+
+    await waitFor(() => expect(exportConversation).toHaveBeenCalledWith({ chat: CHAT.jid }));
+    expect(setSleep).toHaveBeenCalledWith(false, 'export');
+    expect(calledBefore(setSleep, exportConversation)).toBe(true);
+  });
+
+  it('asks nothing of the server to page or export while awake', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: true });
+    renderThread();
+    expect(await screen.findByText('message body 1')).toBeInTheDocument();
+
+    getMessages.mockResolvedValue({ messages: [message(2)], hasMore: false });
+    await user.click(screen.getByRole('button', { name: /LOAD OLDER MESSAGES/i }));
+    await user.click(screen.getByRole('button', { name: /EXPORT/i }));
+    await user.click(await screen.findByRole('menuitem', { name: /JSON/i }));
+
+    expect(await screen.findByText('message body 2')).toBeInTheDocument();
+    await waitFor(() => expect(exportConversation).toHaveBeenCalled());
+    expect(setSleep).not.toHaveBeenCalled();
   });
 });
 

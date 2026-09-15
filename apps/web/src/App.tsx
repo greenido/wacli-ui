@@ -19,6 +19,7 @@ import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 import { useSleepEffects } from './hooks/useSleepMode.ts';
+import { useWakeOnIntent } from './hooks/useWakeOnIntent.ts';
 
 const DEFAULT_CHAT_LIST_WIDTH = 320;
 const DEFAULT_STATUS_STRIP_WIDTH = 256;
@@ -31,6 +32,8 @@ export const App: React.FC = () => {
   // Asleep, no poll ticks and no refocus refetches; pushes still land.
   useSleepEffects();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  // Opening a chat, searching or filtering wakes a sleeping app.
+  useWakeOnIntent({ searchOpen: isSearchOpen });
 
   // Resizable pane widths with localStorage persistence
   const [chatListWidth, setChatListWidth] = useState<number>(() => {

@@ -265,4 +265,66 @@ describe('App asleep', () => {
     expect(resumed.getMessages).toBeGreaterThanOrEqual(1);
     expect(resumed.getActivity).toBeGreaterThanOrEqual(1);
   });
+
+  it('wakes when another chat is opened, and ends with that chat loaded', async () => {
+    const other: UnifiedChat = {
+      ...CHAT,
+      jid: '15550100002@s.whatsapp.net',
+      name: 'Grace Hopper',
+      lastMessage: 'Found the bug',
+    };
+    client.api.getChats.mockResolvedValue([CHAT, other]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(client.api.getMessages).toHaveBeenCalled());
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    await settled();
+
+    client.api.getSleep.mockResolvedValue(ASLEEP);
+    act(() => ws.emit({ type: 'sleep.changed', data: ASLEEP, ts: now() }));
+    expect(await screen.findByRole('status', { name: /sleep mode/i })).toBeInTheDocument();
+    await settled();
+
+    client.api.setSleep.mockResolvedValue(AWAKE);
+    client.api.getMessages.mockResolvedValue({
+      messages: [
+        {
+          chatJid: other.jid,
+          chatName: other.name,
+          msgId: 'STUBIN0002',
+          senderJid: other.jid,
+          senderName: other.name,
+          ts: '2026-09-15T21:30:00.000Z',
+          fromMe: false,
+          text: 'Moth in relay 70',
+          displayText: 'Moth in relay 70',
+          isForwarded: false,
+          reactionToId: null,
+          reactionEmoji: null,
+          mediaType: null,
+          mediaCaption: null,
+          filename: null,
+          mimeType: null,
+          localPath: null,
+          starred: false,
+          bookmarked: false,
+          edited: false,
+          revoked: false,
+        },
+      ],
+      hasMore: false,
+    });
+    act(() => screen.getByText('Grace Hopper').click());
+
+    expect(await screen.findByText('Moth in relay 70')).toBeInTheDocument();
+    expect(client.api.setSleep).toHaveBeenCalledWith(false, 'open chat');
+    expect(client.api.getMessages).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chat: other.jid })
+    );
+    expect(screen.queryByRole('status', { name: /sleep mode/i })).not.toBeInTheDocument();
+  });
 });

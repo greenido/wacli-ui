@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { ensureAwake } from '../../hooks/useSleepMode.ts';
 import {
   downloadFile,
   exportFileName,
@@ -35,9 +36,12 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({ chatJid, chatName }) => 
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   const exportMutation = useMutation({
     mutationFn: async (format: ExportFormat) => {
+      // A read the server would refuse while asleep, and the operator asked for it.
+      await ensureAwake(queryClient, 'export');
       const data = await api.exportConversation({ chat: chatJid });
       return { format, data };
     },
