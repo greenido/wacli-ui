@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
+import { refuseAsleep } from '../wacli/sleep.js';
 import { logger } from '../logger.js';
 import { mediaDownloads } from '../wacli/media-downloads.js';
 import { isStoreLockMessage } from '../wacli/store-lock.js';
@@ -267,6 +268,14 @@ export function createMediaRouter(): Router {
           return;
         }
         filePath = safePath;
+      }
+
+      // Asleep, what is on disk is all there is. Scrolling a frozen thread asks
+      // for every attachment on screen, and none of them may cost a wacli
+      // download, or wake the app.
+      if ((!filePath || !fs.existsSync(filePath)) && chat && id && modeManager.isSleeping()) {
+        refuseAsleep(res);
+        return;
       }
 
       // If filePath not given or file doesn't exist, try downloading via wacli if chat & id provided
