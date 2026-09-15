@@ -5,9 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatInfoModal } from './ChatInfoModal.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedChat } from '../../types.ts';
+import type { SleepState, UnifiedChat } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
+// Health waits to hear the app is awake before it asks; these tests are awake.
+const getSleep = vi.hoisted(() =>
+  vi.fn(async (): Promise<SleepState> => ({ sleeping: false, since: null }))
+);
 const getContact = vi.hoisted(() => vi.fn());
 const getGroups = vi.hoisted(() => vi.fn());
 const getTags = vi.hoisted(() => vi.fn());
@@ -15,7 +19,7 @@ const setContactAlias = vi.hoisted(() => vi.fn());
 const setChatTag = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
-  api: { getHealth, getContact, getGroups, getTags, setContactAlias, setChatTag },
+  api: { getHealth, getSleep, getContact, getGroups, getTags, setContactAlias, setChatTag },
   ApiClientError: class extends Error {},
 }));
 
@@ -82,6 +86,16 @@ describe('ChatInfoModal', () => {
     useAppStore.setState({ activeModal: null });
     renderModal();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reads nothing from wacli while the app is asleep, and keeps the alias locked', async () => {
+    getSleep.mockResolvedValueOnce({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
+    renderModal();
+
+    await waitFor(() => expect(getSleep).toHaveBeenCalled());
+    expect(await screen.findByLabelText('Local alias')).toBeDisabled();
+    expect(getContact).not.toHaveBeenCalled();
+    expect(getHealth).not.toHaveBeenCalled();
   });
 
   it('shows the contact wacli has on file', async () => {

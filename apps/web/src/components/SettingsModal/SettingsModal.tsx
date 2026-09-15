@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff, Sun } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { formatWhen } from '../../lib/scheduleTime.ts';
@@ -92,10 +93,7 @@ export const SettingsModal: React.FC = () => {
     setActiveModal(null)
   );
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
   const { sleeping, since, setSleeping, isSettingSleep, sleepError } = useSleepMode();
@@ -172,6 +170,13 @@ export const SettingsModal: React.FC = () => {
 
           <NotificationToggle />
 
+          {sleeping && (
+            <p className="text-[11px] text-mc-textMuted font-sans">
+              Asleep: the diagnostics below are from before sleep, and are not read again until
+              the app wakes.
+            </p>
+          )}
+
           {/* wacli CLI Installation Status */}
           <div className="space-y-2">
             <div className="text-[11px] text-mc-textMuted tracking-wider uppercase font-semibold flex items-center justify-between">
@@ -184,8 +189,10 @@ export const SettingsModal: React.FC = () => {
                   queryClient.invalidateQueries({ queryKey: ['health'] });
                   queryClient.invalidateQueries({ queryKey: ['settings'] });
                 }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
-                title="Refresh CLI health"
+                // Health is not read while asleep, so this would do nothing.
+                disabled={sleeping}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors disabled:opacity-50"
+                title={sleeping ? 'Asleep: wake to re-check' : 'Refresh CLI health'}
               >
                 <RotateCw size={10} />
                 <span>Re-check</span>

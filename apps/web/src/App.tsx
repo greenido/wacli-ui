@@ -18,6 +18,7 @@ import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
 import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
+import { useSleepEffects } from './hooks/useSleepMode.ts';
 
 const DEFAULT_CHAT_LIST_WIDTH = 320;
 const DEFAULT_STATUS_STRIP_WIDTH = 256;
@@ -27,6 +28,8 @@ export const App: React.FC = () => {
   // Puts the waiting count in the tab title, so a backgrounded console still
   // says whether anything needs the operator.
   useUnreadTitle();
+  // Asleep, no poll ticks and no refocus refetches; pushes still land.
+  useSleepEffects();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Resizable pane widths with localStorage persistence

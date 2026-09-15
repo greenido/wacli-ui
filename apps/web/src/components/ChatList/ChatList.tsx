@@ -7,6 +7,8 @@ import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts'
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { ChatFocusIntent } from '../../store/appStore.ts';
@@ -33,17 +35,16 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const filterInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   // `GET /api/chats` is the app's most expensive read — a `chats list` plus the
   // 400-message preview scan — so the query key follows the typing rather than
   // leading it. The input itself stays instant; only the fetch waits.
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
 
-  const readsReady = isWacliReadyForReads(health);
+  // Asleep, nothing reaches wacli: what is on screen stays as it was.
+  const { awake } = useSleepMode();
+  const readsReady = awake && isWacliReadyForReads(health);
   const readQueryOpts = wacliReadQueryOptions(readsReady);
 
   const { data: chats = [], isLoading, isError, error, isFetching } = useQuery({

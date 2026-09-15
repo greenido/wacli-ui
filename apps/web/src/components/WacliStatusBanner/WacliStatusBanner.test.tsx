@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WacliStatusBanner } from './WacliStatusBanner.tsx';
 import type { SleepState } from '../../types.ts';
@@ -50,6 +50,24 @@ describe('WacliStatusBanner', () => {
   it('stays quiet while asleep, when the daemon is down on purpose', () => {
     renderBanner({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
 
+    expect(screen.queryByLabelText('System diagnostic warning')).not.toBeInTheDocument();
+  });
+
+  it('says nothing before the first reading, while health waits on the sleep answer', async () => {
+    // Health is not fetched until the app is known to be awake. Waiting is not
+    // loading, so a banner that only held back while loading would build a
+    // warning out of no data at all.
+    getSleep.mockReturnValue(new Promise(() => {}));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <WacliStatusBanner />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(getSleep).toHaveBeenCalled());
+    expect(getHealth).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('System diagnostic warning')).not.toBeInTheDocument();
   });
 });

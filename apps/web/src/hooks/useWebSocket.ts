@@ -79,6 +79,8 @@ export function useWebSocket() {
         // Sleep is pushed, never polled, so a change announced while this
         // socket was down would otherwise go unnoticed.
         queryClient.invalidateQueries({ queryKey: ['sleep'] });
+        // Likewise the queue while asleep, when it lives on pushes alone.
+        queryClient.invalidateQueries({ queryKey: ['scheduled'] });
       };
 
       ws.onclose = () => {

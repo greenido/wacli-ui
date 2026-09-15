@@ -214,11 +214,11 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 **Acceptance criteria:**
 - [ ] No `['health']` fetch happens while asleep from any trigger: interval, invalidation, focus, or a component mounting.
 - [ ] While awake, each tab runs one 20s health poll, as before.
-- [ ] Outside tests, `['health']` appears only in `useHealth.ts`.
+- [ ] Outside tests, only `useHealth.ts` declares the `['health']` query. Invalidations of it elsewhere stay, since they do nothing to a disabled query.
 
 **Verification:**
 - [ ] `npm run test -w @wacli/web`
-- [ ] `grep -rn "queryKey: \['health'\]" apps/web/src --include='*.tsx' --include='*.ts' | grep -v test` finds only the hook.
+- [ ] `grep -rn "api.getHealth()" apps/web/src --include='*.tsx' --include='*.ts' | grep -v test` finds only the hook.
 
 **Dependencies:** T3 (it only needs `awake`), but schedule it after Checkpoint 2
 **Files likely touched:** `apps/web/src/hooks/useHealth.ts` (new, with test) and the eight components listed above
@@ -238,7 +238,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 
 **Acceptance criteria:**
 - [ ] A test renders the console asleep with fake timers and advances 10 minutes: the mocked `api` receives zero read calls.
-- [ ] In that state, a `scheduled.update` push causes exactly one `getScheduled`, and a `message.new` for the sent message patches the cache without a fetch.
+- [ ] In that state, a `scheduled.update` push causes only `getScheduled` calls: one for LATER, and one for the open chat's slice of the queue when a chat is open. A `message.new` for the sent message patches the cache without a fetch, even for a chat the rail has never seen.
 - [ ] After a wake, every poll resumes at its normal interval.
 
 **Verification:**

@@ -83,4 +83,22 @@ describe('SettingsModal daemon control', () => {
     await waitFor(() => expect(setSleep).toHaveBeenCalledWith(false, 'settings wake'));
     expect(restartDaemon).not.toHaveBeenCalled();
   });
+
+  it('says its readings are from before sleep, and does not offer a re-check it cannot run', () => {
+    getSleep.mockResolvedValue({ sleeping: true, since: SINCE });
+    renderSettings({ sleeping: true, since: SINCE });
+
+    expect(screen.getByText(/diagnostics below are from before sleep/i)).toBeInTheDocument();
+    // Health is not read while asleep, so a re-check would do nothing at all.
+    expect(screen.getByRole('button', { name: /re-check/i })).toBeDisabled();
+    expect(getHealth).not.toHaveBeenCalled();
+  });
+
+  it('re-checks while awake', () => {
+    getSleep.mockResolvedValue({ sleeping: false, since: null });
+    renderSettings({ sleeping: false, since: null });
+
+    expect(screen.getByRole('button', { name: /re-check/i })).toBeEnabled();
+    expect(screen.queryByText(/from before sleep/i)).not.toBeInTheDocument();
+  });
 });
