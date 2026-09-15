@@ -22,3 +22,16 @@ export const getTomorrowMorning = (): string => {
   d.setHours(9, 0, 0, 0);
   return toLocalInputValue(d);
 };
+
+/**
+ * A moment as the operator reads it at a glance: the clock alone for today,
+ * the date as well for any other day, since "06:30" alone does not say which
+ * morning.
+ */
+export const formatWhen = (iso: string, now: Date = new Date()): string => {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === now.toDateString()
+    ? time
+    : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+};

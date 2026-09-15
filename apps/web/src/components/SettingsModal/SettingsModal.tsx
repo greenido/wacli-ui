@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff } from 'lucide-react';
+import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff, Sun } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
+import { formatWhen } from '../../lib/scheduleTime.ts';
 import {
   notificationPermission,
   notificationsEnabled,
@@ -96,6 +98,7 @@ export const SettingsModal: React.FC = () => {
   });
 
   const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
+  const { sleeping, since, setSleeping, isSettingSleep, sleepError } = useSleepMode();
 
   const { data: settings } = useQuery({
     queryKey: ['settings'],
@@ -226,36 +229,61 @@ export const SettingsModal: React.FC = () => {
                 <Activity size={12} className="text-mc-live" />
                 Sync Daemon Control
               </span>
-              <button
-                onClick={() => restartDaemonMutation.mutate()}
-                disabled={restartDaemonMutation.isPending}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
-                title="Restart wacli sync daemon"
-              >
-                <RotateCw size={10} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
-                <span>Restart Daemon</span>
-              </button>
+              {/* Asleep, a restart would bring the daemon back while the app
+                  still says asleep; waking is the honest way to get it back. */}
+              {sleeping ? (
+                <button
+                  onClick={() => setSleeping(false, 'settings wake')}
+                  disabled={isSettingSleep}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors disabled:opacity-50"
+                  title="Wake: resume syncing and refreshing"
+                >
+                  <Sun size={10} />
+                  <span>Wake</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => restartDaemonMutation.mutate()}
+                  disabled={restartDaemonMutation.isPending}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
+                  title="Restart wacli sync daemon"
+                >
+                  <RotateCw size={10} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
+                  <span>Restart Daemon</span>
+                </button>
+              )}
             </div>
             <div className="bg-mc-bg rounded border border-mc-border p-3 space-y-2 text-[11px]">
               <div className="flex justify-between">
                 <span className="text-mc-textMuted">Daemon State:</span>
                 <span className={`font-semibold uppercase ${
-                  health?.processState === 'running'
+                  sleeping
+                    ? 'text-mc-textMuted'
+                    : health?.processState === 'running'
                     ? 'text-mc-live'
                     : health?.processState === 'restarting' || health?.processState === 'starting'
                     ? 'text-mc-safe'
                     : 'text-mc-danger'
                 }`}>
-                  {health?.processState ?? 'unknown'}
+                  {sleeping ? 'sleeping' : health?.processState ?? 'unknown'}
                 </span>
               </div>
-              {health?.processPid && (
+              {sleeping && (
+                <p className="text-[10px] text-mc-textMuted font-sans">
+                  Asleep{since ? ` since ${formatWhen(since)}` : ''}: the daemon is stopped and only
+                  scheduled messages go out. Wake to resume syncing.
+                </p>
+              )}
+              {sleepError && (
+                <p className="text-[10px] text-mc-danger font-sans">Could not wake: {sleepError.message}</p>
+              )}
+              {!sleeping && health?.processPid && (
                 <div className="flex justify-between">
                   <span className="text-mc-textMuted">Process PID:</span>
                   <span className="text-mc-text">{health.processPid}</span>
                 </div>
               )}
-              {health?.heartbeatAgeSeconds !== null && health?.heartbeatAgeSeconds !== undefined && (
+              {!sleeping && health?.heartbeatAgeSeconds !== null && health?.heartbeatAgeSeconds !== undefined && (
                 <div className="flex justify-between">
                   <span className="text-mc-textMuted">Heartbeat:</span>
                   <span className={isHeartbeatStale(health.heartbeatAgeSeconds) ? 'text-mc-safe' : 'text-mc-text'}>

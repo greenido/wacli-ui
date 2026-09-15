@@ -157,9 +157,9 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 
 **Description:**
 - `api.getSleep()` and `api.setSleep()`; `SleepState` and `sleep.changed` in the web types.
-- `useSleepMode()` returns `{ known, sleeping, awake, since, setSleeping, isSettingSleep }` over a `['sleep']` query with no interval and `staleTime: Infinity`. `awake` stays false until the first answer, so wacli queries wait a few milliseconds at boot instead of racing a sleeping server.
-- `ensureAwake(queryClient, reason)` wakes the app only if the cache says it is asleep, and merges concurrent calls into one request.
-- In `useWebSocket`, `sleep.changed` calls `setQueryData(['sleep'])`. On connect and reconnect, also invalidate `['sleep']` and `['scheduled']`, so a tab that was disconnected catches up.
+- `useSleepMode()` returns `{ known, sleeping, awake, since, setSleeping, isSettingSleep, sleepError }` over a `['sleep']` query with no interval and `staleTime: Infinity`. `awake` stays false until the first answer, so wacli queries wait a few milliseconds at boot instead of racing a sleeping server. `setSleeping` is fire and forget: a refusal lands in `sleepError`, for the control that asked to show, rather than in an unhandled rejection.
+- In `useWebSocket`, `sleep.changed` calls `setQueryData(['sleep'])`. On connect and reconnect, also invalidate `['sleep']`, so a tab that was disconnected catches up.
+- (Two pieces moved out while building this. `ensureAwake` went to T8, its first caller. Invalidating `['scheduled']` on reconnect went to T6: until then the queue still polls, so there is nothing for it to catch up on.)
 
 **Acceptance criteria:**
 - [ ] A `sleep.changed` push updates every consumer without a fetch.
@@ -182,7 +182,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 - **Truthful status:** while asleep, nothing that shows frozen health may claim a running daemon.
   - The DAEMON row reads SLEEPING and hides PID, heartbeat and lock.
   - `WacliStatusBanner` stays hidden.
-  - Settings adds one line saying its diagnostics are from before sleep.
+  - Settings reads "sleeping", says only scheduled messages go out, and swaps Restart Daemon for Wake. A restart would bring the daemon back under a sleeping flag, and nothing stops that on the server until T7. (Its line saying the diagnostics are from before sleep moved to T5, the first point at which they are.)
 
 **Acceptance criteria:**
 - [ ] The moon button puts the app to sleep: the daemon stops and the banner appears in every open tab.
@@ -209,7 +209,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 
 #### Task 5: One gated health query
 
-**Description:** Add `useHealth()` with key `['health']`, `refetchInterval: POLL_HEALTH_MS` and `enabled: awake`. Use it in place of the eight inline observers: ChatList, ThreadView, StatusStrip, WacliStatusBanner, SettingsModal, ChatInfoModal, NewChatModal and SearchBar. Behavior while awake does not change, because React Query already polled this key at the shortest interval any observer asked for.
+**Description:** Add `useHealth()` with key `['health']`, `refetchInterval: POLL_HEALTH_MS` and `enabled: awake`. Use it in place of the eight inline observers: ChatList, ThreadView, StatusStrip, WacliStatusBanner, SettingsModal, ChatInfoModal, NewChatModal and SearchBar. Behavior while awake does not change, because React Query already polled this key at the shortest interval any observer asked for. From here on, health shown while asleep is the last reading before sleep, so Settings says so in one line. (That line moved here from T4.)
 
 **Acceptance criteria:**
 - [ ] No `['health']` fetch happens while asleep from any trigger: interval, invalidation, focus, or a component mounting.
@@ -228,6 +228,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 
 **Description:**
 - Add one app-level effect, `useSleepEffects()` in `useSleepMode.ts`, mounted once in App. It sets `focusManager.setFocused(sleeping ? false : undefined)`.
+- On connect and reconnect, `useWebSocket` also invalidates `['scheduled']`. Asleep, LATER lives on pushes alone, so a push missed while the socket was down would otherwise stay missed. (Moved here from T3.)
 - Gate the remaining wacli queries on `awake`:
   - chats (ChatList)
   - messages and coverage (ThreadView)
@@ -280,6 +281,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 - **Store changes while asleep:** the selected chat changes; `chatFilter` or `searchQuery` changes; `activeModal` becomes `new-chat` or `chat-info`.
 - **Page load:** if the first `['sleep']` answer in this page's lifetime says asleep, wake with `reason: "page load"`. A WebSocket reconnect is not a page load.
 - **Imperative fetches:** three fetches bypass `enabled` and so must `await ensureAwake()` first: ⌘K opening search (`toggleSearch` in App), Load older (ThreadView), and Export (ExportMenu).
+- `ensureAwake(queryClient, reason)` wakes the app only if the cache says it is asleep, and merges concurrent calls into one request. (Moved here from T3.)
 
 Sends, replies, reactions and mark-read need nothing here, because the server wakes the app for them (T7).
 

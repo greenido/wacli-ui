@@ -14,11 +14,13 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useAppStore } from '../../store/appStore.ts';
 
 export const WacliStatusBanner: React.FC = () => {
   const queryClient = useQueryClient();
   const setActiveModal = useAppStore((s) => s.setActiveModal);
+  const { sleeping } = useSleepMode();
   const [isDismissed, setIsDismissed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
@@ -49,8 +51,9 @@ export const WacliStatusBanner: React.FC = () => {
     setTimeout(() => setCopiedCmd(null), 2000);
   };
 
-  // If loading for first time or dismissed, don't show
-  if (isLoading || isDismissed) {
+  // If loading for first time or dismissed, don't show. Nor while asleep: the
+  // daemon is down on purpose then, and the sleep banner already says so.
+  if (isLoading || isDismissed || sleeping) {
     return null;
   }
 

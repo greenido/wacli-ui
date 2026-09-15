@@ -10,11 +10,13 @@ import {
   RotateCw,
   ChevronDown,
   ChevronRight,
-  Loader2, LifeBuoy, X } from 'lucide-react';
+  Loader2, LifeBuoy, Moon, X } from 'lucide-react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
-import { POLL_ACTIVITY_MS, POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
+import { useScheduledQueue } from '../../hooks/useScheduledQueue.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
+import { POLL_ACTIVITY_MS, POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
@@ -127,18 +129,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     refetchInterval: POLL_HEALTH_MS,
   });
 
-  /**
-   * The queue: every pending message on the first page, history a page at a
-   * time. Only page one is polled — the pages behind it are settled history and
-   * refetching them on a timer would fight the operator's own scrolling.
-   */
-  const scheduledQuery = useInfiniteQuery({
-    queryKey: ['scheduled'],
-    queryFn: ({ pageParam }) => api.getScheduled({ before: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    refetchInterval: POLL_SCHEDULED_MS,
-  });
+  const scheduledQuery = useScheduledQueue();
 
   const activityQuery = useInfiniteQuery({
     queryKey: ['activity'],
@@ -241,6 +232,13 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   });
 
   const { isReadOnly } = useSafeMode();
+  const {
+    known: sleepKnown,
+    sleeping,
+    setSleeping,
+    isSettingSleep,
+    sleepError,
+  } = useSleepMode();
   const processState = health?.processState ?? 'stopped';
   const doctor = health?.doctor;
   const heartbeatAge = health?.heartbeatAgeSeconds;
@@ -268,6 +266,24 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           <span className="font-semibold text-mc-text tracking-wider">SYSTEM STATUS</span>
         </div>
         <div className="flex items-center gap-0.5">
+          {/* No confirmation: sleep takes nothing away that waking does not
+              give back, and the scheduled queue keeps sending either way. */}
+          <button
+            onClick={() => setSleeping(!sleeping, 'sleep button')}
+            disabled={!sleepKnown || isSettingSleep}
+            aria-label="Sleep mode"
+            aria-pressed={sleeping}
+            className={`p-1 rounded hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 ${
+              sleeping ? 'bg-mc-surfaceHover text-mc-text' : 'text-mc-textMuted hover:text-mc-text'
+            }`}
+            title={
+              sleeping
+                ? 'Asleep: only scheduled messages go out. Click to wake.'
+                : 'Sleep: stop syncing and refreshing; scheduled messages still go out'
+            }
+          >
+            <Moon size={15} />
+          </button>
           <button
             onClick={() => setActiveModal('help')}
             aria-label="Help and keyboard shortcuts"
@@ -352,20 +368,29 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
         <div className="bg-mc-bg p-2.5 rounded border border-mc-border space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-mc-textMuted">DAEMON</span>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${getStatusColor().split(' ')[0]} ${processState === 'running' ? 'animate-pulse' : ''}`} />
-              <span className={`font-semibold uppercase ${getStatusColor().split(' ')[1]}`}>
-                {processState}
-              </span>
-              <button
-                onClick={() => restartDaemonMutation.mutate()}
-                disabled={restartDaemonMutation.isPending}
-                className="ml-1 p-0.5 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
-                title="Restart Daemon"
-              >
-                <RotateCw size={11} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
-              </button>
-            </div>
+            {/* Asleep, the daemon is down on purpose: `stopped` in red would
+                read as a fault, and a restart would undo the sleep. */}
+            {sleeping ? (
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-mc-textMuted" />
+                <span className="font-semibold uppercase text-mc-textMuted">sleeping</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${getStatusColor().split(' ')[0]} ${processState === 'running' ? 'animate-pulse' : ''}`} />
+                <span className={`font-semibold uppercase ${getStatusColor().split(' ')[1]}`}>
+                  {processState}
+                </span>
+                <button
+                  onClick={() => restartDaemonMutation.mutate()}
+                  disabled={restartDaemonMutation.isPending}
+                  className="ml-1 p-0.5 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
+                  title="Restart Daemon"
+                >
+                  <RotateCw size={11} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-mc-textMuted pt-1 border-t border-mc-border/50">
@@ -375,7 +400,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </span>
           </div>
 
-          {heartbeatAge !== null && heartbeatAge !== undefined && (
+          {!sleeping && heartbeatAge !== null && heartbeatAge !== undefined && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>HEARTBEAT</span>
               <span className={isHeartbeatStale(heartbeatAge) ? 'text-mc-safe' : 'text-mc-text'}>
@@ -384,14 +409,14 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </div>
           )}
 
-          {typeof health?.processPid === 'number' && (
+          {!sleeping && typeof health?.processPid === 'number' && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>PID</span>
               <span className="text-mc-text font-mono">{health.processPid}</span>
             </div>
           )}
 
-          {health?.storeLockHeld && (
+          {!sleeping && health?.storeLockHeld && (
             <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
               <span>STORE LOCK</span>
               {/* Whether the holder is ours is the API's call: comparing the two
@@ -411,6 +436,12 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     : 'EXTERNAL'
                   : 'HELD BY DAEMON'}
               </span>
+            </div>
+          )}
+
+          {sleepError && (
+            <div className="text-[11px] text-mc-danger break-all">
+              Sleep switch failed: {sleepError.message}
             </div>
           )}
         </div>

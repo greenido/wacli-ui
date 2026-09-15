@@ -607,6 +607,48 @@ describe('useWebSocket read receipts are a side effect, not a cache update', () 
  * The retry used to be a flat two seconds, forever: a console left open against
  * a stopped API reconnected thirty times a minute for as long as the tab lived.
  */
+describe('useWebSocket sleep state', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('takes a pushed change straight into the cache, without a fetch', () => {
+    const { socket, unmount } = mount();
+    const asleep = { sleeping: true, since: '2026-09-15T22:14:00.000Z' };
+
+    act(() => {
+      socket.emit({ type: 'sleep.changed', data: asleep, ts: '2026-09-15T22:14:00.050Z' });
+    });
+
+    expect(queryClient.getQueryData(['sleep'])).toEqual(asleep);
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('rereads the state when the socket comes back, since a change may have been missed', () => {
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.onopen?.();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sleep'] });
+    unmount();
+  });
+});
+
 describe('useWebSocket reconnect backoff', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
