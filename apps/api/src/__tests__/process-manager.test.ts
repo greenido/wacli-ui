@@ -168,12 +168,18 @@ describe('WacliProcessManager', () => {
 });
 
 describe('WacliProcessManager exclusive-command respawn', () => {
-  /** A manager whose daemon spawn is a spy, so no real wacli is ever started. */
+  /**
+   * A running manager whose daemon spawn is a spy, so no real wacli is ever
+   * started. Started first because only a daemon somebody wants is brought
+   * back; the spy is cleared so counts cover the respawn alone.
+   */
   function makeManager(respawnDebounceMs = 0) {
     const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs });
     const spawn = vi
       .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
       .mockImplementation(() => {});
+    pm.start();
+    spawn.mockClear();
     return { pm, spawn };
   }
 
@@ -277,6 +283,8 @@ describe('WacliProcessManager exclusive-command failures', () => {
     const spawn = vi
       .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
       .mockImplementation(() => {});
+    pm.start();
+    spawn.mockClear();
 
     await expect(
       pm.executeExclusive(async () => {
@@ -296,6 +304,8 @@ describe('WacliProcessManager exclusive-command failures', () => {
     const spawn = vi
       .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
       .mockImplementation(() => {});
+    pm.start();
+    spawn.mockClear();
 
     const results = await Promise.allSettled([
       pm.executeExclusive(async () => 'ok'),
@@ -313,11 +323,14 @@ describe('WacliProcessManager exclusive-command failures', () => {
 });
 
 describe('WacliProcessManager respawn cancellation', () => {
+  /** Started, so an exclusive command really does leave a respawn pending. */
   function makeManager(respawnDebounceMs = 750) {
     const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs });
     const spawn = vi
       .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
       .mockImplementation(() => {});
+    pm.start();
+    spawn.mockClear();
     return { pm, spawn };
   }
 
@@ -370,6 +383,70 @@ describe('WacliProcessManager respawn cancellation', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('WacliProcessManager desired state', () => {
+  function makeManager() {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs: 0 });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+    return { pm, spawn };
+  }
+
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  it('keeps a deliberately stopped daemon down after an exclusive command', async () => {
+    const { pm, spawn } = makeManager();
+    pm.start();
+    await pm.stop();
+    spawn.mockClear();
+
+    // Every send runs exclusive. Ending one used to respawn the daemon
+    // unconditionally, so a stop lasted exactly until the next send.
+    await pm.executeExclusive(async () => 'sent');
+    await tick();
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(pm.getState()).toBe('stopped');
+  });
+
+  it('never starts a daemon that was never started, however many sends run', async () => {
+    // `--no-sync` never starts the supervisor; the first send used to.
+    const { pm, spawn } = makeManager();
+
+    await Promise.all(
+      Array.from({ length: 3 }, () => pm.executeExclusive(async () => 'sent'))
+    );
+    await tick();
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(pm.getState()).toBe('stopped');
+  });
+
+  it('stays down when stopped while an exclusive command is running', async () => {
+    const { pm, spawn } = makeManager();
+    pm.start();
+    spawn.mockClear();
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = pm.executeExclusive(async () => {
+      await gate;
+      return 'sent';
+    });
+    await tick();
+
+    await pm.stop();
+    release();
+    await running;
+    await tick();
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(pm.getState()).toBe('stopped');
   });
 });
 
