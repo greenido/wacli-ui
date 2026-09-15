@@ -8,6 +8,7 @@ import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { chatDisplayName } from '../../lib/chatDisplayName.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -27,7 +28,9 @@ export const NewChatModal: React.FC = () => {
 
   const { data: health } = useHealth();
 
-  const readsReady = isWacliReadyForReads(health);
+  // Asleep, nothing reaches wacli: what is on screen stays as it was.
+  const { awake } = useSleepMode();
+  const readsReady = awake && isWacliReadyForReads(health);
   const readQueryOpts = wacliReadQueryOptions(
     activeModal === 'new-chat' && readsReady
   );

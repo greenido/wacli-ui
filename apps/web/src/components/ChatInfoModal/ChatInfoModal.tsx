@@ -5,6 +5,7 @@ import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { normalizeTag, suggestTags, findSimilarTag } from '../../lib/tagSuggest.ts';
 import type { UnifiedGroup } from '../../types.ts';
 
@@ -43,16 +44,19 @@ export const ChatInfoModal: React.FC = () => {
   const { data: health } = useHealth();
   const isReadOnly = Boolean(health?.readOnly);
 
-  const { data: contact, isLoading: contactLoading } = useQuery({
+  // Both reach wacli, so neither runs while the app is asleep.
+  const { awake } = useSleepMode();
+
+  const { data: contact, isPending: contactPending } = useQuery({
     queryKey: ['contact', jid],
     queryFn: () => api.getContact({ jid }),
-    enabled: isOpen && !isGroup,
+    enabled: isOpen && !isGroup && awake,
   });
 
   const { data: groups } = useQuery({
     queryKey: ['groups'],
     queryFn: () => api.getGroups(),
-    enabled: isOpen && isGroup,
+    enabled: isOpen && isGroup && awake,
   });
 
   const group: UnifiedGroup | undefined = groups?.find((g) => g.jid === jid);
@@ -170,7 +174,10 @@ export const ChatInfoModal: React.FC = () => {
                   type="text"
                   aria-label="Local alias"
                   value={aliasValue}
-                  disabled={contactLoading || isReadOnly}
+                  // Pending, not loading: while the read waits on the app
+                  // being awake it is not loading either, and an alias typed
+                  // over a contact that has not arrived would be clobbered.
+                  disabled={contactPending || isReadOnly}
                   placeholder={isReadOnly ? 'Read-only mode' : 'Name this contact locally'}
                   onChange={(e) => setAliasDraft(e.target.value)}
                   onKeyDown={(e) => {

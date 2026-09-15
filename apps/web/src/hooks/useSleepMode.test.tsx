@@ -1,8 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useSleepMode } from './useSleepMode.ts';
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query';
+import { useSleepEffects, useSleepMode } from './useSleepMode.ts';
 import type { SleepState } from '../types.ts';
 
 const getSleep = vi.hoisted(() => vi.fn());
@@ -100,5 +100,46 @@ describe('useSleepMode', () => {
     });
 
     expect(getSleep).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useSleepEffects', () => {
+  function mountEffects() {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return renderHook(() => useSleepEffects(), { wrapper });
+  }
+
+  beforeEach(() => {
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getSleep.mockReset();
+  });
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  it('keeps the tab unfocused, as far as queries can tell, until it wakes', async () => {
+    // The browser's own answer, which waking must hand back.
+    const browserFocus = focusManager.isFocused();
+    expect(browserFocus).toBe(true);
+    getSleep.mockResolvedValue({ sleeping: true, since: SINCE });
+
+    mountEffects();
+    await waitFor(() => expect(focusManager.isFocused()).toBe(false));
+
+    act(() => client.setQueryData(['sleep'], { sleeping: false, since: null }));
+    await waitFor(() => expect(focusManager.isFocused()).toBe(browserFocus));
+  });
+
+  it('gives focus back to the browser if it unmounts asleep', async () => {
+    getSleep.mockResolvedValue({ sleeping: true, since: SINCE });
+
+    const { unmount } = mountEffects();
+    await waitFor(() => expect(focusManager.isFocused()).toBe(false));
+    unmount();
+
+    expect(focusManager.isFocused()).toBe(true);
   });
 });

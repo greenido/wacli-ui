@@ -5,11 +5,13 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatList } from './ChatList.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedChat } from '../../types.ts';
+import type { SleepState, UnifiedChat } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
 // Health waits to hear the app is awake before it asks; these tests are awake.
-const getSleep = vi.hoisted(() => vi.fn(async () => ({ sleeping: false, since: null })));
+const getSleep = vi.hoisted(() =>
+  vi.fn(async (): Promise<SleepState> => ({ sleeping: false, since: null }))
+);
 const getChats = vi.hoisted(() => vi.fn());
 const getTags = vi.hoisted(() => vi.fn());
 const markChatRead = vi.hoisted(() => vi.fn());

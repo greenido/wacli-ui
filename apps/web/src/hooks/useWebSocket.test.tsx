@@ -647,6 +647,17 @@ describe('useWebSocket sleep state', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sleep'] });
     unmount();
   });
+
+  it('rereads the queue when the socket comes back, since asleep it lives on pushes alone', () => {
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.onopen?.();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['scheduled'] });
+    unmount();
+  });
 });
 
 describe('useWebSocket reconnect backoff', () => {

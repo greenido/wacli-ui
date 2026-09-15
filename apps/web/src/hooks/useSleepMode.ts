@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { focusManager, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.ts';
 
 export const SLEEP_QUERY_KEY = ['sleep'] as const;
@@ -60,4 +61,23 @@ export function useSleepMode(): SleepMode {
     isSettingSleep: mutation.isPending,
     sleepError: mutation.error,
   };
+}
+
+/**
+ * What sleep does to the whole tab. Mounted once, in App.
+ *
+ * Every poll in the console, the app's own lists included, ticks only while
+ * the window counts as focused, and a refocus refetches whatever has gone
+ * stale. Asleep, the window never counts as focused, so nothing polls and
+ * nothing refetches on focus, while pushes still land. Waking hands focus
+ * back to the browser, which refetches what went stale in the meantime.
+ */
+export function useSleepEffects(): void {
+  const { sleeping } = useSleepMode();
+
+  useEffect(() => {
+    if (!sleeping) return;
+    focusManager.setFocused(false);
+    return () => focusManager.setFocused(undefined);
+  }, [sleeping]);
 }
