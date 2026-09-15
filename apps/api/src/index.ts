@@ -19,7 +19,10 @@ import { createHistoryRouter } from './routes/history.js';
 import { createContactsRouter } from './routes/contacts.js';
 import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
+import { createSleepRouter } from './routes/sleep.js';
+import { modeManager } from './wacli/mode.js';
 import { scheduler } from './wacli/scheduler.js';
+import { SleepController } from './wacli/sleep.js';
 import { StoreLockedError } from './wacli/store-lock.js';
 import { initDatabase, closeDatabase, DatabaseUnavailableError, resolveDbPath } from './db/index.js';
 import { migrateJsonStores } from './db/migrate-json.js';
@@ -149,9 +152,16 @@ export function createApp(
   // JSON body parser for REST API
   app.use('/api', express.json({ limit: '64kb' }));
 
+  const sleep = new SleepController({
+    daemon: processManager,
+    bridge,
+    syncDisabled: process.env.WACLI_DISABLE_SYNC === '1',
+  });
+
   // Mount routers
   app.use('/api', createHealthRouter(processManager));
   app.use('/api', createSettingsRouter(bridge));
+  app.use('/api', createSleepRouter(sleep));
   app.use('/api', createChatsRouter(processManager));
   app.use('/api', createMessagesRouter());
   app.use('/api', createSearchRouter());
@@ -314,6 +324,22 @@ export function bootDatabase(exit: (code: number) => never = process.exit): void
   }
 }
 
+/**
+ * Brings the daemon up at boot, unless it was switched off: by `--no-sync`, or
+ * by sleep mode, which is persisted precisely so that a restart comes back
+ * asleep rather than quietly reconnecting.
+ */
+export function startSyncAtBoot(pm: Pick<WacliProcessManager, 'start'>): void {
+  if (process.env.WACLI_DISABLE_SYNC === '1') return;
+  if (modeManager.isSleeping()) {
+    logger.info('process', 'Started asleep; sync daemon left off', {
+      since: modeManager.getSleepState().since ?? undefined,
+    });
+    return;
+  }
+  pm.start();
+}
+
 export function startServer(port = PORT, host = HOST): ServerInstance {
   bootDatabase();
 
@@ -353,9 +379,7 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
       logFile: logger.getFilePath() ?? undefined,
       logLevel: logger.getLevel(),
     });
-    if (process.env.WACLI_DISABLE_SYNC !== '1') {
-      pm.start();
-    }
+    startSyncAtBoot(pm);
   });
 
   const gracefulShutdown = (signal: string) =>
