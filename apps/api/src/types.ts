@@ -145,6 +145,17 @@ export interface ScheduledMessage {
   sentMessageId?: string;
 }
 
+/**
+ * Sleep mode: the daemon is stopped and only scheduled messages go out. Owned
+ * by the server and persisted, so every tab agrees and a restart comes back
+ * asleep.
+ */
+export interface SleepState {
+  sleeping: boolean;
+  /** When sleep began, ISO 8601. Null while awake. */
+  since: string | null;
+}
+
 export type MissionControlEvent =
   | { type: 'message.new'; data: UnifiedMessage; ts: string }
   | { type: 'message.receipt'; data: { chatJid: string; messageIds: string[]; status: 'delivered' | 'read' | 'played'; sender: string; isFromMe: boolean }; ts: string }
@@ -152,7 +163,8 @@ export type MissionControlEvent =
   | { type: 'chat.update'; data: UnifiedChat; ts: string }
   | { type: 'scheduled.update'; data: ScheduledMessage; ts: string }
   | { type: 'sync.progress'; data: { phase: string; detail?: string }; ts: string }
-  | { type: 'connection.status'; data: { state: MissionControlStatus['processState'] | 'connected' | 'disconnected'; reason?: string }; ts: string };
+  | { type: 'connection.status'; data: { state: MissionControlStatus['processState'] | 'connected' | 'disconnected'; reason?: string }; ts: string }
+  | { type: 'sleep.changed'; data: SleepState; ts: string };
 
 // Raw wacli JSON shapes
 export interface RawWacliResponse<T> {

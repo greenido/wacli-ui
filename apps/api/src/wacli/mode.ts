@@ -1,11 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { getDb, openDatabaseAt } from '../db/index.js';
 import { logger } from '../logger.js';
+import type { SleepState } from '../types.js';
 
 export interface AppSettings {
   readOnly: boolean;
   storeDir?: string;
   account?: string;
+  /**
+   * Sleep mode. Stored only while asleep, so the keys are absent the rest of
+   * the time; persisted so a restart comes back asleep rather than quietly
+   * starting the daemon the operator switched off.
+   */
+  sleeping?: true;
+  /** When sleep began, ISO 8601. */
+  sleepingSince?: string;
 }
 
 /**
@@ -76,6 +85,11 @@ export class ModeManager {
       readOnly: stored.readOnly !== undefined ? Boolean(stored.readOnly) : FIRST_RUN_READ_ONLY,
       storeDir: typeof stored.storeDir === 'string' ? stored.storeDir : undefined,
       account: typeof stored.account === 'string' ? stored.account : undefined,
+      sleeping: stored.sleeping === true ? true : undefined,
+      sleepingSince:
+        stored.sleeping === true && typeof stored.sleepingSince === 'string'
+          ? stored.sleepingSince
+          : undefined,
     };
   }
 
@@ -103,6 +117,34 @@ export class ModeManager {
   public setReadOnly(readOnly: boolean): void {
     this.current().readOnly = readOnly;
     this.saveSettings();
+  }
+
+  public isSleeping(): boolean {
+    return this.current().sleeping === true;
+  }
+
+  public getSleepState(): SleepState {
+    const { sleeping, sleepingSince } = this.current();
+    return sleeping === true
+      ? { sleeping: true, since: sleepingSince ?? null }
+      : { sleeping: false, since: null };
+  }
+
+  /**
+   * The time is stamped on the way in and only then, so asking an already
+   * sleeping app to sleep again keeps the moment it actually went quiet.
+   */
+  public setSleeping(sleeping: boolean): SleepState {
+    const settings = this.current();
+    if (!sleeping) {
+      settings.sleeping = undefined;
+      settings.sleepingSince = undefined;
+    } else if (settings.sleeping !== true) {
+      settings.sleeping = true;
+      settings.sleepingSince = new Date().toISOString();
+    }
+    this.saveSettings();
+    return this.getSleepState();
   }
 
   public getSettings(): AppSettings {

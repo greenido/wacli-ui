@@ -252,6 +252,22 @@ export class WacliProcessManager {
   }
 
   /**
+   * Wants a daemon, and brings it up through the respawn debounce rather than
+   * at once. Waking from sleep uses this: when a send is what woke it, the
+   * send's exclusive run lands inside the window and cancels the spawn, so the
+   * daemon comes up once afterwards instead of being spawned only for the send
+   * to kill it. Exclusive work already running brings it back when it ends.
+   */
+  public startSoon(): void {
+    this.wantRunning = true;
+    if (this.exclusiveWaiters > 0) return;
+    if (this.child || this.state === 'running' || this.state === 'starting') return;
+
+    this.isPaused = false;
+    this.scheduleRespawn();
+  }
+
+  /**
    * Brings the daemon back after the exclusive queue drains, but only once it
    * has stayed drained for the debounce window. Any exclusive action starting
    * in the meantime cancels it, so a burst of commands produces one respawn at

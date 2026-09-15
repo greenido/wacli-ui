@@ -450,6 +450,97 @@ describe('WacliProcessManager desired state', () => {
   });
 });
 
+describe('WacliProcessManager startSoon', () => {
+  function makeManager(respawnDebounceMs = 750) {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+    return { pm, spawn };
+  }
+
+  it('brings a stopped daemon up once, after the debounce', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+      await pm.stop();
+
+      pm.startSoon();
+      vi.advanceTimersByTime(749);
+      expect(spawn).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(1);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a send that lands inside the window go first, then spawns once', async () => {
+    // Waking because of a send: spawning at once would only have the send kill
+    // a daemon that never got to connect.
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+      await pm.stop();
+
+      pm.startSoon();
+      vi.advanceTimersByTime(300);
+      const send = pm.executeExclusive(async () => 'sent');
+      await vi.advanceTimersByTimeAsync(0);
+      await send;
+
+      vi.advanceTimersByTime(749);
+      expect(spawn).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves the respawn to exclusive work that is already running', async () => {
+    const { pm, spawn } = makeManager(0);
+    await pm.stop();
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = pm.executeExclusive(async () => {
+      await gate;
+      return 'sent';
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    pm.startSoon();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Nothing may spawn while the store is still held for the command.
+    expect(spawn).not.toHaveBeenCalled();
+
+    release();
+    await running;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('is cancelled by a stop inside the window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+
+      pm.startSoon();
+      await pm.stop();
+      vi.advanceTimersByTime(5000);
+
+      expect(spawn).not.toHaveBeenCalled();
+      expect(pm.getState()).toBe('stopped');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('WacliProcessManager shutdown hooks', () => {
   /** A fresh module copy, so the hook registry starts empty whatever ran before. */
   async function loadFreshModule() {
