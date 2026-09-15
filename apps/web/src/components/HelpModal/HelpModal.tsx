@@ -87,6 +87,27 @@ const GuideTab: React.FC = () => (
       </p>
     </Topic>
 
+    <Topic title="Sleep mode">
+      <p>
+        The moon in the status strip header puts Mission Control to sleep. The
+        sync daemon stops, nothing refreshes, and the console stays as it was
+        under a banner. Scheduled messages still go out on time. Every open tab
+        sleeps together, and a restart comes back asleep.
+      </p>
+      <p>
+        Nothing automatic wakes it. <span className="text-mc-text">WAKE</span>{' '}
+        does, and so does anything that needs fresh data or sends: opening
+        another chat, the rail filters, search, New chat, Chat info, loading
+        older messages, exporting, asking your phone for history, sending,
+        replying, reacting, or reloading the page. Scrolling, bookmarks, tags,
+        Help, Settings and the LATER buttons leave it asleep.
+      </p>
+      <p>
+        It does not keep the computer awake. If the machine sleeps, messages
+        that come due go out when it wakes.
+      </p>
+    </Topic>
+
     <Topic title="Sending a message">
       <p>
         Pick a chat and type. <Key>Enter</Key> opens the confirmation;{' '}

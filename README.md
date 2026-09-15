@@ -91,6 +91,21 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 - Built-in scheduler for delayed messaging and replies, persisted in Mission Control's database so a queued message survives a restart.
 - Dedicated chat banner displaying pending scheduled messages with one-click cancellation.
 
+### 🌙 Sleep Mode
+- **Only the Queue Keeps Running**: The moon button in the status strip header puts Mission Control to sleep. The `wacli sync` daemon stops, the browser stops polling, and the console stays on screen as it was, under a banner saying when sleep began, how many messages are scheduled, and when the next one is due. Scheduled messages still go out on time. Each send dials WhatsApp itself and leaves the daemon stopped afterwards.
+- **Only You End It**: No timer, reconnect, server restart or scheduled send wakes it. It wakes when you press **Wake**, or do something that needs fresh data or sends:
+  - open another chat;
+  - change the rail filter, or type in its box;
+  - search, or open New chat or Chat info;
+  - load older messages, export, or request older history from your phone;
+  - send, reply or react;
+  - reload the page, or open another tab.
+
+  Every wake is logged with its reason. Scrolling, bookmarks, tags, Help, Settings, safe mode, queueing a Send later, and the LATER queue's own buttons leave it asleep.
+- **Every Tab, Across Restarts**: Sleep is stored in Mission Control's database, so every open tab sleeps together, and a restarted server comes back asleep without starting the daemon.
+- **Frozen, Not Fetched**: An attachment that was not downloaded before sleep stays a placeholder rather than downloading. While asleep, the API answers wacli reads with `409 ASLEEP` instead of running wacli, so an old tab or a script cannot quietly undo sleep.
+- **It Does Not Keep the Computer Awake**: If the machine itself sleeps, Node is suspended, and messages that come due go out when it wakes. For sends that must be on time, keep the computer awake (on macOS, `caffeinate -i`). Sleep is meant for hours or days, not weeks: WhatsApp eventually unlinks a device that stays offline.
+
 ---
 
 ## Architecture & Data Flow
@@ -268,6 +283,8 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `GET` | `/api/health` | Service health, daemon state, uptime, and lock status |
 | `GET` | `/api/settings` | Current read-only mode state and session metadata |
 | `POST`| `/api/mode` | Update read-only / write mode (`{ readOnly: boolean }`) |
+| `GET` | `/api/sleep` | Whether Mission Control is asleep, and since when (`{ sleeping, since }`) |
+| `POST`| `/api/sleep` | Sleep or wake (`{ sleeping: boolean, reason? }`); the reason is only logged |
 | `GET` | `/api/chats` | List chats with unread counts, last-message previews, filters (`unread`, `pinned`, `archived`) |
 | `GET` | `/api/messages` | Fetch messages for a chat (`?chat=<jid>&limit=100`); raise `limit` to page further back |
 | `POST`| `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
@@ -283,13 +300,15 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `POST`| `/api/history/backfill` | Ask the primary device for older messages (`{ chat, count? }`); refused in read-only mode |
 | `GET` | `/api/search` | Search message history with FTS5 (`?q=<query>&limit=50`) |
 | `POST`| `/api/send/text` | Send a text message or reply (`{ to, message, replyTo?, confirm: true }`) |
-| `POST`| `/api/send/media` | Upload and dispatch media (`multipart/form-data`) |
+| `POST`| `/api/send/file` | Upload and dispatch media (`multipart/form-data`) |
 | `POST`| `/api/send/react` | Send an emoji reaction (`{ to, id, reaction, sender?, confirm: true }`) |
 | `POST`| `/api/send/schedule` | Schedule a future message (`{ to, message, scheduledAt, confirm: true }`) |
 | `GET` | `/api/send/scheduled` | List pending scheduled messages |
 | `DELETE`| `/api/send/scheduled/:id` | Cancel a pending scheduled message |
-| `GET` | `/api/media/:chat/:id` | Retrieve or proxy media content for inline rendering |
+| `GET` | `/api/media/content` | Stream an attachment for inline rendering (`?chat=<jid>&id=<msgId>`), downloading it through wacli if it is not on disk yet |
 | `POST`| `/internal/wacli/webhook`| Internal HMAC-verified webhook endpoint for `wacli sync` |
+
+While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it. That covers health, chats, messages, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what is already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download, or daemon start or restart) wakes the app first.
 
 ### WebSocket Event Stream
 
@@ -297,7 +316,7 @@ Connect to `ws://127.0.0.1:3002/ws` to receive live unified event frames:
 
 ```json
 {
-  "type": "message.created",
+  "type": "message.new",
   "data": {
     "msgId": "3EB0...",
     "chatJid": "1234567890@s.whatsapp.net",
@@ -310,7 +329,7 @@ Connect to `ws://127.0.0.1:3002/ws` to receive live unified event frames:
 }
 ```
 
-Supported event types: `message.created`, `receipt.updated`, `presence.updated`, `sync.progress`, `connection.status`, `audit.event`, `error`.
+Supported event types: `message.new`, `message.receipt`, `chat.presence`, `chat.update`, `scheduled.update`, `sync.progress`, `connection.status`, `sleep.changed`.
 
 ---
 

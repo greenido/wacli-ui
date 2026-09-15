@@ -1,6 +1,13 @@
 import { useEffect } from 'react';
-import { focusManager, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  focusManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { api } from '../api/client.ts';
+import type { SleepState } from '../types.ts';
 
 export const SLEEP_QUERY_KEY = ['sleep'] as const;
 
@@ -61,6 +68,39 @@ export function useSleepMode(): SleepMode {
     isSettingSleep: mutation.isPending,
     sleepError: mutation.error,
   };
+}
+
+/** One wake in flight per cache, so a burst of intents costs one request. */
+const pendingWakes = new WeakMap<QueryClient, Promise<void>>();
+
+/**
+ * Wakes the app if this tab believes it is asleep, and settles once the server
+ * has answered. For the fetches that bypass `enabled` and so would otherwise
+ * reach a sleeping server: await this first.
+ *
+ * It never rejects. A wake that failed leaves the app asleep, the caller's
+ * fetch gets its ASLEEP answer, and that answer is the error to show.
+ */
+export function ensureAwake(queryClient: QueryClient, reason: string): Promise<void> {
+  const state = queryClient.getQueryData<SleepState>(SLEEP_QUERY_KEY);
+  if (!state?.sleeping) return Promise.resolve();
+
+  let wake = pendingWakes.get(queryClient);
+  if (!wake) {
+    wake = api
+      .setSleep(false, reason)
+      .then((next) => {
+        queryClient.setQueryData(SLEEP_QUERY_KEY, next);
+      })
+      .catch((error: unknown) => {
+        console.warn(`[sleep] Could not wake for ${reason}:`, error);
+      })
+      .finally(() => {
+        pendingWakes.delete(queryClient);
+      });
+    pendingWakes.set(queryClient, wake);
+  }
+  return wake;
 }
 
 /**

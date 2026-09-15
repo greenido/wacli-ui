@@ -1,6 +1,6 @@
 # Implementation Plan: Sleep Mode
 
-> Status: in progress, as a stack of six PRs starting with #22. Written 2026-09-15 from a requirements interview; every behavior below was confirmed by the operator.
+> Status: implemented, as a stack of six PRs merged in order: #22 (T1), #23 (T2), #24 (T3, T4), #25 (T5, T6), #26 (T7) and #28 (T8, T9). Written 2026-09-15 from a requirements interview; every behavior below was confirmed by the operator. Where the build departed from the plan, the task says so.
 
 ## Overview
 
@@ -278,10 +278,11 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 #### Task 8: Wake on intent
 
 **Description:** One hook, `useWakeOnIntent()`, mounted in App, holds every client-side wake trigger:
-- **Store changes while asleep:** the selected chat changes; `chatFilter` or `searchQuery` changes; `activeModal` becomes `new-chat` or `chat-info`.
+- **Store changes while asleep:** the selected chat changes to another chat; `chatFilter` or `searchQuery` changes; `activeModal` becomes `new-chat` or `chat-info`.
+- **Search:** opening ⌘K. (As built, this is a trigger in the hook like the others, from App's `isSearchOpen`. Search results come from a gated query, not an imperative fetch, so nothing needs to wait.)
 - **Page load:** if the first `['sleep']` answer in this page's lifetime says asleep, wake with `reason: "page load"`. A WebSocket reconnect is not a page load.
-- **Imperative fetches:** three fetches bypass `enabled` and so must `await ensureAwake()` first: ⌘K opening search (`toggleSearch` in App), Load older (ThreadView), and Export (ExportMenu).
-- `ensureAwake(queryClient, reason)` wakes the app only if the cache says it is asleep, and merges concurrent calls into one request. (Moved here from T3.)
+- **Imperative fetches:** two fetches bypass `enabled` and so must `await ensureAwake()` first: Load older (ThreadView) and Export (ExportMenu).
+- `ensureAwake(queryClient, reason)` wakes the app only if the cache says it is asleep, and merges concurrent calls into one request. It never rejects: after a failed wake, the fetch gets its ASLEEP answer. (Moved here from T3.)
 
 Sends, replies, reactions and mark-read need nothing here, because the server wakes the app for them (T7).
 
@@ -317,7 +318,8 @@ Sends, replies, reactions and mark-read need nothing here, because the server wa
 - **README, REST table:** `GET`/`POST /api/sleep` and the `409 ASLEEP` answer. While editing the table, note that it lists `POST /api/send/media`, but the route is `/api/send/file`.
 - **README, WebSocket event list:** add `sleep.changed`.
 - **Help:** a "Sleep mode" topic next to "Safe mode and live sends".
-- **Release note:** `--no-sync` now stays sync-less after a send (T1).
+- **Release note:** `--no-sync` now stays sync-less after a send (T1). (As built: the repo keeps no changelog, so the note is in #28's description, for whoever writes the release that ships the stack.)
+- (Added while editing: the REST table's media row named a route that no longer exists, and the WebSocket event list named none of the events the server sends. Both now match the code.)
 
 **Acceptance criteria:**
 - [ ] README and Help describe the same wake rules as the Behavior table.

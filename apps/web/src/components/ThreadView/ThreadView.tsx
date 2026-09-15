@@ -28,7 +28,7 @@ import { api, ApiClientError } from '../../api/client.ts';
 import { POLL_MESSAGES_MS, POLL_SCHEDULED_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
-import { useSleepMode } from '../../hooks/useSleepMode.ts';
+import { ensureAwake, useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
@@ -218,7 +218,9 @@ export const ThreadView: React.FC = () => {
     if (!hasNextPage || isFetchingNextPage) return;
     const el = scrollRef.current;
     olderAnchorRef.current = el ? el.scrollHeight - el.scrollTop : null;
-    void fetchNextPage();
+    // Paging bypasses `enabled`, so it wakes a sleeping app itself rather than
+    // asking a server that would refuse it.
+    void ensureAwake(queryClient, 'load older').then(() => fetchNextPage());
   };
 
   useLayoutEffect(() => {

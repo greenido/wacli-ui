@@ -28,6 +28,15 @@ describe('HelpModal', () => {
     );
   });
 
+  it('explains sleep mode, and that it does not keep the computer awake', () => {
+    render(<HelpModal />);
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /sleep mode/i })).toBeInTheDocument();
+    expect(within(dialog).getByText(/nothing automatic wakes it/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/does not keep the computer awake/i)).toBeInTheDocument();
+  });
+
   it('lists every catalogued shortcut on the keyboard tab', async () => {
     const user = userEvent.setup();
     render(<HelpModal />);
