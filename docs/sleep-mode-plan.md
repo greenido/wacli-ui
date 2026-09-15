@@ -238,7 +238,7 @@ curl -s -X POST http://127.0.0.1:3002/api/sleep -H 'Content-Type: application/js
 
 **Acceptance criteria:**
 - [ ] A test renders the console asleep with fake timers and advances 10 minutes: the mocked `api` receives zero read calls.
-- [ ] In that state, a `scheduled.update` push causes exactly one `getScheduled`, and a `message.new` for the sent message patches the cache without a fetch.
+- [ ] In that state, a `scheduled.update` push causes only `getScheduled` calls: one for LATER, and one for the open chat's slice of the queue when a chat is open. A `message.new` for the sent message patches the cache without a fetch, even for a chat the rail has never seen.
 - [ ] After a wake, every poll resumes at its normal interval.
 
 **Verification:**
