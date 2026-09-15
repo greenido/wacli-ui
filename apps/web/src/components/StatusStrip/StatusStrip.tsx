@@ -38,6 +38,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const selectedChat = useAppStore((s) => s.selectedChat);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
+  const setComposerDraft = useAppStore((s) => s.setComposerDraft);
+  const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
   const searchQuery = useAppStore((s) => s.searchQuery);
   const chatFilter = useAppStore((s) => s.chatFilter);
   const queryClient = useQueryClient();
@@ -109,6 +111,17 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   };
 
   const openSendLog = (log: SendLogEntry) => {
+    // An error row never produced a WhatsApp message. Jumping into the thread
+    // can only report it missing ("older than the history loaded here"), so
+    // reopen the text in the composer instead — replace any draft already
+    // there, because the click is an explicit retry of this failed send.
+    if (log.status === 'error') {
+      handleSelectMessageChat(log.to, log.chatName);
+      setComposerDraft(log.to, log.message);
+      triggerFocusComposer();
+      return;
+    }
+
     handleSelectMessageChat(log.to, log.chatName, log.messageId, {
       text: log.message,
       sentAfter: log.timestamp,
@@ -503,6 +516,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               <>
               {activityRows.map((log) => {
                 const isSelected = selectedChat?.jid === log.to;
+                const isFailedSend = log.status === 'error';
                 return (
                   <div
                     key={log.id}
@@ -518,9 +532,15 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
                       isSelected
                         ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                        : isFailedSend
+                        ? 'border-mc-danger/50'
                         : 'border-mc-border/70'
                     }`}
-                    title="Click to open the conversation and focus this message"
+                    title={
+                      isFailedSend
+                        ? 'Not delivered. Click to load this message into the composer so you can retry in the composer.'
+                        : 'Click to open the conversation and focus this message'
+                    }
                   >
                     <div className="flex items-center justify-between text-[10px]">
                       <span className="text-mc-textMuted">
@@ -540,8 +560,12 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                     </div>
                     <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
                       <span className="truncate">{log.chatName || log.to}</span>
-                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
-                        OPEN →
+                      <span
+                        className={`text-[9px] font-mono opacity-80 shrink-0 ${
+                          isFailedSend ? 'text-mc-danger' : 'text-mc-live'
+                        }`}
+                      >
+                        {isFailedSend ? 'RETRY →' : 'OPEN →'}
                       </span>
                     </div>
                     <div

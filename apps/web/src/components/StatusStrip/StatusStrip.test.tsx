@@ -437,6 +437,45 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
     });
   });
 
+  it('loads a failed ACTIVITY row into the composer instead of hunting the thread', async () => {
+    // An error row never produced a WhatsApp message, so jumping into the
+    // thread can only ever report it missing. The useful click is to reopen
+    // the draft so the operator can send or schedule it again.
+    useAppStore.setState({
+      sendLogs: [],
+      composerDrafts: { [failedItem.to]: 'half-written something else' },
+      highlightedMessageId: 'wamid.STALE',
+      highlightedMessageHint: { text: 'stale', sentAfter: '2026-01-01T00:00:00Z' },
+    });
+    getActivity.mockResolvedValue({
+      items: [
+        {
+          id: 'send-err-1',
+          timestamp: new Date('2026-09-04T10:00:00Z').toISOString(),
+          to: failedItem.to,
+          chatName: 'Alice',
+          message: 'never made it out',
+          status: 'error',
+          error: 'daemon was down',
+        },
+      ],
+      nextCursor: null,
+      total: 1,
+    });
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByTitle(/retry in the composer/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(failedItem.to);
+    expect(state.composerDrafts[failedItem.to]).toBe('never made it out');
+    expect(state.highlightedMessageId).toBeNull();
+    expect(state.highlightedMessageHint).toBeNull();
+    expect(state.chatFocusIntent).toBe('composer');
+    expect(state.focusComposerTrigger).toBeGreaterThan(0);
+  });
+
   it('offers nothing to focus for a message that never went out', async () => {
     mockScheduled([
       { ...failedItem, id: 'sched-pending', status: 'pending', error: undefined },
