@@ -14,7 +14,8 @@ import {
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
-import { POLL_ACTIVITY_MS, POLL_HEALTH_MS, POLL_SCHEDULED_MS } from '../../lib/queryOptions.ts';
+import { useScheduledQueue } from '../../hooks/useScheduledQueue.ts';
+import { POLL_ACTIVITY_MS, POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
@@ -127,18 +128,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     refetchInterval: POLL_HEALTH_MS,
   });
 
-  /**
-   * The queue: every pending message on the first page, history a page at a
-   * time. Only page one is polled — the pages behind it are settled history and
-   * refetching them on a timer would fight the operator's own scrolling.
-   */
-  const scheduledQuery = useInfiniteQuery({
-    queryKey: ['scheduled'],
-    queryFn: ({ pageParam }) => api.getScheduled({ before: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    refetchInterval: POLL_SCHEDULED_MS,
-  });
+  const scheduledQuery = useScheduledQueue();
 
   const activityQuery = useInfiniteQuery({
     queryKey: ['activity'],
