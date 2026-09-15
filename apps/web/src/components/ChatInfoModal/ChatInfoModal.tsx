@@ -3,6 +3,7 @@ import { X, Tag, Pencil, Loader2, Check, Users, User, AlertTriangle } from 'luci
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { normalizeTag, suggestTags, findSimilarTag } from '../../lib/tagSuggest.ts';
 import type { UnifiedGroup } from '../../types.ts';
@@ -39,10 +40,7 @@ export const ChatInfoModal: React.FC = () => {
   const jid = selectedChat?.jid ?? '';
   const isGroup = jid.endsWith('@g.us');
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
   const isReadOnly = Boolean(health?.readOnly);
 
   const { data: contact, isLoading: contactLoading } = useQuery({

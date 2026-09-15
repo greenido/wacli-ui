@@ -70,8 +70,9 @@ function mockScheduled(items: ScheduledMessage[]) {
   });
 }
 
-function renderStrip() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderStrip(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+) {
   return render(
     <QueryClientProvider client={client}>
       <StatusStrip wsConnected />
@@ -491,14 +492,26 @@ describe('StatusStrip sleep mode', () => {
 
   it('reads SLEEPING for the daemon, with no restart and none of its vitals', async () => {
     getSleep.mockResolvedValue({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
-    renderStrip();
+    // Asleep, health is not read again: what is cached is the last reading
+    // from before sleep, of a daemon that was running then.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(['health'], {
+      readOnly: false,
+      processState: 'running',
+      processPid: 4242,
+      heartbeatAgeSeconds: 3,
+      storeLockHeld: true,
+      statusSummary: 'ok',
+    });
+    renderStrip(client);
 
     expect(await screen.findByText(/^sleeping$/i)).toBeInTheDocument();
-    await waitFor(() => expect(getHealth).toHaveBeenCalled());
-    expect(screen.queryByText(/^stopped$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^running$/i)).not.toBeInTheDocument();
     expect(screen.queryByTitle('Restart Daemon')).not.toBeInTheDocument();
+    expect(screen.queryByText('PID')).not.toBeInTheDocument();
     expect(screen.queryByText('HEARTBEAT')).not.toBeInTheDocument();
     expect(screen.queryByText('STORE LOCK')).not.toBeInTheDocument();
+    expect(getHealth).not.toHaveBeenCalled();
   });
 
   it('wakes the app from the same moon', async () => {

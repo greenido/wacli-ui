@@ -7,6 +7,8 @@ import { useAppStore } from '../../store/appStore.ts';
 import type { MissionControlStatus, UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
+// Health waits to hear the app is awake before it asks; these tests are awake.
+const getSleep = vi.hoisted(() => vi.fn(async () => ({ sleeping: false, since: null })));
 const getMessages = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
 const bookmarkMessage = vi.hoisted(() => vi.fn());
@@ -21,6 +23,7 @@ const getMediaUrl = vi.hoisted(() =>
 vi.mock('../../api/client.ts', () => ({
   api: {
     getHealth,
+    getSleep,
     getMessages,
     getScheduled,
     bookmarkMessage,

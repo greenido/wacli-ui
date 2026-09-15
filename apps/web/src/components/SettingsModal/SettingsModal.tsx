@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff, Sun } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { formatWhen } from '../../lib/scheduleTime.ts';
@@ -92,10 +93,7 @@ export const SettingsModal: React.FC = () => {
     setActiveModal(null)
   );
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
   const { sleeping, since, setSleeping, isSettingSleep, sleepError } = useSleepMode();

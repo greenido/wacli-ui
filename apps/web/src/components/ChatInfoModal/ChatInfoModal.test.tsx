@@ -8,6 +8,8 @@ import { useAppStore } from '../../store/appStore.ts';
 import type { UnifiedChat } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
+// Health waits to hear the app is awake before it asks; these tests are awake.
+const getSleep = vi.hoisted(() => vi.fn(async () => ({ sleeping: false, since: null })));
 const getContact = vi.hoisted(() => vi.fn());
 const getGroups = vi.hoisted(() => vi.fn());
 const getTags = vi.hoisted(() => vi.fn());
@@ -15,7 +17,7 @@ const setContactAlias = vi.hoisted(() => vi.fn());
 const setChatTag = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
-  api: { getHealth, getContact, getGroups, getTags, setContactAlias, setChatTag },
+  api: { getHealth, getSleep, getContact, getGroups, getTags, setContactAlias, setChatTag },
   ApiClientError: class extends Error {},
 }));
 

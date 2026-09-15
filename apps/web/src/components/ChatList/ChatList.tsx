@@ -7,6 +7,7 @@ import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts'
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { ChatFocusIntent } from '../../store/appStore.ts';
@@ -33,10 +34,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const filterInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   // `GET /api/chats` is the app's most expensive read — a `chats list` plus the
   // 400-message preview scan — so the query key follows the typing rather than

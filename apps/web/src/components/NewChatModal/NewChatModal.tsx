@@ -7,6 +7,7 @@ import { wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { chatDisplayName } from '../../lib/chatDisplayName.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedChat } from '../../types.ts';
 
@@ -24,10 +25,7 @@ export const NewChatModal: React.FC = () => {
     setInputQuery('');
   });
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   const readsReady = isWacliReadyForReads(health);
   const readQueryOpts = wacliReadQueryOptions(

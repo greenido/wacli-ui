@@ -9,6 +9,7 @@ import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -28,10 +29,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const queryClient = useQueryClient();
   const resultsContainerRef = useRef<HTMLDivElement>(null);
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-  });
+  const { data: health } = useHealth();
 
   // Every distinct query key spawns a `wacli messages search` subprocess, so the
   // key follows the typing rather than leading it.

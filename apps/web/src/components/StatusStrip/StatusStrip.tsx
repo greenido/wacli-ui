@@ -11,12 +11,13 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2, LifeBuoy, Moon, X } from 'lucide-react';
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { useScheduledQueue } from '../../hooks/useScheduledQueue.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
-import { POLL_ACTIVITY_MS, POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
+import { POLL_ACTIVITY_MS } from '../../lib/queryOptions.ts';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { usableMessageId } from '../../lib/messageJump.ts';
@@ -123,11 +124,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
       ? { text: item.message || item.fileName || '', sentAfter: item.scheduledAt }
       : undefined;
 
-  const { data: health } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-    refetchInterval: POLL_HEALTH_MS,
-  });
+  const { data: health } = useHealth();
 
   const scheduledQuery = useScheduledQueue();
 

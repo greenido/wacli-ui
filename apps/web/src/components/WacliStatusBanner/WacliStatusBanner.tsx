@@ -11,9 +11,9 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
-import { POLL_HEALTH_MS } from '../../lib/queryOptions.ts';
+import { useHealth } from '../../hooks/useHealth.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useAppStore } from '../../store/appStore.ts';
 
@@ -25,17 +25,7 @@ export const WacliStatusBanner: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
-  const {
-    data: health,
-    isLoading,
-    isError,
-    error,
-    isFetching,
-  } = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
-    refetchInterval: POLL_HEALTH_MS,
-  });
+  const { data: health, isPending, isError, error, isFetching } = useHealth();
 
   const handleRecheck = async () => {
     // Force a real probe first so the refetch below cannot be served the
@@ -51,9 +41,12 @@ export const WacliStatusBanner: React.FC = () => {
     setTimeout(() => setCopiedCmd(null), 2000);
   };
 
-  // If loading for first time or dismissed, don't show. Nor while asleep: the
-  // daemon is down on purpose then, and the sleep banner already says so.
-  if (isLoading || isDismissed || sleeping) {
+  // Nothing to say before the first reading, which is also the case while the
+  // query waits to learn whether the app is asleep: it is not loading then,
+  // so `isLoading` would let a warning built from no data through. Nothing
+  // when dismissed either, nor while asleep: the daemon is down on purpose
+  // then, and the sleep banner already says so.
+  if (isPending || isDismissed || sleeping) {
     return null;
   }
 
