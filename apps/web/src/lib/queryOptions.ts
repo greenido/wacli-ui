@@ -40,6 +40,10 @@ export function wacliReadQueryOptions(enabled: boolean): WacliReadQueryOptions {
   return {
     enabled,
     retry: (failureCount, error) => {
+      // Asleep is an answer, not a failure: asking again cannot wake the server.
+      if (error instanceof ApiClientError && error.code === 'ASLEEP') {
+        return false;
+      }
       if (error instanceof ApiClientError && error.code === 'STORE_LOCKED' && failureCount < 4) {
         return true;
       }
