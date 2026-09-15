@@ -22,7 +22,7 @@ import { createMediaRouter } from './routes/media.js';
 import { createSleepRouter } from './routes/sleep.js';
 import { modeManager } from './wacli/mode.js';
 import { scheduler } from './wacli/scheduler.js';
-import { SleepController } from './wacli/sleep.js';
+import { SleepController, sleepGate } from './wacli/sleep.js';
 import { StoreLockedError } from './wacli/store-lock.js';
 import { initDatabase, closeDatabase, DatabaseUnavailableError, resolveDbPath } from './db/index.js';
 import { migrateJsonStores } from './db/migrate-json.js';
@@ -157,6 +157,10 @@ export function createApp(
     bridge,
     syncDisabled: process.env.WACLI_DISABLE_SYNC === '1',
   });
+
+  // Ahead of every router: asleep, reads that would reach wacli are refused
+  // and writes that would reach it wake the app first. See SLEEP_ROUTES.
+  app.use('/api', sleepGate(sleep));
 
   // Mount routers
   app.use('/api', createHealthRouter(processManager));
