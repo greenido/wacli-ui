@@ -76,6 +76,9 @@ export function useWebSocket() {
         // Refresh health and current chat data on connect
         queryClient.invalidateQueries({ queryKey: ['health'] });
         queryClient.invalidateQueries({ queryKey: ['chats'] });
+        // Sleep is pushed, never polled, so a change announced while this
+        // socket was down would otherwise go unnoticed.
+        queryClient.invalidateQueries({ queryKey: ['sleep'] });
       };
 
       ws.onclose = () => {
@@ -221,6 +224,8 @@ export function useWebSocket() {
               return;
             }
             useAppStore.getState().setPresence(chatJid, state, senderJid);
+          } else if (payload.type === 'sleep.changed') {
+            queryClient.setQueryData(['sleep'], payload.data);
           } else if (payload.type === 'scheduled.update') {
             queryClient.invalidateQueries({ queryKey: ['scheduled'] });
           } else if (payload.type === 'connection.status') {

@@ -156,6 +156,16 @@ export interface ScheduledMessage {
   attachmentMissing?: boolean;
 }
 
+/**
+ * Sleep mode, as the server reports it: the daemon stopped and only scheduled
+ * messages going out. The server owns it, so every tab shows the same thing.
+ */
+export interface SleepState {
+  sleeping: boolean;
+  /** When sleep began, ISO 8601. Null while awake. */
+  since: string | null;
+}
+
 export type MissionControlEvent =
   | { type: 'message.new'; data: UnifiedMessage; ts: string }
   | { type: 'message.receipt'; data: { chatJid: string; messageIds: string[]; status: 'delivered' | 'read' | 'played'; sender: string; isFromMe: boolean }; ts: string }
@@ -163,7 +173,8 @@ export type MissionControlEvent =
   | { type: 'chat.update'; data: UnifiedChat; ts: string }
   | { type: 'scheduled.update'; data: ScheduledMessage; ts: string }
   | { type: 'sync.progress'; data: { phase: string; detail?: string }; ts: string }
-  | { type: 'connection.status'; data: { state: MissionControlStatus['processState'] | 'connected' | 'disconnected'; reason?: string }; ts: string };
+  | { type: 'connection.status'; data: { state: MissionControlStatus['processState'] | 'connected' | 'disconnected'; reason?: string }; ts: string }
+  | { type: 'sleep.changed'; data: SleepState; ts: string };
 
 export interface SendLogEntry {
   id: string;

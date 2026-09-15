@@ -9,6 +9,7 @@ import type {
   ScheduledMessage,
   ScheduledPage,
   ActivityPage,
+  SleepState,
 } from '../types.ts';
 
 const API_BASE =
@@ -107,6 +108,20 @@ export const api = {
         'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({ readOnly }),
+    }),
+
+  /** Sleep mode: the daemon stopped, only scheduled messages going out. */
+  getSleep: () => request<SleepState>('/api/sleep'),
+
+  /** `reason` lands in the server log, so an unexpected wake can be traced. */
+  setSleep: (sleeping: boolean, reason?: string) =>
+    request<SleepState>('/api/sleep', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mission-Control-Request': '1',
+      },
+      body: JSON.stringify({ sleeping, reason }),
     }),
 
   getChats: (params?: {
