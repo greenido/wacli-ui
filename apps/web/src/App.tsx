@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner/ReadOnlyBanner.tsx';
+import { SleepBanner } from './components/SleepBanner/SleepBanner.tsx';
 import { WacliStatusBanner } from './components/WacliStatusBanner/WacliStatusBanner.tsx';
 import { ChatList } from './components/ChatList/ChatList.tsx';
 import { ThreadView } from './components/ThreadView/ThreadView.tsx';
@@ -95,6 +96,9 @@ export const App: React.FC = () => {
     <div className="flex flex-col h-screen w-screen bg-mc-bg text-mc-text font-sans overflow-hidden select-none">
       {/* Safe Mode / Read-Only Top Banner */}
       <ReadOnlyBanner />
+
+      {/* Sleep mode: what is still going out while nothing else refreshes */}
+      <SleepBanner />
 
       {/* System Warning / First-Load wacli Diagnostic Banner */}
       <WacliStatusBanner />

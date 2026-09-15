@@ -17,6 +17,8 @@ const restartDaemon = vi.hoisted(() => vi.fn());
 // than reading it off the health payload.
 const getMode = vi.hoisted(() => vi.fn());
 const setMode = vi.hoisted(() => vi.fn());
+const getSleep = vi.hoisted(() => vi.fn());
+const setSleep = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
   api: {
@@ -29,8 +31,17 @@ vi.mock('../../api/client.ts', () => ({
     restartDaemon,
     getMode,
     setMode,
+    getSleep,
+    setSleep,
   },
 }));
+
+// Every strip asks whether the app is asleep. Awake, unless a test says otherwise.
+beforeEach(() => {
+  getSleep.mockReset();
+  getSleep.mockResolvedValue({ sleeping: false, since: null });
+  setSleep.mockReset();
+});
 
 const failedItem: ScheduledMessage = {
   id: 'sched-1',
@@ -439,5 +450,82 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
     const state = useAppStore.getState();
     expect(state.highlightedMessageId).toBeNull();
     expect(state.highlightedMessageHint).toBeNull();
+  });
+});
+
+describe('StatusStrip sleep mode', () => {
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    getMode.mockResolvedValue({ readOnly: false });
+    mockScheduled([]);
+    // What a stopped daemon's health looks like, with the leftovers a stale
+    // payload can carry: none of it is worth showing while asleep.
+    getHealth.mockResolvedValue({
+      readOnly: false,
+      processState: 'stopped',
+      processPid: null,
+      heartbeatAgeSeconds: 42,
+      storeLockHeld: true,
+      statusSummary: 'ok',
+    });
+    useAppStore.setState({ selectedChat: null, sendLogs: [] });
+  });
+
+  it('puts the app to sleep from the moon, without asking first', async () => {
+    const user = userEvent.setup();
+    setSleep.mockResolvedValue({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
+    renderStrip();
+
+    const moon = await screen.findByRole('button', { name: /sleep mode/i });
+    await waitFor(() => expect(moon).toBeEnabled());
+    expect(moon).toHaveAttribute('aria-pressed', 'false');
+    await user.click(moon);
+
+    await waitFor(() => expect(moon).toHaveAttribute('aria-pressed', 'true'));
+    expect(setSleep).toHaveBeenCalledWith(true, 'sleep button');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reads SLEEPING for the daemon, with no restart and none of its vitals', async () => {
+    getSleep.mockResolvedValue({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
+    renderStrip();
+
+    expect(await screen.findByText(/^sleeping$/i)).toBeInTheDocument();
+    await waitFor(() => expect(getHealth).toHaveBeenCalled());
+    expect(screen.queryByText(/^stopped$/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Restart Daemon')).not.toBeInTheDocument();
+    expect(screen.queryByText('HEARTBEAT')).not.toBeInTheDocument();
+    expect(screen.queryByText('STORE LOCK')).not.toBeInTheDocument();
+  });
+
+  it('wakes the app from the same moon', async () => {
+    const user = userEvent.setup();
+    getSleep.mockResolvedValue({ sleeping: true, since: '2026-09-15T22:14:00.000Z' });
+    setSleep.mockResolvedValue({ sleeping: false, since: null });
+    renderStrip();
+
+    const moon = await screen.findByRole('button', { name: /sleep mode/i });
+    await waitFor(() => expect(moon).toHaveAttribute('aria-pressed', 'true'));
+    await user.click(moon);
+
+    await waitFor(() => expect(moon).toHaveAttribute('aria-pressed', 'false'));
+    expect(setSleep).toHaveBeenCalledWith(false, 'sleep button');
+    expect(await screen.findByTitle('Restart Daemon')).toBeInTheDocument();
+  });
+
+  it('says why a switch failed instead of doing nothing', async () => {
+    const user = userEvent.setup();
+    setSleep.mockRejectedValue(new Error('API unreachable'));
+    renderStrip();
+
+    const moon = await screen.findByRole('button', { name: /sleep mode/i });
+    await waitFor(() => expect(moon).toBeEnabled());
+    await user.click(moon);
+
+    expect(await screen.findByText(/sleep switch failed: api unreachable/i)).toBeInTheDocument();
+    expect(moon).toHaveAttribute('aria-pressed', 'false');
   });
 });
