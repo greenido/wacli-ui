@@ -486,7 +486,7 @@ describe('StatusStrip sleep mode', () => {
     await user.click(moon);
 
     await waitFor(() => expect(moon).toHaveAttribute('aria-pressed', 'true'));
-    expect(setSleep).toHaveBeenCalledWith(true, 'sleep button');
+    expect(setSleep).toHaveBeenCalledWith(true, 'moon button');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -525,7 +525,7 @@ describe('StatusStrip sleep mode', () => {
     await user.click(moon);
 
     await waitFor(() => expect(moon).toHaveAttribute('aria-pressed', 'false'));
-    expect(setSleep).toHaveBeenCalledWith(false, 'sleep button');
+    expect(setSleep).toHaveBeenCalledWith(false, 'moon button');
     expect(await screen.findByTitle('Restart Daemon')).toBeInTheDocument();
   });
 

@@ -266,7 +266,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           {/* No confirmation: sleep takes nothing away that waking does not
               give back, and the scheduled queue keeps sending either way. */}
           <button
-            onClick={() => setSleeping(!sleeping, 'sleep button')}
+            onClick={() => setSleeping(!sleeping, 'moon button')}
             disabled={!sleepKnown || isSettingSleep}
             aria-label="Sleep mode"
             aria-pressed={sleeping}
