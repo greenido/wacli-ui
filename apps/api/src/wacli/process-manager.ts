@@ -97,6 +97,14 @@ export class WacliProcessManager {
   private uptimeTimer: NodeJS.Timeout | null = null;
   private lastError: string | null = null;
   private isPaused = false;
+  /**
+   * Whether anyone wants a daemon at all: set by start(), cleared by stop().
+   * An exclusive command takes the daemon down and puts it back, and "back"
+   * has to mean back to what it was. Without this every send resurrected a
+   * daemon that had been stopped on purpose, and `--no-sync` lasted exactly
+   * until the first one.
+   */
+  private wantRunning = false;
   private pauseMutex = Promise.resolve();
   /** Exclusive actions queued or running; the daemon stays down until it hits 0. */
   private exclusiveWaiters = 0;
@@ -233,6 +241,7 @@ export class WacliProcessManager {
   }
 
   public start(): void {
+    this.wantRunning = true;
     if (this.child || this.state === 'running' || this.state === 'starting') {
       return;
     }
@@ -449,6 +458,7 @@ export class WacliProcessManager {
   }
 
   public async stop(): Promise<void> {
+    this.wantRunning = false;
     this.isPaused = true;
     this.cancelPendingRespawn();
     if (this.restartTimer) {
@@ -554,7 +564,13 @@ export class WacliProcessManager {
       // only have to kill the daemon again.
       if (this.exclusiveWaiters === 0) {
         this.isPaused = false;
-        this.scheduleRespawn();
+        if (this.wantRunning) {
+          this.scheduleRespawn();
+        } else {
+          // Nothing wants a daemon, so done means down. Say so, rather than
+          // leaving `paused` as the last word for a pause that never ends.
+          this.setState('stopped');
+        }
       }
       releaseMutex!();
     }

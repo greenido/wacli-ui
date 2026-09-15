@@ -32,6 +32,10 @@ describe('Store lock contention through the routes', () => {
     spawn = vi
       .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
       .mockImplementation(() => {});
+    // Running, as it is in production: only a daemon somebody wants is brought
+    // back after an exclusive command. Cleared so counts cover respawns alone.
+    pm.start();
+    spawn.mockClear();
   });
 
   afterEach(() => {
