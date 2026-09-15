@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import crypto from 'node:crypto';
 import { logger } from '../logger.js';
 import { normalizeWebhookMessage } from '../wacli/normalize.js';
+import { cachedGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 import type { RawWebhookChatPresence, RawWebhookMessage, RawWebhookReceipt } from '../types.js';
@@ -99,7 +100,9 @@ export function createWebhookRouter(
     } else {
       // Default to live message
       const msg = payload as unknown as RawWebhookMessage;
-      const unified = normalizeWebhookMessage(msg);
+      // wacli's `ChatName` here is its chat row's, which for a group is often a
+      // member's name — and it titles the desktop notification.
+      const unified = withGroupSubject(normalizeWebhookMessage(msg), cachedGroupNames());
       eventBridge.broadcast({
         type: 'message.new',
         data: unified,

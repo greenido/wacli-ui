@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { execWacli } from '../wacli/commands.js';
 import { normalizeMessage } from '../wacli/normalize.js';
+import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { RawMessage, UnifiedMessage } from '../types.js';
 
 interface RawSearchResponse {
@@ -33,7 +34,10 @@ export function createSearchRouter(): Router {
       if (after) args.push('--after', after);
       if (type) args.push('--type', type);
 
-      const raw = await execWacli<RawSearchResponse | RawMessage[]>(args);
+      const [raw, groupNames] = await Promise.all([
+        execWacli<RawSearchResponse | RawMessage[]>(args),
+        fetchGroupNames(),
+      ]);
       let rawList: RawMessage[] = [];
       let fts = true;
 
@@ -44,7 +48,11 @@ export function createSearchRouter(): Router {
         fts = raw.fts !== false;
       }
 
-      const results: UnifiedMessage[] = rawList.map(normalizeMessage);
+      // A hit's chat name titles the thread it opens, so a group's has to be
+      // its subject rather than the member wacli stamped on the message.
+      const results: UnifiedMessage[] = rawList.map((rawMsg) =>
+        withGroupSubject(normalizeMessage(rawMsg), groupNames)
+      );
 
       res.json({
         success: true,

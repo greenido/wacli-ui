@@ -113,7 +113,11 @@ export function chatDisplayName(jid: string, name?: string | null): string {
   return local ? `Group ${local.slice(-6)}` : 'Unnamed group';
 }
 
-export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat {
+export function normalizeChat(
+  raw: RawChat,
+  preview?: ChatPreview,
+  groupSubject?: string
+): UnifiedChat {
   let kind: UnifiedChat['kind'] = 'unknown';
   if (raw.kind === 'dm' || raw.kind === 'group' || raw.kind === 'broadcast' || raw.kind === 'newsletter') {
     kind = raw.kind;
@@ -128,7 +132,9 @@ export function normalizeChat(raw: RawChat, preview?: ChatPreview): UnifiedChat 
   return {
     jid: raw.jid,
     kind,
-    name: chatDisplayName(raw.jid, raw.name),
+    // wacli often names a group's chat row after one of its members (see
+    // `fetchGroupNames`), so the group's own subject goes first when known.
+    name: chatDisplayName(raw.jid, groupSubject || raw.name),
     lastMessageTs: raw.last_message_ts ?? null,
     lastMessage: preview?.text ?? null,
     lastMessageFromMe: preview?.fromMe ?? false,

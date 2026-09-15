@@ -3,6 +3,7 @@ import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { messagePreviewText, normalizeChat, normalizeMessage } from '../wacli/normalize.js';
+import { fetchGroupNames } from '../wacli/group-names.js';
 import { logger } from '../logger.js';
 import type { ChatPreview } from '../wacli/normalize.js';
 import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
@@ -173,9 +174,9 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
       else if (unread === 'false') args.push('--no-unread');
 
       const raw = await execWacli<RawChat[]>(args);
-      const previews = await fetchChatPreviews();
+      const [previews, groupNames] = await Promise.all([fetchChatPreviews(), fetchGroupNames()]);
       const chats: UnifiedChat[] = (Array.isArray(raw) ? raw : []).map((rawChat) =>
-        normalizeChat(rawChat, previews.get(rawChat.jid))
+        normalizeChat(rawChat, previews.get(rawChat.jid), groupNames.get(rawChat.jid))
       );
 
       // A row with no preview renders as a subtitle with nothing to say, so

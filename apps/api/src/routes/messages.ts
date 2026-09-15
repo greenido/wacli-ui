@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { execWacli } from '../wacli/commands.js';
 import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
+import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { RawMessage, UnifiedMessage } from '../types.js';
 
 interface RawMessagesListResponse {
@@ -107,12 +108,14 @@ export function createMessagesRouter(): Router {
       if (before) args.push('--before', before);
       if (after) args.push('--after', after);
 
-      const raw = await execWacli<RawMessagesListResponse | RawMessage[]>(args, {
-        timeoutMs: 60000,
-      });
+      const [raw, groupNames] = await Promise.all([
+        execWacli<RawMessagesListResponse | RawMessage[]>(args, { timeoutMs: 60000 }),
+        fetchGroupNames(),
+      ]);
       const rawList = Array.isArray(raw) ? raw : (raw?.messages ?? []);
       const messages = rawList.map((m) => {
-        const norm = normalizeMessage(m);
+        // The first message's chat name heads the transcript.
+        const norm = withGroupSubject(normalizeMessage(m), groupNames);
         norm.bookmarked = Boolean(norm.msgId) && bookmarkStore.has(norm.msgId);
         return norm;
       });
