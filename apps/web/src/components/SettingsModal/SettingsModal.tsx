@@ -170,6 +170,13 @@ export const SettingsModal: React.FC = () => {
 
           <NotificationToggle />
 
+          {sleeping && (
+            <p className="text-[11px] text-mc-textMuted font-sans">
+              Asleep: the diagnostics below are from before sleep, and are not read again until
+              the app wakes.
+            </p>
+          )}
+
           {/* wacli CLI Installation Status */}
           <div className="space-y-2">
             <div className="text-[11px] text-mc-textMuted tracking-wider uppercase font-semibold flex items-center justify-between">
@@ -182,8 +189,10 @@ export const SettingsModal: React.FC = () => {
                   queryClient.invalidateQueries({ queryKey: ['health'] });
                   queryClient.invalidateQueries({ queryKey: ['settings'] });
                 }}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors"
-                title="Refresh CLI health"
+                // Health is not read while asleep, so this would do nothing.
+                disabled={sleeping}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50 transition-colors disabled:opacity-50"
+                title={sleeping ? 'Asleep: wake to re-check' : 'Refresh CLI health'}
               >
                 <RotateCw size={10} />
                 <span>Re-check</span>
