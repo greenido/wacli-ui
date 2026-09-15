@@ -1,6 +1,6 @@
 # Implementation Plan: Sleep Mode
 
-> Status: implemented, as a stack of six PRs merged in order: #22 (T1), #23 (T2), #24 (T3, T4), #25 (T5, T6), #26 (T7) and #27 (T8, T9). Written 2026-09-15 from a requirements interview; every behavior below was confirmed by the operator. Where the build departed from the plan, the task says so.
+> Status: implemented, as a stack of six PRs merged in order: #22 (T1), #23 (T2), #24 (T3, T4), #25 (T5, T6), #26 (T7) and #28 (T8, T9). Written 2026-09-15 from a requirements interview; every behavior below was confirmed by the operator. Where the build departed from the plan, the task says so.
 
 ## Overview
 
@@ -318,7 +318,7 @@ Sends, replies, reactions and mark-read need nothing here, because the server wa
 - **README, REST table:** `GET`/`POST /api/sleep` and the `409 ASLEEP` answer. While editing the table, note that it lists `POST /api/send/media`, but the route is `/api/send/file`.
 - **README, WebSocket event list:** add `sleep.changed`.
 - **Help:** a "Sleep mode" topic next to "Safe mode and live sends".
-- **Release note:** `--no-sync` now stays sync-less after a send (T1). (As built: the repo keeps no changelog, so the note is in #27's description, for whoever writes the release that ships the stack.)
+- **Release note:** `--no-sync` now stays sync-less after a send (T1). (As built: the repo keeps no changelog, so the note is in #28's description, for whoever writes the release that ships the stack.)
 - (Added while editing: the REST table's media row named a route that no longer exists, and the WebSocket event list named none of the events the server sends. Both now match the code.)
 
 **Acceptance criteria:**
