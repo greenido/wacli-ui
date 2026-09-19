@@ -265,9 +265,18 @@ export const ThreadView: React.FC = () => {
 
   const pendingScheduled = scheduledForChat?.pending ?? [];
 
+  // A cancel is refused once the message is already going out. The banner has
+  // to say so, or the click looks like it worked while the message is sent.
+  // Kept per chat, like the reaction error, so it does not follow the operator.
+  const [cancelRefusal, setCancelRefusal] = useState<{ jid: string; error: string } | null>(null);
+
   const cancelScheduledMutation = useMutation({
-    mutationFn: (id: string) => api.cancelScheduled(id),
+    mutationFn: ({ id }: { id: string; chat: string }) => api.cancelScheduled(id),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+    },
+    onError: (err, { chat }) => {
+      setCancelRefusal({ jid: chat, error: err instanceof Error ? err.message : String(err) });
       queryClient.invalidateQueries({ queryKey: ['scheduled'] });
     },
   });
@@ -684,12 +693,30 @@ export const ThreadView: React.FC = () => {
             </span>
           </div>
           <button
-            onClick={() => cancelScheduledMutation.mutate(pendingScheduled[0].id)}
+            onClick={() =>
+              cancelScheduledMutation.mutate({ id: pendingScheduled[0].id, chat: pendingScheduled[0].to })
+            }
             className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0 ml-2"
             title="Cancel scheduled message"
           >
             <Trash2 size={11} />
             <span>CANCEL</span>
+          </button>
+        </div>
+      )}
+
+      {cancelRefusal && cancelRefusal.jid === selectedChat?.jid && (
+        <div
+          role="alert"
+          className="bg-mc-surface border-b border-mc-danger/40 px-3 py-1.5 flex items-center gap-2 text-[11px] font-mono text-mc-danger"
+        >
+          <AlertTriangle size={13} className="shrink-0" />
+          <span className="flex-1 break-words">Not cancelled: {cancelRefusal.error}</span>
+          <button
+            onClick={() => setCancelRefusal(null)}
+            className="shrink-0 px-1.5 py-0.5 rounded border border-mc-danger/40 hover:bg-mc-surfaceHover transition-colors"
+          >
+            DISMISS
           </button>
         </div>
       )}

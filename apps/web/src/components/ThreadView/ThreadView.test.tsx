@@ -14,6 +14,7 @@ const getSleep = vi.hoisted(() =>
 const setSleep = vi.hoisted(() => vi.fn());
 const getMessages = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
+const cancelScheduled = vi.hoisted(() => vi.fn());
 const bookmarkMessage = vi.hoisted(() => vi.fn());
 const getHistoryCoverage = vi.hoisted(() => vi.fn());
 const backfillHistory = vi.hoisted(() => vi.fn());
@@ -30,6 +31,7 @@ vi.mock('../../api/client.ts', () => ({
     setSleep,
     getMessages,
     getScheduled,
+    cancelScheduled,
     bookmarkMessage,
     getHistoryCoverage,
     backfillHistory,
@@ -1013,5 +1015,68 @@ describe('ThreadView follows the newest message only from the newest message', (
     await aMessageArrives();
 
     expect(el.scrollTop).toBe(5000);
+  });
+});
+
+describe('ThreadView scheduled banner', () => {
+  const PENDING = {
+    id: 'sched-1',
+    to: CHAT.jid,
+    message: 'See you at 7',
+    scheduledAt: '2026-09-18T19:00:00.000Z',
+    createdAt: '2026-09-18T18:00:00.000Z',
+    status: 'pending' as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: false });
+    getScheduled.mockResolvedValue({
+      pending: [PENDING],
+      history: [],
+      nextCursor: null,
+      totalPending: 1,
+      totalHistory: 0,
+    });
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('says so when the message is too late to cancel', async () => {
+    // The server refuses a cancel once the send is under way. Silently eating
+    // that refusal would leave the operator believing the message was stopped.
+    const user = userEvent.setup();
+    cancelScheduled.mockRejectedValue(
+      new Error('Too late to cancel: this message is already being sent.')
+    );
+    renderThread();
+
+    await user.click(await screen.findByRole('button', { name: 'CANCEL' }));
+
+    expect(cancelScheduled).toHaveBeenCalledWith('sched-1');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already being sent/i);
+  });
+
+  it('keeps the refusal on the chat it belongs to', async () => {
+    const user = userEvent.setup();
+    cancelScheduled.mockRejectedValue(
+      new Error('Too late to cancel: this message is already being sent.')
+    );
+    renderThread();
+
+    await user.click(await screen.findByRole('button', { name: 'CANCEL' }));
+    await screen.findByRole('alert');
+
+    act(() => {
+      useAppStore.setState({ selectedChat: { ...CHAT, jid: 'bob@s.whatsapp.net', name: 'Bob' } });
+    });
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 });

@@ -80,6 +80,8 @@ export type ResendOutcome =
   | { ok: true; item: ScheduledMessage }
   | { ok: false; error: string };
 
+export type CancelOutcome = { ok: true } | { ok: false; error: string };
+
 /** The one thing the scheduler needs from the process manager. */
 export interface ExclusiveRunner {
   executeExclusive<T>(action: () => Promise<T>): Promise<T>;
@@ -300,11 +302,30 @@ export class Scheduler {
     return item;
   }
 
-  public cancel(id: string): boolean {
+  /**
+   * Stops a pending message from going out, unless it already is.
+   *
+   * A message mid-dispatch still reads "pending": its status changes only once
+   * wacli answers. So this used to cancel it, answer "cancelled", and then
+   * watch the dispatch overwrite the record with "sent" as the message
+   * reached the recipient. The in-flight set is the one thing that knows.
+   */
+  public cancel(id: string): CancelOutcome {
     this.ensureLoaded();
     const item = this.items.get(id);
-    if (!item || item.status !== 'pending') {
-      return false;
+    if (!item) {
+      return { ok: false, error: 'Scheduled message not found.' };
+    }
+
+    if (this.inFlight.has(id)) {
+      return { ok: false, error: 'Too late to cancel: this message is already being sent.' };
+    }
+
+    if (item.status !== 'pending') {
+      return {
+        ok: false,
+        error: `Only a pending message can be cancelled; this one is already "${item.status}".`,
+      };
     }
 
     item.status = 'cancelled';
@@ -313,7 +334,7 @@ export class Scheduler {
 
     this.broadcastUpdate(item);
 
-    return true;
+    return { ok: true };
   }
 
   /**

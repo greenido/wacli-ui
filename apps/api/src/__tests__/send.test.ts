@@ -12,6 +12,7 @@ import { createApp } from '../index.js';
 import { POST_SEND_WAIT } from '../wacli/commands.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { modeManager } from '../wacli/mode.js';
+import { scheduler } from '../wacli/scheduler.js';
 
 describe('Send Endpoints & Guardrails', () => {
   const pm = new WacliProcessManager({ apiPort: 3002 });
@@ -246,7 +247,7 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
     expect(res.body.data.cancelled).toBe(false);
-    expect(res.body.error).toContain('no longer pending');
+    expect(res.body.error).toContain('already "cancelled"');
   });
 
   it('DELETE reports an unknown id rather than claiming a cancellation', async () => {
@@ -304,5 +305,66 @@ describe('Send responses carry the ID the console needs to jump', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.sent).toBe(true);
     expect(res.body.data.messageId).toBeNull();
+  });
+});
+
+describe('Cancelling a scheduled message', () => {
+  const app = createApp(new WacliProcessManager({ apiPort: 3002 }));
+
+  beforeEach(() => {
+    modeManager.setReadOnly(false);
+    execWacliMock.mockReset();
+    // The route works on the process-wide queue, so leave nothing else due.
+    for (const item of scheduler.getPage({ limit: 200 }).pending) {
+      scheduler.cancel(item.id);
+    }
+  });
+
+  it('answers 409 "already being sent" while the message is going out', async () => {
+    let release: () => void = () => {};
+    const sending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started: () => void = () => {};
+    const dispatched = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    execWacliMock.mockImplementation(async () => {
+      started();
+      await sending;
+      return { id: 'wamid.TOO_LATE' };
+    });
+
+    const item = scheduler.schedule({
+      to: '15550100001@s.whatsapp.net',
+      message: 'Running late',
+      scheduledAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    const tick = scheduler.checkDueMessages();
+    await dispatched;
+
+    const res = await request(app).delete(`/api/send/scheduled/${item.id}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ success: false, data: { cancelled: false } });
+    expect(res.body.error).toMatch(/already being sent/);
+
+    release();
+    await tick;
+    expect(execWacliMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still cancels a message that is only waiting', async () => {
+    const item = scheduler.schedule({
+      to: '15550100001@s.whatsapp.net',
+      message: 'Tomorrow',
+      scheduledAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+
+    const res = await request(app).delete(`/api/send/scheduled/${item.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ cancelled: true });
+    expect(execWacliMock).not.toHaveBeenCalled();
   });
 });

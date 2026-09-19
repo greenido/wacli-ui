@@ -65,15 +65,17 @@ describe('Scheduler Service', () => {
 
     expect(item.status).toBe('pending');
 
-    const cancelled = scheduler.cancel(item.id);
-    expect(cancelled).toBe(true);
+    expect(scheduler.cancel(item.id)).toEqual({ ok: true });
 
     const list = scheduler.getList();
     const found = list.find((i) => i.id === item.id);
     expect(found?.status).toBe('cancelled');
 
-    // Cancelling again returns false
-    expect(scheduler.cancel(item.id)).toBe(false);
+    // Cancelling again is refused, and says why.
+    expect(scheduler.cancel(item.id)).toEqual({
+      ok: false,
+      error: expect.stringContaining('already "cancelled"'),
+    });
   });
 
   it('filters scheduled list by chat JID', () => {
@@ -142,6 +144,41 @@ describe('Scheduler dispatch', () => {
 
     expect(execWacliMock).toHaveBeenCalledTimes(1);
     expect(scheduler.getList()[0].status).toBe('sent');
+  });
+
+  it('refuses to cancel a message that is already being sent', async () => {
+    // A message mid-dispatch still reads "pending", so a cancel used to answer
+    // "cancelled" while the send went out and the record flipped to "sent".
+    let release: () => void = () => {};
+    const sending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started: () => void = () => {};
+    const dispatched = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    execWacliMock.mockImplementation(async () => {
+      started();
+      await sending;
+      return { messageId: 'wamid.TOO_LATE' };
+    });
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    const item = scheduler.schedule(dueMessage);
+    const tick = scheduler.checkDueMessages();
+    await dispatched;
+
+    expect(scheduler.cancel(item.id)).toEqual({
+      ok: false,
+      error: expect.stringMatching(/already being sent/),
+    });
+
+    release();
+    await tick;
+
+    // One send, and the record says what happened to it.
+    expect(execWacliMock).toHaveBeenCalledTimes(1);
+    expect(scheduler.getPage().history).toMatchObject([{ id: item.id, status: 'sent' }]);
   });
 
   it('fails a due message loudly while safe read-only mode is active', async () => {

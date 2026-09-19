@@ -507,18 +507,18 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
     res.json({ success: true, data: { [field]: true }, error: null });
   }
 
-  // DELETE & POST cancel scheduled message
-  router.delete(['/scheduled/:id', '/send/scheduled/:id'], (req: Request, res: Response) => {
+  /** Cancels through the scheduler, which says why when it refuses. */
+  function cancelScheduled(req: Request, res: Response): void {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
-    const cancelled = id ? scheduler.cancel(id) : false;
-    answerStateChange(
-      res,
-      cancelled,
-      'cancelled',
-      'Scheduled message not found, or no longer pending.'
-    );
-  });
+    const outcome = id
+      ? scheduler.cancel(id)
+      : { ok: false as const, error: 'Scheduled message id is required.' };
+    answerStateChange(res, outcome.ok, 'cancelled', outcome.ok ? '' : outcome.error);
+  }
+
+  // DELETE & POST cancel scheduled message
+  router.delete(['/scheduled/:id', '/send/scheduled/:id'], cancelScheduled);
 
   // POST resend a failed scheduled message. requireMutationPermission already
   // turns this away in safe read-only mode; the scheduler re-checks anyway so
@@ -593,17 +593,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
     );
   });
 
-  router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], (req: Request, res: Response) => {
-    const rawId = req.params.id;
-    const id = Array.isArray(rawId) ? rawId[0] : rawId;
-    const cancelled = id ? scheduler.cancel(id) : false;
-    answerStateChange(
-      res,
-      cancelled,
-      'cancelled',
-      'Scheduled message not found, or no longer pending.'
-    );
-  });
+  router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], cancelScheduled);
 
   return router;
 }
