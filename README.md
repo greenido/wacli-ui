@@ -90,6 +90,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 ### ⏱️ Send Later / Scheduled Messages
 - Built-in scheduler for delayed messaging and replies, persisted in Mission Control's database so a queued message survives a restart.
 - Dedicated chat banner displaying pending scheduled messages with one-click cancellation.
+- **Sent at Most Once**: A due message is marked `sending` on disk before wacli is asked. If Mission Control stops mid-send, the next start marks that message failed, because it may already have gone out, instead of sending it again. The resend dialog then leaves the call to you. Each message is saved on its own, so one the database rejects cannot stop the rest of the queue from being saved.
 
 ### 🌙 Sleep Mode
 - **Only the Queue Keeps Running**: The moon button in the status strip header puts Mission Control to sleep. The `wacli sync` daemon stops, the browser stops polling, and the console stays on screen as it was, under a banner saying when sleep began, how many messages are scheduled, and when the next one is due. Scheduled messages still go out on time. Each send dials WhatsApp itself and leaves the daemon stopped afterwards.
@@ -340,6 +341,7 @@ Supported event types: `message.new`, `message.receipt`, `chat.presence`, `chat.
 - **Your Own Local Name**: To open the console as `http://wacli-ui:3002`, add `127.0.0.1 wacli-ui` to `/etc/hosts`. Mission Control reads the hosts file at startup and trusts any name it maps to `127.0.0.1`. A name that is not in the file is never trusted, because DNS could answer for it.
 - **Media Stays in `media/`**: The media route serves files from the store's `media/` directory only. `session.db` (the linked device's keys) and `wacli.db` (the archive) sit one level up and are refused.
 - **Scheduled Files Stay Private, and Stay Put**: A file queued with Send later waits in `~/.wacli-mission-control/scheduled-files/` (next to the database, mode `0700`), not the system temp directory the OS clears. It is deleted once sent, cancelled or discarded. If it goes missing anyway, the message fails and says why; the caption is never sent on its own.
+- **One Console per Database**: A second Mission Control pointed at the same database refuses to start and says why, because two would each send every scheduled message. While it runs, the server keeps the database file to itself, so tools such as the `sqlite3` shell can open it only after it stops. To run two consoles, give each its own `WACLI_DB_FILE`.
 - **Read Receipts Only When You Look**: A chat is marked read when you click it, or when a message arrives in it while the console is the visible, focused window. In a background tab, or behind another window, the chat keeps its unread badge, and the receipt goes out when you come back to it. Opening the console reselects your last chat without marking it read.
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.

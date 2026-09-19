@@ -692,16 +692,21 @@ export const ThreadView: React.FC = () => {
               {new Date(pendingScheduled[0].scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
             </span>
           </div>
-          <button
-            onClick={() =>
-              cancelScheduledMutation.mutate({ id: pendingScheduled[0].id, chat: pendingScheduled[0].to })
-            }
-            className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0 ml-2"
-            title="Cancel scheduled message"
-          >
-            <Trash2 size={11} />
-            <span>CANCEL</span>
-          </button>
+          {/* Already handed to wacli: there is nothing left to cancel. */}
+          {pendingScheduled[0].status === 'sending' ? (
+            <span className="text-[10px] text-mc-live font-semibold shrink-0 ml-2">SENDING NOW</span>
+          ) : (
+            <button
+              onClick={() =>
+                cancelScheduledMutation.mutate({ id: pendingScheduled[0].id, chat: pendingScheduled[0].to })
+              }
+              className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0 ml-2"
+              title="Cancel scheduled message"
+            >
+              <Trash2 size={11} />
+              <span>CANCEL</span>
+            </button>
+          )}
         </div>
       )}
 

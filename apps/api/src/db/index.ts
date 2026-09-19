@@ -25,10 +25,37 @@ export class DatabaseUnavailableError extends Error {
   }
 }
 
+/**
+ * Thrown at startup when another Mission Control already has the database.
+ *
+ * Two servers on one database each run the scheduler, so each one sent every
+ * due message: a single "send at 9:00" went out once per server.
+ */
+export class DatabaseInUseError extends DatabaseUnavailableError {
+  constructor(dbPath: string, cause: unknown) {
+    super(dbPath, cause);
+    this.name = 'DatabaseInUseError';
+    this.message = `Another Mission Control is already running on the database at ${dbPath}.`;
+  }
+}
+
+/** SQLite's "another connection holds the lock". */
+const SQLITE_BUSY = 5;
+
+interface OpenOptions {
+  /**
+   * Keep every other connection out, other processes included, until this
+   * handle closes. The server asks for this so that it runs alone; tests and
+   * standalone handles do not.
+   */
+  exclusive?: boolean;
+}
+
 let db: DatabaseSync | null = null;
 let openedPath: string | null = null;
+let openedExclusive = false;
 
-function open(dbPath: string): DatabaseSync {
+function open(dbPath: string, { exclusive = false }: OpenOptions = {}): DatabaseSync {
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -45,13 +72,29 @@ function open(dbPath: string): DatabaseSync {
     // Windows, or a filesystem with no notion of modes. Not worth failing on.
   }
 
-  // WAL keeps the 3s scheduler tick from blocking a read the UI is waiting on.
-  handle.exec('PRAGMA journal_mode = WAL');
-  // The scheduler's dispatch and an interactive write can still collide; wait
-  // rather than failing the request outright.
-  handle.exec('PRAGMA busy_timeout = 5000');
-  handle.exec('PRAGMA foreign_keys = ON');
-  applySchema(handle);
+  try {
+    if (exclusive) {
+      // Before the first read, which in WAL mode is what takes the lock; in
+      // this mode it is then held until the handle closes. No busy wait yet,
+      // so a second server stops at once with a reason instead of stalling.
+      handle.exec('PRAGMA locking_mode = EXCLUSIVE');
+    }
+    // WAL keeps the 3s scheduler tick from blocking a read the UI is waiting on.
+    handle.exec('PRAGMA journal_mode = WAL');
+    if (exclusive) {
+      // Taken here outright rather than left to whichever statement comes next.
+      handle.exec('BEGIN IMMEDIATE');
+      handle.exec('COMMIT');
+    }
+    // The scheduler's dispatch and an interactive write can still collide; wait
+    // rather than failing the request outright.
+    handle.exec('PRAGMA busy_timeout = 5000');
+    handle.exec('PRAGMA foreign_keys = ON');
+    applySchema(handle);
+  } catch (err) {
+    handle.close();
+    throw err;
+  }
 
   return handle;
 }
@@ -78,18 +121,23 @@ export function openDatabaseAt(dbPath: string): DatabaseSync {
  * report it properly, rather than at import time inside whichever store
  * happened to be loaded first.
  */
-export function initDatabase(dbPath = resolveDbPath()): DatabaseSync {
-  if (db && openedPath === dbPath) return db;
+export function initDatabase(dbPath = resolveDbPath(), options: OpenOptions = {}): DatabaseSync {
+  const exclusive = options.exclusive ?? false;
+  if (db && openedPath === dbPath && (openedExclusive || !exclusive)) return db;
   if (db) closeDatabase();
 
   try {
-    db = open(dbPath);
+    db = open(dbPath, { exclusive });
     openedPath = dbPath;
+    openedExclusive = exclusive;
     return db;
   } catch (err) {
     db = null;
     openedPath = null;
-    throw new DatabaseUnavailableError(dbPath, err);
+    const busy = (err as { errcode?: unknown }).errcode === SQLITE_BUSY;
+    throw exclusive && busy
+      ? new DatabaseInUseError(dbPath, err)
+      : new DatabaseUnavailableError(dbPath, err);
   }
 }
 
@@ -116,6 +164,7 @@ export function closeDatabase(): void {
   }
   db = null;
   openedPath = null;
+  openedExclusive = false;
 }
 
 /** The path currently open, for diagnostics and the health endpoint. */

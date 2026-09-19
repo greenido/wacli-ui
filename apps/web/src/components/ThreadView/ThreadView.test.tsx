@@ -1079,4 +1079,18 @@ describe('ThreadView scheduled banner', () => {
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
+
+  it('offers no cancel for a message already on its way out', async () => {
+    getScheduled.mockResolvedValue({
+      pending: [{ ...PENDING, status: 'sending' as const }],
+      history: [],
+      nextCursor: null,
+      totalPending: 1,
+      totalHistory: 0,
+    });
+    renderThread();
+
+    expect(await screen.findByText('SENDING NOW')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'CANCEL' })).not.toBeInTheDocument();
+  });
 });

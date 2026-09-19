@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 
 const execWacliMock = vi.hoisted(() => vi.fn());
 
@@ -11,7 +12,14 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
   return { ...actual, execWacli: execWacliMock };
 });
 
-import { Scheduler, keepScheduledAttachment, scheduledFilesDir } from '../wacli/scheduler.js';
+import {
+  INTERRUPTED_SEND,
+  Scheduler,
+  keepScheduledAttachment,
+  scheduledFilesDir,
+  type ScheduledPage,
+} from '../wacli/scheduler.js';
+import type { EventBridge } from '../ws/event-bridge.js';
 import { openDatabaseAt } from '../db/index.js';
 import { modeManager } from '../wacli/mode.js';
 
@@ -845,5 +853,168 @@ describe('Scheduled attachments', () => {
 
     expect(outcome).toEqual({ ok: false, error: expect.stringMatching(/no longer on disk/) });
     expect(execWacliMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Scheduler sends at most once', () => {
+  let tmpSchedFile: string;
+
+  const due = {
+    to: '15551234567@s.whatsapp.net',
+    message: 'Due now',
+    scheduledAt: new Date(Date.now() - 1000).toISOString(),
+  };
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-once-${Date.now()}-${Math.random()}.db`);
+    execWacliMock.mockReset();
+    modeManager.setReadOnly(false);
+  });
+
+  afterEach(() => {
+    for (const suffix of ['', '-wal', '-shm']) {
+      fs.rmSync(`${tmpSchedFile}${suffix}`, { force: true });
+    }
+  });
+
+  /** The row as another reader of the file sees it, which is what a restart reads. */
+  function statusOnDisk(id: string): string | undefined {
+    const reader = new DatabaseSync(tmpSchedFile);
+    try {
+      const row = reader.prepare('SELECT status FROM scheduled WHERE id = ?').get(id) as
+        | { status: string }
+        | undefined;
+      return row?.status;
+    } finally {
+      reader.close();
+    }
+  }
+
+  const failWritesOnce = (scheduler: Scheduler) =>
+    vi
+      .spyOn(scheduler as unknown as { writeRow: (item: unknown) => void }, 'writeRow')
+      .mockImplementationOnce(() => {
+        throw new Error('disk I/O error');
+      });
+
+  it('has the message marked sending on disk before wacli is asked', async () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    const item = scheduler.schedule(due);
+    let onDiskDuringSend: string | undefined;
+    execWacliMock.mockImplementation(async () => {
+      onDiskDuringSend = statusOnDisk(item.id);
+      return { id: 'wamid.ONCE' };
+    });
+
+    await scheduler.checkDueMessages();
+
+    // What a crash at that moment would leave behind. It used to be
+    // `pending`, which the next boot finds due and sends again.
+    expect(onDiskDuringSend).toBe('sending');
+    expect(statusOnDisk(item.id)).toBe('sent');
+  });
+
+  it('marks a message a restart finds mid-send failed, and does not send it again', async () => {
+    const first = new Scheduler(tmpSchedFile);
+    const item = first.schedule(due);
+    let reachedWacli: () => void = () => {};
+    const inWacli = new Promise<void>((resolve) => {
+      reachedWacli = resolve;
+    });
+    // wacli never answers: the process goes down with the send on the wire.
+    execWacliMock.mockImplementation(() => {
+      reachedWacli();
+      return new Promise(() => {});
+    });
+    void first.checkDueMessages();
+    await inWacli;
+    execWacliMock.mockReset();
+
+    // The next boot, on the same file.
+    const restarted = new Scheduler(tmpSchedFile);
+    await restarted.checkDueMessages();
+
+    expect(execWacliMock).not.toHaveBeenCalled();
+    expect(restarted.getList()).toMatchObject([
+      { id: item.id, status: 'failed', error: INTERRUPTED_SEND },
+    ]);
+    expect(statusOnDisk(item.id)).toBe('failed');
+  });
+
+  it('sends nothing when it cannot record the send first', async () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    const item = scheduler.schedule(due);
+    failWritesOnce(scheduler);
+
+    await scheduler.checkDueMessages();
+
+    expect(execWacliMock).not.toHaveBeenCalled();
+    expect(scheduler.getList()).toMatchObject([
+      { id: item.id, status: 'failed', error: expect.stringMatching(/^Not sent: .*disk I\/O error/) },
+    ]);
+  });
+
+  it('shows a message on its way out as sending, and keeps it in the queue', async () => {
+    const statuses: string[] = [];
+    const bridge = {
+      broadcast: (event: { type: string; data: { status?: string } }) => {
+        if (event.type === 'scheduled.update' && event.data.status) statuses.push(event.data.status);
+      },
+    } as unknown as EventBridge;
+    const scheduler = new Scheduler(tmpSchedFile, bridge);
+    const item = scheduler.schedule(due);
+    let pageDuringSend: ScheduledPage | undefined;
+    execWacliMock.mockImplementation(async () => {
+      pageDuringSend = scheduler.getPage();
+      return { id: 'wamid.ONCE' };
+    });
+
+    await scheduler.checkDueMessages();
+
+    expect(statuses).toEqual(['pending', 'sending', 'sent']);
+    expect(pageDuringSend?.pending).toMatchObject([{ id: item.id, status: 'sending' }]);
+    expect(pageDuringSend?.history).toEqual([]);
+  });
+
+  it('refuses a message the table will not store, and keeps storing the rest', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+
+    // The whole queue used to be rewritten in one transaction, so this one
+    // record rolled back every save after it, and only a warning said so.
+    expect(() => scheduler.schedule({ ...due, message: { not: 'text' } as unknown as string })).toThrow();
+    const kept = scheduler.schedule({ ...due, message: 'scheduled after the bad one' });
+    const cancelled = scheduler.schedule({ ...due, message: 'scheduled, then cancelled' });
+    expect(scheduler.cancel(cancelled.id)).toEqual({ ok: true });
+
+    const reloaded = new Scheduler(tmpSchedFile).getList();
+    expect(reloaded.map((i) => [i.id, i.status]).sort()).toEqual(
+      [
+        [kept.id, 'pending'],
+        [cancelled.id, 'cancelled'],
+      ].sort()
+    );
+  });
+
+  it('writes only its own row', () => {
+    // A save used to delete every row its map did not hold, so a second
+    // process on the file erased what the first had scheduled since.
+    const a = new Scheduler(tmpSchedFile);
+    const b = new Scheduler(tmpSchedFile);
+    b.getList();
+    const fromA = a.schedule({ ...due, message: 'from A' });
+    const fromB = b.schedule({ ...due, message: 'from B' });
+
+    const ids = new Scheduler(tmpSchedFile).getList().map((i) => i.id);
+    expect(ids.sort()).toEqual([fromA.id, fromB.id].sort());
+  });
+
+  it('refuses a cancel it cannot record, rather than one a restart would undo', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    const item = scheduler.schedule({ ...due, scheduledAt: new Date(Date.now() + 60_000).toISOString() });
+    failWritesOnce(scheduler);
+
+    expect(() => scheduler.cancel(item.id)).toThrow(/still scheduled.*disk I\/O error/);
+    expect(scheduler.getList()[0].status).toBe('pending');
+    expect(statusOnDisk(item.id)).toBe('pending');
   });
 });

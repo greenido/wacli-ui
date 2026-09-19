@@ -59,8 +59,10 @@ const failedItem: ScheduledMessage = {
  * in one flat list says so here rather than at every call site.
  */
 function mockScheduled(items: ScheduledMessage[]) {
-  const pending = items.filter((i) => i.status === 'pending');
-  const history = items.filter((i) => i.status !== 'pending');
+  // As the server splits it: a message on its way out has not finished.
+  const isOpen = (i: ScheduledMessage) => i.status === 'pending' || i.status === 'sending';
+  const pending = items.filter(isOpen);
+  const history = items.filter((i) => !isOpen(i));
   getScheduled.mockResolvedValue({
     pending,
     history,
@@ -492,6 +494,17 @@ describe('StatusStrip rows recorded before message ids were kept', () => {
     const state = useAppStore.getState();
     expect(state.highlightedMessageId).toBeNull();
     expect(state.highlightedMessageHint).toBeNull();
+  });
+
+  it('shows a message on its way out as sending, with nothing to cancel', async () => {
+    mockScheduled([{ ...failedItem, id: 'sched-sending', status: 'sending', error: undefined }]);
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /LATER/i }));
+
+    expect(await screen.findByText('sending')).toBeInTheDocument();
+    expect(screen.queryByTitle('Cancel scheduled dispatch')).not.toBeInTheDocument();
   });
 });
 

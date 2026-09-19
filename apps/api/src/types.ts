@@ -140,7 +140,7 @@ export interface ScheduledMessage {
   mimeType?: string;
   scheduledAt: string;
   createdAt: string;
-  status: 'pending' | 'sent' | 'cancelled' | 'failed';
+  status: 'pending' | 'sending' | 'sent' | 'cancelled' | 'failed';
   error?: string;
   sentMessageId?: string;
 }
