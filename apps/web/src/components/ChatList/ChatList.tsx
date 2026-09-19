@@ -100,14 +100,16 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     }
   }, [queryClient, setSelectedChat]);
 
-  // Auto-select chat when opening the app if none selected
+  // Auto-select chat when opening the app if none selected. Selection only, no
+  // read receipt: nobody chose this chat, and a console opened in a background
+  // tab, or just to check the queue, has not read it. Clicking it does that.
   useEffect(() => {
     if (!selectedChat && filteredChats.length > 0) {
       const savedJid = localStorage.getItem('wacli_selected_chat');
       const found = filteredChats.find((c) => c.jid === savedJid) || filteredChats[0];
-      handleSelectChat(found);
+      setSelectedChat(found);
     }
-  }, [filteredChats, selectedChat, handleSelectChat]);
+  }, [filteredChats, selectedChat, setSelectedChat]);
 
   // Keyboard stepping through the rail. The list order lives here, so this is
   // where the shortcut lands; `rail` keeps focus out of the composer, which

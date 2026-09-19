@@ -38,6 +38,14 @@ export function wsReconnectDelay(attempt: number): number {
   return Math.min(WS_RECONNECT_BASE_MS * 2 ** attempt, WS_RECONNECT_MAX_MS);
 }
 
+/**
+ * Whether the operator can see this tab right now: shown, and the window in
+ * front. What read receipts and desktop notifications both turn on.
+ */
+function operatorIsLooking(): boolean {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
 export function useWebSocket() {
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
@@ -48,6 +56,24 @@ export function useWebSocket() {
     let chatsRefetchTimer: ReturnType<typeof setTimeout> | null = null;
     let shouldReconnect = true;
     let reconnectAttempts = 0;
+
+    // Chats whose read receipt waits for the operator to come back: messages
+    // landed in the open chat while the tab was hidden or behind another
+    // window. On return, only the chat still open is marked read — the one
+    // they are now looking at. The rest stay unread, which is what they are.
+    const heldReceipts = new Set<string>();
+
+    function sendHeldReceipt() {
+      if (!operatorIsLooking()) return;
+      const openJid = useAppStore.getState().selectedChat?.jid;
+      if (openJid && heldReceipts.has(openJid)) {
+        markChatAsRead(queryClient, openJid);
+      }
+      heldReceipts.clear();
+    }
+
+    window.addEventListener('focus', sendHeldReceipt);
+    document.addEventListener('visibilitychange', sendHeldReceipt);
 
     // `/api/chats` costs a `chats list` plus a ~300 KB message scan, so it is
     // asked for only when the cache genuinely cannot be patched in place.
@@ -115,6 +141,10 @@ export function useWebSocket() {
             // 2. Reconcile into chats list cache
             const selectedJid = useAppStore.getState().selectedChat?.jid;
             const isViewingChat = selectedJid === newMsg.chatJid;
+            // Open is not the same as seen. A chat left open in a background
+            // tab used to send a blue tick for every message that arrived in
+            // it, to people whose messages nobody had read.
+            const readOnArrival = isViewingChat && operatorIsLooking();
 
             // A reaction is not conversation content — the server-side preview scan
             // skips it, so the rail keeps showing the message being reacted to.
@@ -142,7 +172,7 @@ export function useWebSocket() {
                   ? { ...c, lastMessage: preview, lastMessageFromMe: newMsg.fromMe }
                   : c;
 
-                if (isViewingChat) {
+                if (readOnArrival) {
                   return {
                     ...patched,
                     lastMessageTs: newMsg.ts,
@@ -168,12 +198,15 @@ export function useWebSocket() {
               });
             });
 
-            // A message arriving in the conversation on screen has been read by
-            // definition. Sent from out here, once, rather than from inside the
-            // updater above — and no longer conditional on the chat being in
-            // the rail, which was never what made it read.
-            if (isViewingChat && !newMsg.fromMe) {
+            // A message arriving in the conversation the operator is looking at
+            // has been read. Sent from out here, once, rather than from inside
+            // the updater above — and not conditional on the chat being in the
+            // rail, which was never what made it read. Away from the tab, it
+            // waits for them to come back.
+            if (!newMsg.fromMe && readOnArrival) {
               markChatAsRead(queryClient, newMsg.chatJid);
+            } else if (!newMsg.fromMe && isViewingChat) {
+              heldReceipts.add(newMsg.chatJid);
             }
 
             // The rail row is now correct without a round trip. Only a chat the
@@ -192,7 +225,7 @@ export function useWebSocket() {
               msg: newMsg,
               chat: railChat,
               isViewingChat,
-              documentVisible: document.visibilityState === 'visible' && document.hasFocus(),
+              documentVisible: operatorIsLooking(),
               enabled: notificationsEnabled(),
               supported: notificationsSupported(),
               permission: notificationPermission(),
@@ -249,6 +282,8 @@ export function useWebSocket() {
     connect();
 
     return () => {
+      window.removeEventListener('focus', sendHeldReceipt);
+      document.removeEventListener('visibilitychange', sendHeldReceipt);
       shouldReconnect = false;
       clearTimeout(reconnectTimer);
       if (chatsRefetchTimer) clearTimeout(chatsRefetchTimer);

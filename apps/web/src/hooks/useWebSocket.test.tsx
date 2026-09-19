@@ -103,6 +103,23 @@ function mount() {
   return { ...view, socket };
 }
 
+/**
+ * Where the operator is relative to this tab. jsdom reports an unfocused
+ * document, so a test about reading has to say the operator is looking.
+ */
+function setTab(state: 'looking' | 'behind another window' | 'hidden') {
+  vi.spyOn(document, 'hasFocus').mockReturnValue(state === 'looking');
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => (state === 'hidden' ? 'hidden' : 'visible'),
+  });
+}
+
+function resetTab() {
+  vi.mocked(document.hasFocus).mockRestore();
+  delete (document as { visibilityState?: unknown }).visibilityState;
+}
+
 describe('useWebSocket chat rail reconciliation', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -114,9 +131,11 @@ describe('useWebSocket chat rail reconciliation', () => {
     invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     useAppStore.setState({ selectedChat: null });
     markChatRead.mockClear();
+    setTab('looking');
   });
 
   afterEach(() => {
+    resetTab();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -425,9 +444,11 @@ describe('useWebSocket thread reconciliation', () => {
     invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     useAppStore.setState({ selectedChat: null });
     markChatRead.mockClear();
+    setTab('looking');
   });
 
   afterEach(() => {
+    resetTab();
     vi.unstubAllGlobals();
     vi.useRealTimers();
     useAppStore.setState({ selectedChat: null });
@@ -512,9 +533,11 @@ describe('useWebSocket read receipts are a side effect, not a cache update', () 
     invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     useAppStore.setState({ selectedChat: null });
     markChatRead.mockClear();
+    setTab('looking');
   });
 
   afterEach(() => {
+    resetTab();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -776,5 +799,119 @@ describe('useWebSocket reconnect backoff', () => {
     });
 
     expect(FakeWebSocket.instances.length).toBe(before);
+  });
+});
+
+/**
+ * A chat left open is not a chat being read. Receipts used to go out for every
+ * message that landed in the open chat, from a background tab or a window
+ * buried under others — blue ticks for messages nobody had seen.
+ */
+describe('useWebSocket read receipts wait for the operator', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    queryClient.setQueryData(['chats', '', 'all'], [chat()]);
+    useAppStore.setState({ selectedChat: chat() });
+    markChatRead.mockClear();
+  });
+
+  afterEach(() => {
+    resetTab();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Lets any receipt out of its debounce. */
+  async function settle() {
+    await act(async () => {
+      vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
+    });
+  }
+
+  function comeBack() {
+    setTab('looking');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('focus'));
+    });
+  }
+
+  for (const state of ['hidden', 'behind another window'] as const) {
+    it(`sends no receipt while the tab is ${state}, and leaves the chat unread`, async () => {
+      setTab(state);
+      const { socket, unmount } = mount();
+
+      act(() => {
+        socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+      });
+      await settle();
+
+      expect(markChatRead).not.toHaveBeenCalled();
+      const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
+      expect(rail[0]).toMatchObject({ unread: true, unreadCount: 1 });
+
+      unmount();
+    });
+  }
+
+  it('sends the held receipt once the operator is back on that chat', async () => {
+    setTab('hidden');
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+      socket.emit({
+        type: 'message.new',
+        data: message({ msgId: 'MSG-2', text: 'and another' }),
+        ts: '2026-09-01T11:01:00Z',
+      });
+    });
+    await settle();
+    expect(markChatRead).not.toHaveBeenCalled();
+
+    comeBack();
+    await settle();
+
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
+    expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net');
+    const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
+    expect(rail[0]).toMatchObject({ unread: false, unreadCount: 0 });
+
+    unmount();
+  });
+
+  it('drops the held receipt when the operator comes back to another chat', async () => {
+    setTab('hidden');
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({ type: 'message.new', data: message(), ts: '2026-09-01T11:00:00Z' });
+    });
+    // A desktop notification for another chat is one way back in.
+    act(() => {
+      useAppStore.setState({ selectedChat: chat({ jid: 'bob@s.whatsapp.net', name: 'Bob' }) });
+    });
+    comeBack();
+    await settle();
+
+    expect(markChatRead).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it('sends nothing on return when nothing arrived while away', async () => {
+    setTab('hidden');
+    const { unmount } = mount();
+
+    comeBack();
+    await settle();
+
+    expect(markChatRead).not.toHaveBeenCalled();
+
+    unmount();
   });
 });
