@@ -274,7 +274,7 @@ The bind address is not configurable. Mission Control always listens on
 
 ## REST API Reference
 
-All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
+A browser may call these endpoints only from a page Mission Control served: `http://127.0.0.1:<PORT>`, `http://localhost:<PORT>`, or a name your hosts file maps to `127.0.0.1` (see [Security & Privacy](#security--privacy)). A request from any other page gets `403` with `"code": "FORBIDDEN_ORIGIN"`. Clients that send no `Origin` header, such as curl, are not web pages and are let through.
 
 ### Endpoints
 
@@ -305,7 +305,7 @@ All REST endpoints require requests originating from `localhost` / `127.0.0.1`.
 | `POST`| `/api/send/schedule` | Schedule a future message (`{ to, message, scheduledAt, confirm: true }`) |
 | `GET` | `/api/send/scheduled` | List pending scheduled messages |
 | `DELETE`| `/api/send/scheduled/:id` | Cancel a pending scheduled message |
-| `GET` | `/api/media/content` | Stream an attachment for inline rendering (`?chat=<jid>&id=<msgId>`), downloading it through wacli if it is not on disk yet |
+| `GET` | `/api/media/content` | Stream an attachment for inline rendering (`?chat=<jid>&id=<msgId>`), downloading it through wacli if it is not on disk yet. Serves only files under the store's `media/` directory |
 | `POST`| `/internal/wacli/webhook`| Internal HMAC-verified webhook endpoint for `wacli sync` |
 
 While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it. That covers health, chats, messages, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what is already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download, or daemon start or restart) wakes the app first.
@@ -336,7 +336,9 @@ Supported event types: `message.new`, `message.receipt`, `chat.presence`, `chat.
 ## Security & Privacy
 
 - **Strict Local Loopback**: Both API and Web servers bind exclusively to `127.0.0.1`. Requests with foreign `Host` headers are rejected with `403 Forbidden`.
-- **CORS Restricted**: Browser cross-origin requests are limited strictly to loopback origins.
+- **Only Its Own Pages**: The API and the live WebSocket answer only pages Mission Control served itself, on its own port. Other local apps (a dev server, a notebook, another site on this machine) get `403`, even though they are on `localhost` too. Under `npm run dev`, the Vite dev server (`5174`) and preview (`4174`) are trusted as well.
+- **Your Own Local Name**: To open the console as `http://wacli-ui:3002`, add `127.0.0.1 wacli-ui` to `/etc/hosts`. Mission Control reads the hosts file at startup and trusts any name it maps to `127.0.0.1`. A name that is not in the file is never trusted, because DNS could answer for it.
+- **Media Stays in `media/`**: The media route serves files from the store's `media/` directory only. `session.db` (the linked device's keys) and `wacli.db` (the archive) sit one level up and are refused.
 - **HMAC Webhook Signatures**: Webhook payloads dispatched by the supervised sync process are cryptographically signed with `HMAC-SHA256`.
 - **Zero Cloud Relay**: Message data is never transmitted to external servers. All operations execute directly against your local `wacli` installation.
 - **Run Logs Expire**: When `LOG=1`, each run writes `apps/api/logs/run-<timestamp>.log`. On startup the API deletes run logs older than **3 days**, so diagnostic output — which carries chat JIDs, and message bodies if `WACLI_LOG_WEBHOOK_PAYLOADS=1` — does not accumulate on disk indefinitely. Only files matching that name are removed; anything else in the directory is left alone. Without `LOG=1`, nothing is written to disk.

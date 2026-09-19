@@ -63,18 +63,20 @@ function getMediaOutputDir(): string {
 }
 
 /**
- * Resolves a caller-supplied media path and confirms it stays inside the wacli
- * store. Without this the endpoint streams any file the API process can read.
+ * Resolves a caller-supplied media path and confirms it stays inside the
+ * store's media directory. Without this the endpoint streams any file the API
+ * process can read.
+ *
+ * The media directory, not the store: the store root also holds `session.db`,
+ * the linked device's keys, and `wacli.db`, the whole archive. Neither is an
+ * attachment, and serving them turned any page that could reach this route
+ * into a copy of the account.
  */
 export function resolveMediaPath(candidate: string): string | null {
   const resolved = realpathAllowingMissing(candidate);
-  const roots = [getStoreDir(), getMediaOutputDir()].map(realpathAllowingMissing);
+  const root = realpathAllowingMissing(getMediaOutputDir());
 
-  const isContained = roots.some(
-    (root) => resolved === root || resolved.startsWith(root + path.sep)
-  );
-
-  return isContained ? resolved : null;
+  return resolved.startsWith(root + path.sep) ? resolved : null;
 }
 
 /**

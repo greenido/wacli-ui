@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import crypto from 'node:crypto';
 import request from 'supertest';
 import { createApp } from '../index.js';
+import { accessPolicy } from '../net/loopback.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { EventBridge } from '../ws/event-bridge.js';
 import type { MissionControlEvent } from '../types.js';
@@ -14,7 +15,7 @@ describe('WebSocket Event Bridge & Webhook Pipeline', () => {
     const bridge = new EventBridge();
     const app = createApp(pm, bridge);
     const server = http.createServer(app);
-    bridge.initialize(server);
+    bridge.initialize(server, accessPolicy({ port: 0, hostsFile: '' }));
 
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => resolve());

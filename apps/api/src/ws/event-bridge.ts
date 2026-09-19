@@ -1,14 +1,14 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server } from 'node:http';
 import { logger } from '../logger.js';
-import { isAllowedUpgrade } from '../net/loopback.js';
+import { isAllowedUpgrade, type AccessPolicy } from '../net/loopback.js';
 import type { MissionControlEvent } from '../types.js';
 
 export class EventBridge {
   private wss: WebSocketServer | null = null;
   private clients = new Set<WebSocket>();
 
-  public initialize(server: Server): void {
+  public initialize(server: Server, access: AccessPolicy): void {
     this.wss = new WebSocketServer({
       server,
       path: '/ws',
@@ -17,9 +17,9 @@ export class EventBridge {
       // the only thing standing between the feed and any page the operator
       // happens to have open. Refused before the handshake completes, so a
       // rejected caller never reaches the client set at all.
-      verifyClient: ({ origin, req }: { origin: string; req: IncomingMessage }) => {
-        if (isAllowedUpgrade(origin, req.headers.host)) return true;
-        logger.warn('ws', 'Refused WebSocket upgrade from a non-loopback caller', {
+      verifyClient: ({ origin, req }: { origin: string | undefined; req: IncomingMessage }) => {
+        if (isAllowedUpgrade(origin, req.headers.host, access)) return true;
+        logger.warn('ws', 'Refused WebSocket upgrade from another page', {
           origin: origin || undefined,
           host: req.headers.host,
         });

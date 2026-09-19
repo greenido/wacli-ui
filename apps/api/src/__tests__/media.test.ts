@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createApp } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
-import { TEST_MEDIA_DIR } from './setup.js';
+import { TEST_MEDIA_DIR, TEST_STORE_DIR } from './setup.js';
 
 describe('Media Routes', () => {
   const pm = new WacliProcessManager({ apiPort: 3002 });
@@ -69,6 +69,52 @@ describe('Media Routes', () => {
     const traversal = path.join(TEST_MEDIA_DIR, '..', '..', '..', '..', 'etc', 'passwd');
     const res = await request(app).get(`/api/media/content?path=${encodeURIComponent(traversal)}`);
     expect(res.status).toBe(403);
+  });
+
+  describe('the store root beside the media dir', () => {
+    // session.db is the linked device's keys and wacli.db the whole archive.
+    // Both sit in the store, one level above media, and the route used to
+    // serve anything in the store.
+    const files = ['session.db', 'wacli.db'].map((name) => path.join(TEST_STORE_DIR, name));
+
+    beforeEach(() => {
+      for (const file of files) fs.writeFileSync(file, 'SECRET-IDENTITY-KEYS');
+    });
+
+    afterEach(() => {
+      for (const file of files) fs.rmSync(file, { force: true });
+    });
+
+    it('refuses the session keys and the archive', async () => {
+      for (const file of files) {
+        const res = await request(app).get('/api/media/content').query({ path: file });
+
+        expect(res.status, file).toBe(403);
+        expect(res.text).not.toContain('SECRET-IDENTITY-KEYS');
+      }
+    });
+
+    it('refuses them by way of the media dir', async () => {
+      const res = await request(app)
+        .get('/api/media/content')
+        .query({ path: path.join(TEST_MEDIA_DIR, '..', 'session.db') });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('refuses a link inside the media dir that points at them', async () => {
+      const link = path.join(TEST_MEDIA_DIR, `photo-${Date.now()}.jpg`);
+      fs.symlinkSync(files[0], link);
+
+      try {
+        const res = await request(app).get('/api/media/content').query({ path: link });
+
+        expect(res.status).toBe(403);
+        expect(res.text).not.toContain('SECRET-IDENTITY-KEYS');
+      } finally {
+        fs.rmSync(link, { force: true });
+      }
+    });
   });
 
   it('GET /api/media/content serves SVG as an attachment, never inline', async () => {

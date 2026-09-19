@@ -32,7 +32,10 @@ export function createSettingsRouter(eventBridge?: EventBridge): Router {
     res.json({ success: true, data: { readOnly: modeManager.isReadOnly() }, error: null });
   });
 
-  // Settings endpoints
+  // Read-only on purpose. There used to be a POST here that set `storeDir`,
+  // which is also the root the media route serves from — so one request could
+  // point the console at any directory and read files out of it. The UI never
+  // called it; the store is chosen with WACLI_STORE_DIR at startup.
   router.get('/settings', (_req, res) => {
     const settings = modeManager.getSettings();
     res.json({
@@ -43,17 +46,6 @@ export function createSettingsRouter(eventBridge?: EventBridge): Router {
       },
       error: null,
     });
-  });
-
-  router.post('/settings', (req, res) => {
-    const body = req.body as { storeDir?: string; account?: string; readOnly?: boolean };
-    const updated = modeManager.updateSettings({
-      storeDir: body.storeDir || undefined,
-      account: body.account || undefined,
-      readOnly: body.readOnly !== undefined ? Boolean(body.readOnly) : undefined,
-    });
-
-    res.json({ success: true, data: updated, error: null });
   });
 
   return router;

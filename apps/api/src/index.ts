@@ -6,7 +6,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
-import { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
+import { accessPolicy, isAllowedHost, isAllowedOrigin, type AccessPolicy } from './net/loopback.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
 import { createHealthRouter } from './routes/health.js';
@@ -30,10 +30,6 @@ import { activityStore } from './wacli/activity.js';
 
 export const PORT = Number(process.env.PORT ?? 3002);
 export const HOST = '127.0.0.1';
-
-// Re-exported from their own module so the WebSocket upgrade can apply the same
-// rule without importing this file back.
-export { isLoopbackHost, isLoopbackOrigin } from './net/loopback.js';
 
 export function findWebDistDir(): string | null {
   if (process.env.STATIC_WEB_DIR && fs.existsSync(process.env.STATIC_WEB_DIR)) {
@@ -112,31 +108,50 @@ function requestLogger(req: Request, res: Response, next: NextFunction): void {
 
 export function createApp(
   processManager: WacliProcessManager,
-  bridge: EventBridge = eventBridge
+  bridge: EventBridge = eventBridge,
+  access: AccessPolicy = accessPolicy({ port: PORT })
 ): express.Express {
   const app = express();
   app.disable('x-powered-by');
 
-  // Loopback host header validation
+  // A Host this machine does not answer to is DNS rebinding: somebody else's
+  // name, pointed at this port after their page loaded.
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const host = req.headers.host;
-    if (host && !isLoopbackHost(host) && process.env.NODE_ENV !== 'test') {
-      res.status(403).json({ error: { code: 'FORBIDDEN_HOST', message: 'Requests must target localhost.' } });
+    if (!isAllowedHost(req.headers.host, access)) {
+      res.status(403).json({
+        success: false,
+        data: null,
+        error: 'Requests must address this machine by a local name.',
+        code: 'FORBIDDEN_HOST',
+      });
       return;
     }
     next();
   });
 
-  // Loopback CORS
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || isLoopbackOrigin(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error('Origin is not allowed by CORS.'));
-    },
-  }));
+  // Refused outright rather than merely left without CORS headers: a simple
+  // cross-origin POST still runs when the browser only hides its answer.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (isAllowedOrigin(origin, access)) {
+      next();
+      return;
+    }
+    logger.warn('http', 'Refused a request from another page', {
+      origin,
+      route: `${req.method} ${req.path}`,
+    });
+    res.status(403).json({
+      success: false,
+      data: null,
+      error: 'Only pages served by Mission Control may call it.',
+      code: 'FORBIDDEN_ORIGIN',
+    });
+  });
+
+  // Every origin still here is allowed. The headers matter only when the UI
+  // calls across origins, which it does only when VITE_API_URL points it here.
+  app.use(cors({ origin: (origin, callback) => callback(null, isAllowedOrigin(origin, access)) }));
 
   app.use(requestLogger);
 
@@ -365,10 +380,12 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
     },
   });
 
-  const app = createApp(pm);
+  // `npm run dev` passes --dev-ui, so the Vite pages it serves may call in.
+  const access = accessPolicy({ port, devUi: process.argv.includes('--dev-ui') });
+  const app = createApp(pm, eventBridge, access);
   const server = http.createServer(app);
 
-  eventBridge.initialize(server);
+  eventBridge.initialize(server, access);
   scheduler.setEventBridge(eventBridge);
   // Due messages fire on a timer, so they collide with the running sync daemon
   // exactly the way an interactive send does. Same fix: pause it for the send.

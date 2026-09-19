@@ -34,7 +34,15 @@ export default defineConfig({
   customLogger: logger,
   server: {
     host: '127.0.0.1',
+    // The API trusts pages from this port only under `npm run dev` (its
+    // --dev-ui flag), so a busy port must fail loudly rather than drift to one
+    // the API refuses.
     port: 5174,
+    strictPort: true,
+    // Vite checks Host against DNS rebinding the way the API does. The API
+    // reads /etc/hosts for extra local names; here it is listed, for the
+    // `127.0.0.1 wacli-ui` line the README suggests.
+    allowedHosts: ['wacli-ui'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3002',
@@ -48,12 +56,13 @@ export default defineConfig({
         target: 'ws://127.0.0.1:3002',
         ws: true,
         // Leave Origin alone. rewriteWsOrigin would rewrite
-        // http://127.0.0.1:5174 → ws://127.0.0.1:3002, and the API's
-        // isLoopbackOrigin only accepts http(s) page origins — so the
-        // upgrade would be refused even though the caller is this UI.
+        // http://127.0.0.1:5174 → ws://127.0.0.1:3002, and the API only
+        // accepts http page origins — so the upgrade would be refused even
+        // though the caller is this UI.
       },
     },
   },
+  // strictPort, allowedHosts and the proxy carry over from `server`.
   preview: {
     host: '127.0.0.1',
     port: 4174,

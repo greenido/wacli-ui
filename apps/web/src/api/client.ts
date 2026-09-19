@@ -392,16 +392,6 @@ export const api = {
       '/api/settings'
     ),
 
-  updateSettings: (data: { storeDir?: string; account?: string; readOnly?: boolean }) =>
-    request<{ readOnly: boolean; storeDir?: string; account?: string }>('/api/settings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
-      },
-      body: JSON.stringify(data),
-    }),
-
   restartDaemon: () =>
     request<{ state: string; pid: number | null }>('/api/daemon/restart', {
       method: 'POST',

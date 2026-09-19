@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import crypto from 'node:crypto';
-import { createApp, isLoopbackOrigin } from '../index.js';
+import { createApp } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { EventBridge } from '../ws/event-bridge.js';
 import type { MissionControlEvent } from '../types.js';
@@ -30,14 +30,6 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
 });
 
 describe('Express Server Foundation', () => {
-  it('identifies loopback origins accurately', () => {
-    expect(isLoopbackOrigin('http://localhost:5174')).toBe(true);
-    expect(isLoopbackOrigin('http://127.0.0.1:5174')).toBe(true);
-    expect(isLoopbackOrigin('http://[::1]:5174')).toBe(true);
-    expect(isLoopbackOrigin('https://example.com')).toBe(false);
-    expect(isLoopbackOrigin('http://192.168.1.50:5174')).toBe(false);
-  });
-
   it('GET /api/health returns unified health structure', async () => {
     const pm = new WacliProcessManager({ apiPort: 3002 });
     const app = createApp(pm);
