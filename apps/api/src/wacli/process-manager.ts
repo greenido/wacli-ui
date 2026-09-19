@@ -6,9 +6,15 @@ import os from 'node:os';
 import readline from 'node:readline';
 import { logger } from '../logger.js';
 import { modeManager } from './mode.js';
+import { StoreLockedError } from './store-lock.js';
 import type { MissionControlStatus } from '../types.js';
 
 export type ProcessState = MissionControlStatus['processState'];
+
+/** How a command handed to the running daemon should run: see runDelegated(). */
+export interface DelegationOptions {
+  lockRetryAttempts?: number;
+}
 
 export interface ProcessManagerOptions {
   apiPort: number;
@@ -108,6 +114,8 @@ export class WacliProcessManager {
   private pauseMutex = Promise.resolve();
   /** Exclusive actions queued or running; the daemon stays down until it hits 0. */
   private exclusiveWaiters = 0;
+  /** Commands the running daemon is carrying out for us, until they settle. */
+  private readonly delegated = new Set<Promise<unknown>>();
   private respawnTimer: NodeJS.Timeout | null = null;
   private respawnDebounceMs: number;
   /** Last connection state the daemon reported about itself. */
@@ -507,6 +515,18 @@ export class WacliProcessManager {
     this.cancelPendingRespawn();
     this.cancelRestartTimer();
 
+    // A send the daemon is carrying out would be cut off mid-way, with no
+    // telling whether it went out. Paused, it is handed nothing new.
+    if (this.delegated.size > 0) {
+      await this.delegatedSettled();
+      if (this.wantRunning) {
+        // Started again while that finished, as a wake straight after a
+        // sleep is. The later request stands.
+        if (this.exclusiveWaiters === 0) this.isPaused = false;
+        return;
+      }
+    }
+
     if (!this.child) {
       this.setState('stopped');
       return;
@@ -543,6 +563,52 @@ export class WacliProcessManager {
     });
   }
 
+  /**
+   * Runs a command the daemon can carry out itself, and leaves the daemon up.
+   *
+   * wacli hands a send, a reaction or a read receipt to a running
+   * `sync --follow` over a socket in the store, rather than failing on the
+   * store lock the daemon holds. Pausing the daemon for them, as
+   * executeExclusive() does, took it off WhatsApp for every one, and whatever
+   * arrived meanwhile waited for the respawn.
+   *
+   * wacli reports the store lock only when it could not hand the command over
+   * (no socket yet, or a wacli too old to take it), so nothing went out and the
+   * command runs again with the daemon paused. Any other failure came after the
+   * hand-over and is not retried: the message may already be on its way.
+   *
+   * `action` gets the options to pass to execWacli. Handed over, that is one
+   * lock attempt: a retry would lose the same race again. Nor `--lock-wait`,
+   * which makes wacli sit out the whole wait before it tries the socket.
+   */
+  public async runDelegated<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T> {
+    if (this.canDelegate()) {
+      const handedOver = action({ lockRetryAttempts: 1 });
+      this.delegated.add(handedOver);
+      try {
+        return await handedOver;
+      } catch (err) {
+        if (!(err instanceof StoreLockedError)) throw err;
+        logger.info('process', 'Sync daemon did not take the command; pausing it instead', { err });
+      } finally {
+        this.delegated.delete(handedOver);
+      }
+    }
+    return this.executeExclusive(() => action({}));
+  }
+
+  /**
+   * Only a daemon that has said it is connected: wacli opens the hand-off
+   * socket after connecting. And not one going down, or queued to.
+   */
+  private canDelegate(): boolean {
+    return this.isDaemonConnected() && !this.isPaused && this.exclusiveWaiters === 0;
+  }
+
+  private async delegatedSettled(): Promise<void> {
+    await Promise.allSettled([...this.delegated]);
+  }
+
   public async executeExclusive<T>(action: () => Promise<T>): Promise<T> {
     // Counted before awaiting the mutex so a caller still queueing already
     // blocks the respawn below. Without that, the daemon is spawned the instant
@@ -561,6 +627,9 @@ export class WacliProcessManager {
       // waiter count would keep the daemon down permanently, which is a worse
       // failure than the thrash this guard exists to prevent.
       await prevMutex;
+      // Handed to the daemon before this queued, and cut off mid-send if the
+      // daemon went down now. None are handed over once this is counted.
+      if (this.delegated.size > 0) await this.delegatedSettled();
 
       logger.info('process', 'Pausing sync daemon for exclusive store access');
       this.cancelPendingRespawn();

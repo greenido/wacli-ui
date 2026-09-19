@@ -206,17 +206,19 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
-      // `mark-read` runs exclusive, which means the sync daemon is killed before
-      // it starts and respawned after. That makes the timeout a downtime budget,
-      // not just a patience setting: the default 30s is 30s of a console that
-      // receives nothing, spent on a read receipt. Ten is already generous for
-      // an operation whose only job is to tell WhatsApp what the operator has
+      // Handed to the running daemon, which stays up. When it cannot take it,
+      // `mark-read` runs exclusive: the daemon is killed before it starts and
+      // respawned after. That makes the timeout a downtime budget, not just a
+      // patience setting: the default 30s is 30s of a console that receives
+      // nothing, spent on a read receipt. Ten is already generous for an
+      // operation whose only job is to tell WhatsApp what the operator has
       // already seen.
       try {
-        await processManager.executeExclusive(async () => {
+        await processManager.runDelegated(async (lock) => {
           await execWacli(['chats', 'mark-read', '--chat', chat], {
             allowMutation: true,
             timeoutMs: MARK_READ_TIMEOUT_MS,
+            ...lock,
           });
         });
       } catch (markErr) {

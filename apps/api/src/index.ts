@@ -312,23 +312,24 @@ export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void
   jobs.stop();
   bridge.close();
 
-  try {
-    await processManager.stop();
-  } catch (err) {
-    logger.debug('process', 'Sync daemon did not stop cleanly', { err });
-  }
-
-  // Whatever else is still in flight — a media stream mid-body, a wacli read
-  // that has not come back — is not worth hanging a shutdown on. Unref'd, so it
-  // is only ever a backstop: when the close lands first the process exits on
-  // its own and this never fires.
+  // Whatever else is still in flight — a send the daemon is carrying out, a
+  // media stream mid-body, a wacli read that has not come back — is not worth
+  // hanging a shutdown on. Armed before the daemon is stopped, which waits for
+  // such a send. Unref'd, so it is only ever a backstop: when the close lands
+  // first the process exits on its own and this never fires.
   const forceExit = setTimeout(() => {
-    logger.warn('process', 'Shutdown timed out with connections still open; exiting anyway');
+    logger.warn('process', 'Shutdown timed out with work still in flight; exiting anyway');
     closeDatabase();
     logger.close();
     exit();
   }, graceMs);
   forceExit.unref();
+
+  try {
+    await processManager.stop();
+  } catch (err) {
+    logger.debug('process', 'Sync daemon did not stop cleanly', { err });
+  }
 
   server.close(() => {
     clearTimeout(forceExit);
@@ -445,7 +446,7 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
   scheduler.setEventBridge(eventBridge);
   // Due messages fire on a timer, so they collide with the running sync daemon
   // exactly the way an interactive send does. Same fix: pause it for the send.
-  scheduler.setExclusiveRunner(pm);
+  scheduler.setSendRunner(pm);
   scheduler.start();
 
   server.listen(port, host, () => {

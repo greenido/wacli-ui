@@ -44,19 +44,20 @@ function requireMutationPermission(req: Request, res: Response, next: NextFuncti
 }
 
 /**
- * Every outgoing command here runs through `executeExclusive`.
+ * Every outgoing command here runs through `runDelegated`.
  *
  * The sync daemon holds the store lock for as long as it is up, and it does not
- * let go between polls — so a send fired while it runs loses the race every
+ * let go between polls — so a send run as a second wacli loses that race every
  * time, and `execWacli`'s own three retries are three more losses, not a
  * recovery. That is what put `503 store is locked (another wacli is running?)`
- * on a plain text send. Pausing the daemon for the duration is the only thing
- * that makes the send land; it also queues sends behind the other exclusive
- * commands (mark-read, history, contacts) instead of racing those too.
+ * on a plain text send. wacli's answer is to hand the send to the daemon over a
+ * socket in the store, and `runDelegated` lets it: the daemon stays connected,
+ * and nothing that arrives during the send waits for a respawn.
  *
- * The cost is real and deliberate: the daemon is down for the whole send, so
- * nothing arrives over the webhook until it respawns. That is why the timeouts
- * below are downtime budgets as much as patience settings.
+ * When the daemon cannot take it (not connected yet, or a wacli from before
+ * delegation) the send runs the old way: the daemon paused for the duration,
+ * queued behind the other exclusive commands. Then the timeouts below are
+ * downtime budgets as much as patience settings.
  */
 export function createSendRouter(processManager: WacliProcessManager): Router {
   const router = Router();
@@ -106,10 +107,11 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
       });
 
       try {
-        const result = await processManager.executeExclusive(async () =>
+        const result = await processManager.runDelegated((lock) =>
           execWacli<Record<string, unknown>>(args, {
             allowMutation: true,
             timeoutMs: 60000,
+            ...lock,
           })
         );
 
@@ -214,10 +216,11 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
           status: 'pending',
         });
 
-        const result = await processManager.executeExclusive(async () =>
+        const result = await processManager.runDelegated((lock) =>
           execWacli<Record<string, unknown>>(args, {
             allowMutation: true,
             timeoutMs: 120000,
+            ...lock,
           })
         );
 
@@ -290,10 +293,11 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
 
       logger.info('send', 'Dispatching reaction', { to, id, reaction: reaction ?? '👍' });
 
-      const result = await processManager.executeExclusive(async () =>
+      const result = await processManager.runDelegated((lock) =>
         execWacli<Record<string, unknown>>(args, {
           allowMutation: true,
           timeoutMs: 30000,
+          ...lock,
         })
       );
 

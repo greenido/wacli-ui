@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execWacli } from '../wacli/commands.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 
 const FAKE_WACLI = fileURLToPath(new URL('./fixtures/fake-wacli.sh', import.meta.url));
-const FAKE_ENV = ['WACLI_BIN', 'FAKE_LOG', 'FAKE_LOCK', 'FAKE_PIDS'] as const;
+const FAKE_ENV = ['WACLI_BIN', 'FAKE_LOG', 'FAKE_LOCK', 'FAKE_PIDS', 'FAKE_DELEGATES'] as const;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -36,12 +37,24 @@ function syncPids(): number[] {
 
 const liveDaemons = () => syncPids().filter(isAlive);
 
-/** Every `wacli sync` started, including any refused by the lock. */
-function syncLaunches(): number {
+/** Every `wacli <command>` started, including any refused by the lock. */
+function launches(command: string): number {
   return fs
     .readFileSync(process.env.FAKE_LOG!, 'utf8')
     .split('\n')
-    .filter((line) => line.startsWith('sync ')).length;
+    .filter((line) => line.startsWith(`${command} `)).length;
+}
+
+const syncLaunches = () => launches('sync');
+
+/** A text send through the supervisor, the way the send routes make one. */
+function sendText(pm: WacliProcessManager) {
+  return pm.runDelegated((lock) =>
+    execWacli<{ sent: boolean; id: string }>(
+      ['send', 'text', '--to', '15550100001@s.whatsapp.net', '--message', 'Good morning'],
+      { allowMutation: true, timeoutMs: 10_000, ...lock }
+    )
+  );
 }
 
 /**
@@ -128,6 +141,40 @@ describe('Sync daemon supervision with real processes', () => {
     expect(pm.getPid()).not.toBe(first);
     expect(liveDaemons()).toEqual([pm.getPid()]);
     expect(pm.getReconnectAttempts()).toBe(1);
+  });
+
+  it('hands a send to the connected daemon, which stays up', async () => {
+    process.env.FAKE_DELEGATES = '1';
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect');
+    const daemon = pm.getPid()!;
+
+    const result = await sendText(pm);
+
+    expect(result).toEqual({ sent: true, id: 'FAKE-HANDED-OVER' });
+    // The same daemon, never taken off WhatsApp for it.
+    expect(pm.getPid()).toBe(daemon);
+    expect(isAlive(daemon)).toBe(true);
+    expect(pm.getState()).toBe('running');
+    expect(syncLaunches()).toBe(1);
+    expect(launches('send')).toBe(1);
+  });
+
+  it('still gets a send out with a wacli that cannot hand it over', async () => {
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect');
+    const first = pm.getPid()!;
+
+    const result = await sendText(pm);
+
+    // Refused on the lock, which means nothing went out, then sent with the
+    // daemon paused: one message, from the second of two attempts.
+    expect(result).toEqual({ sent: true, id: 'FAKE-DIRECT' });
+    expect(launches('send')).toBe(2);
+    expect(isAlive(first)).toBe(false);
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to come back');
+    expect(liveDaemons()).toEqual([pm.getPid()]);
+    expect(syncLaunches()).toBe(2);
   });
 
   it('counts a daemon that could not start as one failure, not two', async () => {

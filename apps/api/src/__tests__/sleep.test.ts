@@ -259,7 +259,7 @@ describe('a scheduled message that comes due while asleep', () => {
 
     const file = tmpDbFile();
     const scheduler = new Scheduler(file);
-    scheduler.setExclusiveRunner(pm);
+    scheduler.setSendRunner(pm);
     modeManager.setReadOnly(false);
     execWacliMock.mockResolvedValue({ id: 'STUBMSG0001' });
 
