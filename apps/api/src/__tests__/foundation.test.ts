@@ -174,7 +174,7 @@ describe('ModeManager', () => {
     const mm = new ModeManager(tmpSettingsPath);
     mm.setReadOnly(false);
 
-    // Mirrors POST /api/settings sending only storeDir.
+    // A partial update: only storeDir set, the rest left undefined.
     mm.updateSettings({ storeDir: '/tmp/store', account: undefined, readOnly: undefined });
 
     expect(mm.isReadOnly()).toBe(false);

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import http from 'node:http';
 import { WebSocket } from 'ws';
 import { createApp } from '../index.js';
-import { isAllowedUpgrade } from '../net/loopback.js';
+import { accessPolicy, isAllowedUpgrade } from '../net/loopback.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { EventBridge } from '../ws/event-bridge.js';
 
@@ -21,11 +21,16 @@ describe('WebSocket upgrade origin check', () => {
   async function startBridge(): Promise<{ port: number; bridge: EventBridge }> {
     const pm = new WacliProcessManager({ apiPort: 0 });
     const bridge = new EventBridge();
-    const server = http.createServer(createApp(pm, bridge));
-    bridge.initialize(server);
+    const server = http.createServer();
 
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     const port = (server.address() as { port: number }).port;
+
+    // The policy needs the port the server really listens on, which is only
+    // known once it does.
+    const access = accessPolicy({ port, hostsFile: '127.0.0.1 wacli-ui\n' });
+    server.on('request', createApp(pm, bridge, access));
+    bridge.initialize(server, access);
 
     cleanups.push(() => {
       bridge.close();
@@ -54,6 +59,12 @@ describe('WebSocket upgrade origin check', () => {
     expect(await handshake(port, { Origin: 'https://evil.example' })).toMatch(/^rejected/);
   });
 
+  it('refuses an upgrade from a page on another local port', async () => {
+    const { port } = await startBridge();
+    // Some other app on this machine: loopback, but not this console.
+    expect(await handshake(port, { Origin: 'http://localhost:8888' })).toMatch(/^rejected/);
+  });
+
   it('refuses an upgrade whose Host is somebody else’s name', async () => {
     const { port } = await startBridge();
     // What a rebound DNS name looks like on arrival: a loopback socket, but a
@@ -64,6 +75,14 @@ describe('WebSocket upgrade origin check', () => {
   it('accepts the console served from this machine', async () => {
     const { port } = await startBridge();
     expect(await handshake(port, { Origin: `http://localhost:${port}` })).toBe('accepted');
+    expect(await handshake(port, { Origin: `http://127.0.0.1:${port}` })).toBe('accepted');
+  });
+
+  it('accepts the console under a name the hosts file maps to this machine', async () => {
+    const { port } = await startBridge();
+    expect(
+      await handshake(port, { Origin: `http://wacli-ui:${port}`, Host: `wacli-ui:${port}` })
+    ).toBe('accepted');
   });
 
   it('accepts a client that sends no Origin at all', async () => {
@@ -75,22 +94,24 @@ describe('WebSocket upgrade origin check', () => {
 
   it('keeps a refused caller out of the broadcast set', async () => {
     const { port, bridge } = await startBridge();
-    await handshake(port, { Origin: 'https://evil.example' });
+    await handshake(port, { Origin: 'http://localhost:8888' });
     expect(bridge.getConnectedClientCount()).toBe(0);
   });
 
   describe('isAllowedUpgrade', () => {
-    it('judges origin and host independently', () => {
-      expect(isAllowedUpgrade('http://localhost:5174', 'localhost:3002')).toBe(true);
-      expect(isAllowedUpgrade('http://127.0.0.1:5174', '127.0.0.1:3002')).toBe(true);
-      expect(isAllowedUpgrade('http://[::1]:5174', '[::1]:3002')).toBe(true);
-      expect(isAllowedUpgrade(undefined, '127.0.0.1:3002')).toBe(true);
-      // What Vite's rewriteWsOrigin would produce — a ws Origin is not a page.
-      expect(isAllowedUpgrade('ws://127.0.0.1:3002', '127.0.0.1:5174')).toBe(false);
+    const access = accessPolicy({ port: 3002, devUi: true, hostsFile: '' });
 
-      expect(isAllowedUpgrade('https://evil.example', '127.0.0.1:3002')).toBe(false);
-      expect(isAllowedUpgrade('http://192.168.1.50', '127.0.0.1:3002')).toBe(false);
-      expect(isAllowedUpgrade('http://localhost:5174', 'evil.example')).toBe(false);
+    it('judges origin and host independently', () => {
+      expect(isAllowedUpgrade('http://localhost:5174', 'localhost:3002', access)).toBe(true);
+      expect(isAllowedUpgrade('http://127.0.0.1:5174', '127.0.0.1:5174', access)).toBe(true);
+      expect(isAllowedUpgrade(undefined, '127.0.0.1:3002', access)).toBe(true);
+      // What Vite's rewriteWsOrigin would produce — a ws Origin is not a page.
+      expect(isAllowedUpgrade('ws://127.0.0.1:3002', '127.0.0.1:5174', access)).toBe(false);
+
+      expect(isAllowedUpgrade('http://localhost:8888', '127.0.0.1:3002', access)).toBe(false);
+      expect(isAllowedUpgrade('https://evil.example', '127.0.0.1:3002', access)).toBe(false);
+      expect(isAllowedUpgrade('http://192.168.1.50', '127.0.0.1:3002', access)).toBe(false);
+      expect(isAllowedUpgrade('http://localhost:5174', 'evil.example', access)).toBe(false);
     });
   });
 });

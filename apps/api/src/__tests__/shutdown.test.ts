@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import http from 'node:http';
 import { WebSocket } from 'ws';
 import { createApp, shutdown } from '../index.js';
+import { accessPolicy } from '../net/loopback.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { EventBridge } from '../ws/event-bridge.js';
 
@@ -22,7 +23,7 @@ describe('Shutdown with a live WebSocket client', () => {
     const pm = new WacliProcessManager({ apiPort: 0 });
     const bridge = new EventBridge();
     const server = http.createServer(createApp(pm, bridge));
-    bridge.initialize(server);
+    bridge.initialize(server, accessPolicy({ port: 0, hostsFile: '' }));
 
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     const port = (server.address() as { port: number }).port;

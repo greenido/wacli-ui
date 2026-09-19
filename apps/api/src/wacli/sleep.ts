@@ -44,7 +44,6 @@ export const SLEEP_ROUTES = {
     'GET /api/mode',
     'POST /api/mode',
     'GET /api/settings',
-    'POST /api/settings',
     'GET /api/sleep',
     'POST /api/sleep',
     'GET /api/tags',
