@@ -196,7 +196,7 @@ describe('StatusStrip scheduled failures', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Only a failed message can be resent/i);
   });
 
-  it('warns that a vanished attachment will go out as text only', async () => {
+  it('will not resend a file message whose attachment has vanished', async () => {
     mockScheduled([
       { ...failedItem, fileName: 'report.pdf', filePath: '/tmp/gone.pdf', attachmentMissing: true },
     ]);
@@ -209,7 +209,9 @@ describe('StatusStrip scheduled failures', () => {
     await user.click(screen.getByRole('button', { name: /RESEND/i }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/attachment is no longer on disk/i)).toBeInTheDocument();
-    expect(within(dialog).getByText(/as a plain text message/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/send the file again/i)).toBeInTheDocument();
+    // Only the caption would go out, which is not the message that was scheduled.
+    expect(within(dialog).getByRole('button', { name: /RESEND NOW/i })).toBeDisabled();
   });
 
   it('discards a failed message the operator has given up on', async () => {

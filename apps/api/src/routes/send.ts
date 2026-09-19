@@ -1,11 +1,10 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import os from 'node:os';
-import path from 'node:path';
 import fs from 'node:fs';
 import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
-import { scheduler } from '../wacli/scheduler.js';
+import { keepScheduledAttachment, scheduler } from '../wacli/scheduler.js';
 import { activityStore } from '../wacli/activity.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { sentMessageIdFrom } from '../wacli/normalize.js';
@@ -423,21 +422,16 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
+      let keptPath: string | undefined;
       try {
-        // Move temp file to persistent scheduled directory
-        const schedDir = path.join(os.tmpdir(), 'wacli-scheduled-files');
-        if (!fs.existsSync(schedDir)) {
-          fs.mkdirSync(schedDir, { recursive: true });
-        }
-        const persistentPath = path.join(schedDir, `${Date.now()}-${file.originalname}`);
-        fs.renameSync(file.path, persistentPath);
+        keptPath = keepScheduledAttachment(file.path, file.originalname);
 
         const item = scheduler.schedule({
           to,
           recipientName,
           message: caption || '',
           replyTo,
-          filePath: persistentPath,
+          filePath: keptPath,
           fileName: file.originalname,
           mimeType: file.mimetype,
           scheduledAt,
@@ -452,7 +446,12 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
           error: null,
         });
       } catch (err) {
+        // No record owns the kept file, so nothing else would delete it.
+        if (keptPath) fs.rmSync(keptPath, { force: true });
         next(err);
+      } finally {
+        // Gone already when the move worked; still here when it did not.
+        fs.rmSync(file.path, { force: true });
       }
     }
   );

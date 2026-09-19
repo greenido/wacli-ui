@@ -34,7 +34,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
 
   // Safe mode blocks the live send but not the queueing of one for later, which
   // is exactly the escape hatch for a message that failed *because* of safe mode.
-  const blocked = isReadOnly && !isScheduled;
+  const blocked = (isReadOnly && !isScheduled) || Boolean(item.attachmentMissing);
   const canSubmit = !isPending && !blocked && (!isScheduled || Boolean(scheduleTime));
 
   const handleConfirm = () => {
@@ -93,8 +93,8 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
             </div>
           )}
 
-          {/* dispatch() falls back to a plain text send when the attachment has
-              gone, so the dialog must not promise a file it will not send. */}
+          {/* The server refuses to resend a file message without its file, rather
+              than send the caption alone as if it were the whole message. */}
           {item.attachmentMissing && (
             <div className="p-3 bg-mc-danger/10 border border-mc-danger/40 rounded text-mc-danger flex items-start gap-2.5">
               <FileText size={16} className="shrink-0 mt-0.5" />
@@ -102,10 +102,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
                 <span className="font-bold">The attachment is no longer on disk.</span>
                 <p className="text-[11px] text-mc-text mt-0.5">
                   {item.fileName ? `"${item.fileName}" ` : 'The file '}
-                  cannot be resent.{' '}
-                  {item.message
-                    ? 'Only the caption below will go out, as a plain text message.'
-                    : 'There is nothing left to send — discard this instead and send the file again from the composer.'}
+                  cannot be resent. Discard this and send the file again from the composer.
                 </p>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -10,7 +11,7 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
   return { ...actual, execWacli: execWacliMock };
 });
 
-import { Scheduler } from '../wacli/scheduler.js';
+import { Scheduler, keepScheduledAttachment, scheduledFilesDir } from '../wacli/scheduler.js';
 import { openDatabaseAt } from '../db/index.js';
 import { modeManager } from '../wacli/mode.js';
 
@@ -726,5 +727,123 @@ describe('Scheduler paging', () => {
     expect(page.pending).toHaveLength(2);
     expect(page.totalHistory).toBe(12);
     expect(page.history).toHaveLength(10);
+  });
+});
+
+describe('Scheduled attachments', () => {
+  let tmpSchedFile: string;
+  let workDir: string;
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-files-${Date.now()}-${Math.random()}.db`);
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-test-upload-'));
+    execWacliMock.mockReset();
+    modeManager.setReadOnly(false);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(tmpSchedFile, { force: true });
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  /** An upload as multer leaves it: a nameless temp file. */
+  function upload(contents = '%PDF-1.7 signed contract'): string {
+    const file = path.join(workDir, crypto.randomUUID());
+    fs.writeFileSync(file, contents);
+    return file;
+  }
+
+  function scheduleFile(scheduler: Scheduler, filePath: string, dueInMs = -1000) {
+    return scheduler.schedule({
+      to: '15550100001@s.whatsapp.net',
+      message: 'Here is the signed contract',
+      filePath,
+      fileName: 'contract.pdf',
+      scheduledAt: new Date(Date.now() + dueInMs).toISOString(),
+    });
+  }
+
+  it('keeps an upload beside the database, where only the operator can read it', () => {
+    const uploaded = upload();
+
+    const kept = keepScheduledAttachment(uploaded, 'Signed contract (final).pdf');
+
+    expect(path.dirname(kept)).toBe(scheduledFilesDir());
+    expect(scheduledFilesDir()).toBe(
+      path.join(path.dirname(process.env.WACLI_DB_FILE!), 'scheduled-files')
+    );
+    expect(path.extname(kept)).toBe('.pdf');
+    expect(fs.readFileSync(kept, 'utf8')).toBe('%PDF-1.7 signed contract');
+    expect(fs.statSync(kept).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(scheduledFilesDir()).mode & 0o777).toBe(0o700);
+    expect(fs.existsSync(uploaded)).toBe(false);
+    fs.rmSync(kept);
+  });
+
+  it('copies the upload when it sits on another filesystem', () => {
+    const uploaded = upload();
+    vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error('cross-device link not permitted'), { code: 'EXDEV' });
+    });
+
+    const kept = keepScheduledAttachment(uploaded, 'contract.pdf');
+
+    expect(fs.readFileSync(kept, 'utf8')).toBe('%PDF-1.7 signed contract');
+    expect(fs.existsSync(uploaded)).toBe(false);
+    fs.rmSync(kept);
+  });
+
+  it('fails a file message whose attachment has gone, and sends nothing', async () => {
+    // What a reboot does to a file in the temp directory. The caption used to
+    // go out on its own, and the record said "sent".
+    const scheduler = new Scheduler(tmpSchedFile);
+    const item = scheduleFile(scheduler, path.join(workDir, 'gone.pdf'));
+
+    await scheduler.checkDueMessages();
+
+    expect(execWacliMock).not.toHaveBeenCalled();
+    expect(scheduler.getPage().history).toMatchObject([
+      { id: item.id, status: 'failed', error: expect.stringMatching(/no longer on disk/) },
+    ]);
+  });
+
+  it('sends the file when it is there, and deletes it afterwards', async () => {
+    execWacliMock.mockResolvedValue({ id: 'wamid.FILE' });
+    const scheduler = new Scheduler(tmpSchedFile);
+    const kept = keepScheduledAttachment(upload(), 'contract.pdf');
+    scheduleFile(scheduler, kept);
+
+    await scheduler.checkDueMessages();
+
+    const args = execWacliMock.mock.calls[0][0] as string[];
+    expect(args.slice(0, 2)).toEqual(['send', 'file']);
+    expect(args).toContain(kept);
+    expect(fs.existsSync(kept)).toBe(false);
+  });
+
+  it('deletes the attachment when the message is cancelled', () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    const kept = keepScheduledAttachment(upload(), 'contract.pdf');
+    const item = scheduleFile(scheduler, kept, 60_000);
+
+    expect(scheduler.cancel(item.id)).toEqual({ ok: true });
+
+    expect(fs.existsSync(kept)).toBe(false);
+  });
+
+  it('refuses to resend a file message whose attachment has gone', async () => {
+    const scheduler = new Scheduler(tmpSchedFile);
+    const kept = keepScheduledAttachment(upload(), 'contract.pdf');
+    const item = scheduleFile(scheduler, kept);
+    execWacliMock.mockRejectedValueOnce(new Error('wacli exploded'));
+    await scheduler.checkDueMessages();
+    fs.rmSync(kept);
+    execWacliMock.mockClear();
+
+    const outcome = await scheduler.resend(item.id);
+
+    expect(outcome).toEqual({ ok: false, error: expect.stringMatching(/no longer on disk/) });
+    expect(execWacliMock).not.toHaveBeenCalled();
   });
 });
