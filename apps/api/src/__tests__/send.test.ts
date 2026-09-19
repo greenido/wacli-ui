@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const execWacliMock = vi.hoisted(() => vi.fn());
 
@@ -12,7 +14,7 @@ import { createApp } from '../index.js';
 import { POST_SEND_WAIT } from '../wacli/commands.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { modeManager } from '../wacli/mode.js';
-import { scheduler } from '../wacli/scheduler.js';
+import { scheduledFilesDir, scheduler } from '../wacli/scheduler.js';
 
 describe('Send Endpoints & Guardrails', () => {
   const pm = new WacliProcessManager({ apiPort: 3002 });
@@ -366,5 +368,35 @@ describe('Cancelling a scheduled message', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ cancelled: true });
     expect(execWacliMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('Scheduling a file', () => {
+  const app = createApp(new WacliProcessManager({ apiPort: 3002 }));
+
+  beforeEach(() => {
+    modeManager.setReadOnly(false);
+    execWacliMock.mockReset();
+  });
+
+  it('keeps the file beside the database until it is due', async () => {
+    // It used to wait in the system temp directory, which the OS clears.
+    const res = await request(app)
+      .post('/api/send/schedule-file')
+      .field('to', '15550100001@s.whatsapp.net')
+      .field('caption', 'Here is the signed contract')
+      .field('scheduledAt', new Date(Date.now() + 86_400_000).toISOString())
+      .field('confirm', 'true')
+      .attach('file', Buffer.from('%PDF-1.7 signed contract'), 'contract.pdf');
+
+    expect(res.status).toBe(200);
+    const { id, filePath, fileName } = res.body.data.item;
+    expect(fileName).toBe('contract.pdf');
+    expect(path.dirname(filePath)).toBe(scheduledFilesDir());
+    expect(fs.readFileSync(filePath, 'utf8')).toBe('%PDF-1.7 signed contract');
+
+    // Cancelling it leaves nothing behind.
+    scheduler.cancel(id);
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 });

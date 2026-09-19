@@ -1,6 +1,8 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { getDb, openDatabaseAt } from '../db/index.js';
+import { getDb, openDatabaseAt, resolveDbPath } from '../db/index.js';
 import { activityStore } from './activity.js';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
@@ -81,6 +83,54 @@ export type ResendOutcome =
   | { ok: false; error: string };
 
 export type CancelOutcome = { ok: true } | { ok: false; error: string };
+
+/**
+ * Where Send-later attachments wait for their time: beside the database, in
+ * Mission Control's own directory.
+ *
+ * They used to wait in the system temp directory, which the OS clears on
+ * reboot or after a few days — so a file scheduled over a weekend was gone by
+ * Monday. On Linux that was also `/tmp/wacli-scheduled-files`, a fixed name in
+ * a directory every local user can write to.
+ */
+export function scheduledFilesDir(): string {
+  return path.join(path.dirname(resolveDbPath()), 'scheduled-files');
+}
+
+/**
+ * Moves an upload into the attachments directory and returns where it went.
+ *
+ * Only the extension survives into the name on disk. The name the recipient
+ * sees travels in the record and goes to wacli as --filename, and an
+ * operator's own filename can be too long to create at all.
+ */
+export function keepScheduledAttachment(uploadPath: string, originalName: string): string {
+  const dir = scheduledFilesDir();
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+  const extension = path.extname(originalName).replace(/[^A-Za-z0-9.]/g, '').slice(0, 16);
+  const target = path.join(dir, `${crypto.randomUUID()}${extension}`);
+  try {
+    fs.renameSync(uploadPath, target);
+  } catch (err) {
+    // The upload lands in the system temp dir, often another filesystem.
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    try {
+      fs.copyFileSync(uploadPath, target);
+    } catch (copyErr) {
+      fs.rmSync(target, { force: true });
+      throw copyErr;
+    }
+    fs.rmSync(uploadPath, { force: true });
+  }
+  fs.chmodSync(target, 0o600);
+  return target;
+}
+
+function missingAttachment(item: ScheduledMessage): string {
+  const name = item.fileName ? `"${item.fileName}"` : 'The attachment';
+  return `${name} is no longer on disk.`;
+}
 
 /** The one thing the scheduler needs from the process manager. */
 export interface ExclusiveRunner {
@@ -330,11 +380,23 @@ export class Scheduler {
 
     item.status = 'cancelled';
     this.save();
+    // Nothing will ever send it now, and a private file should not outlive its
+    // message. It used to sit in the temp directory until the OS cleared it.
+    this.removeAttachment(item);
     logger.info('send', 'Scheduled message cancelled', { id });
 
     this.broadcastUpdate(item);
 
     return { ok: true };
+  }
+
+  private removeAttachment(item: ScheduledMessage): void {
+    if (!item.filePath) return;
+    try {
+      fs.rmSync(item.filePath, { force: true });
+    } catch (err) {
+      logger.warn('send', 'Could not delete a scheduled attachment', { id: item.id, err });
+    }
   }
 
   /**
@@ -361,6 +423,10 @@ export class Scheduler {
         ok: false,
         error: `Only a failed message can be resent; this one is already "${item.status}".`,
       };
+    }
+
+    if (item.filePath && !fs.existsSync(item.filePath)) {
+      return { ok: false, error: `${missingAttachment(item)} Discard it and send the file again.` };
     }
 
     if (modeManager.isReadOnly()) {
@@ -423,16 +489,10 @@ export class Scheduler {
       return false;
     }
 
-    // dispatch() only unlinks an attachment after a successful send, so a
-    // failed file message still owns its temp file. This is the last owner of
-    // that path; if we drop the record without it, the file leaks.
-    if (item.filePath) {
-      try {
-        fs.unlinkSync(item.filePath);
-      } catch {
-        // Already gone, or never made it to disk.
-      }
-    }
+    // dispatch() only deletes an attachment after a successful send, so a
+    // failed file message still owns its file. This is the last owner of that
+    // path; if we drop the record without it, the file leaks.
+    this.removeAttachment(item);
 
     this.items.delete(id);
     this.save();
@@ -499,10 +559,10 @@ export class Scheduler {
 
   /**
    * Copies an item for the wire and answers the one question the operator
-   * cannot see from the UI: is the attachment still there? dispatch() silently
-   * falls back to a plain text send when the file has gone, so the resend
-   * confirmation has to be able to say that out loud rather than promise a file
-   * it will not send. Only failed items are stat'd, so the poll stays cheap.
+   * cannot see from the UI: is the attachment still there? A file message
+   * whose file has gone cannot be resent, and the resend dialog has to say so
+   * before the operator tries. Only failed items are stat'd, so the poll stays
+   * cheap.
    */
   private decorate(item: ScheduledMessage): ScheduledMessage {
     if (item.status !== 'failed' || !item.filePath) {
@@ -609,10 +669,18 @@ export class Scheduler {
   private async dispatch(item: ScheduledMessage): Promise<void> {
     logger.info('send', 'Dispatching due scheduled message', { id: item.id, to: item.to });
 
+    // A file message without its file is not a text message. This used to
+    // send the caption alone and log it as sent: "Here is the signed
+    // contract", without the contract.
+    if (item.filePath && !fs.existsSync(item.filePath)) {
+      this.fail(item, `${missingAttachment(item)} Nothing was sent.`);
+      return;
+    }
+
     try {
       let result: Record<string, unknown>;
 
-      if (item.filePath && fs.existsSync(item.filePath)) {
+      if (item.filePath) {
         const args = ['send', 'file', '--to', item.to, '--file', item.filePath, '--post-send-wait', POST_SEND_WAIT];
         if (item.fileName) {
           args.push('--filename', item.fileName);
@@ -631,12 +699,7 @@ export class Scheduler {
           })
         );
 
-        // Clean up scheduled attachment file
-        try {
-          fs.unlinkSync(item.filePath);
-        } catch {
-          // ignore
-        }
+        this.removeAttachment(item);
       } else {
         const args = ['send', 'text', '--to', item.to, '--message', item.message, '--post-send-wait', POST_SEND_WAIT];
         if (item.replyTo) {
