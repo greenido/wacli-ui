@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { redactArgs, WacliProcessManager } from '../wacli/process-manager.js';
+import { EventEmitter } from 'node:events';
+import {
+  redactArgs,
+  WacliProcessManager,
+  type DelegationOptions,
+} from '../wacli/process-manager.js';
+import { StoreLockedError } from '../wacli/store-lock.js';
 
 describe('redactArgs', () => {
   it('keeps the secret out of the spawn line while leaving the flags readable', () => {
@@ -590,6 +596,182 @@ describe('WacliProcessManager startSoon', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('WacliProcessManager handing commands to the daemon', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+  /** A promise and the function that settles it, for a command held mid-flight. */
+  function gate() {
+    let release: () => void = () => {};
+    const opened = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { opened, release };
+  }
+
+  /**
+   * A manager whose daemon is up and has said it is connected. Its kill() ends
+   * it the way a real one ends, with `close`; spawns are a spy.
+   */
+  function connectedManager() {
+    const pm = new WacliProcessManager({ apiPort: 3002, respawnDebounceMs: 0 });
+    const spawn = vi
+      .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
+      .mockImplementation(() => {});
+    const child = Object.assign(new EventEmitter(), {
+      killed: false,
+      kill: vi.fn(function (this: EventEmitter & { killed: boolean }) {
+        this.killed = true;
+        setImmediate(() => this.emit('close', 0, 'SIGINT'));
+        return true;
+      }),
+    });
+    const internals = pm as unknown as {
+      child: unknown;
+      handleStderrLine: (line: string) => void;
+    };
+    internals.child = child;
+    pm.start();
+    internals.handleStderrLine(JSON.stringify({ event: 'connected' }));
+    return { pm, spawn, child, internals };
+  }
+
+  const refusedOnTheLock = () =>
+    new StoreLockedError('store is locked (another wacli is running?)', null);
+
+  it('hands a command to a connected daemon and leaves it up', async () => {
+    const { pm, spawn, child } = connectedManager();
+    const action = vi.fn(async () => 'sent');
+
+    await expect(pm.runDelegated(action)).resolves.toBe('sent');
+
+    // One lock attempt: wacli only tries the socket once the lock refuses it.
+    expect(action).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 });
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(pm.getState()).toBe('running');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('runs it again with the daemon paused when the daemon would not take it', async () => {
+    const { pm, spawn, child } = connectedManager();
+    const action = vi
+      .fn<(lock: DelegationOptions) => Promise<string>>()
+      .mockRejectedValueOnce(refusedOnTheLock())
+      .mockResolvedValueOnce('sent');
+
+    await expect(pm.runDelegated(action)).resolves.toBe('sent');
+    await tick();
+
+    // wacli reports the lock only when it could not hand the command over, so
+    // nothing went out the first time.
+    expect(action).toHaveBeenNthCalledWith(1, { lockRetryAttempts: 1 });
+    expect(action).toHaveBeenNthCalledWith(2, {});
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('never runs a command twice when it failed after the hand-over', async () => {
+    const { pm, child } = connectedManager();
+    const action = vi.fn(async () => {
+      throw new Error('send delegate: unexpected EOF');
+    });
+
+    await expect(pm.runDelegated(action)).rejects.toThrow('unexpected EOF');
+
+    // The daemon had it, so the message may be out already.
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it('pauses the daemon as before when it is not connected', async () => {
+    const { pm, child, internals } = connectedManager();
+    internals.handleStderrLine(JSON.stringify({ event: 'disconnected' }));
+    const action = vi.fn(async () => 'sent');
+
+    await pm.runDelegated(action);
+
+    expect(action).toHaveBeenCalledExactlyOnceWith({});
+    expect(child.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues behind an exclusive command instead of handing over', async () => {
+    const { pm } = connectedManager();
+    const alias = gate();
+    const exclusive = pm.executeExclusive(() => alias.opened);
+    const action = vi.fn(async () => 'sent');
+
+    const sending = pm.runDelegated(action);
+    await tick();
+    expect(action).not.toHaveBeenCalled();
+
+    alias.release();
+    await Promise.all([exclusive, sending]);
+    expect(action).toHaveBeenCalledExactlyOnceWith({});
+  });
+
+  it('lets a command the daemon is carrying finish before an exclusive one takes it down', async () => {
+    const { pm, child } = connectedManager();
+    const send = gate();
+    const sending = pm.runDelegated(() => send.opened);
+    const alias = vi.fn(async () => 'aliased');
+
+    const exclusive = pm.executeExclusive(alias);
+    await tick();
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(alias).not.toHaveBeenCalled();
+
+    send.release();
+    await Promise.all([sending, exclusive]);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(alias).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a command the daemon is carrying finish before Restart takes it down', async () => {
+    const { pm, spawn, child } = connectedManager();
+    const send = gate();
+    const sending = pm.runDelegated(() => send.opened);
+
+    const restarting = pm.restart();
+    await tick();
+    expect(child.kill).not.toHaveBeenCalled();
+
+    send.release();
+    await Promise.all([sending, restarting]);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands nothing new to a daemon that is being stopped', async () => {
+    const { pm } = connectedManager();
+    const send = gate();
+    const sending = pm.runDelegated(() => send.opened);
+    const stopping = pm.stop();
+    const later = vi.fn(async () => 'sent');
+
+    const second = pm.runDelegated(later);
+    send.release();
+    await Promise.all([sending, stopping, second]);
+
+    expect(later).toHaveBeenCalledExactlyOnceWith({});
+  });
+
+  it('keeps the daemon when it is started again while a stop waits', async () => {
+    // Sleep, then Wake before the send finished: the later request stands.
+    const { pm, child } = connectedManager();
+    const send = gate();
+    const sending = pm.runDelegated(() => send.opened);
+
+    const stopping = pm.stop();
+    pm.start();
+    send.release();
+    await Promise.all([sending, stopping]);
+
+    expect(child.kill).not.toHaveBeenCalled();
+    const next = vi.fn(async () => 'sent');
+    await pm.runDelegated(next);
+    expect(next).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 });
   });
 });
 

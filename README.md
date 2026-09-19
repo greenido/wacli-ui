@@ -42,7 +42,7 @@ A high-density, local-first operator console for [wacli](https://wacli.sh). Moni
 ### ⚡ Real-Time Ingestion & Process Supervision
 - **Supervised `wacli sync --follow` Daemon**: The Node.js API manages the sync process lifecycle with automatic exponential backoff restarts and heartbeat liveness checks. It runs one daemon at a time and tracks that one: a **Restart** pressed while a send holds the store waits for the send to finish, and a crash's backoff never starts a second daemon beside one that is already back.
 - **Push-First Realtime Bridge**: Webhook events (`message`, `receipt`, `chat_presence`) are verified via HMAC-SHA256 and pushed instantly to the UI over WebSockets. Arriving messages are folded straight into the cached chat rail and thread, so the common case costs no request at all; polling stays on a slow timer as the safety net for whatever the socket misses.
-- **Lock Management**: Seamlessly coordinates store lock delegation between the running sync supervisor and one-shot write operations.
+- **Lock Management**: Sends, reactions and read receipts are handed to the running sync daemon (wacli's send delegation), so it stays connected through them. A contact alias, a history backfill, or a daemon not yet connected pauses the daemon instead, and a Restart, Sleep or shutdown lets a send it is carrying finish first.
 
 ### 💬 Three-Pane Operator Console
 - **Left Rail (Chat List)**:

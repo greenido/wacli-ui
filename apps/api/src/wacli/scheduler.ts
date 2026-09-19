@@ -6,6 +6,7 @@ import { getDb, openDatabaseAt, resolveDbPath } from '../db/index.js';
 import { activityStore } from './activity.js';
 import { execWacli, POST_SEND_WAIT } from './commands.js';
 import { modeManager } from './mode.js';
+import type { DelegationOptions } from './process-manager.js';
 import { logger } from '../logger.js';
 import { isSynthesisedMessageId, sentMessageIdFrom } from './normalize.js';
 import type { EventBridge } from '../ws/event-bridge.js';
@@ -148,8 +149,8 @@ const UPSERT_ROW = `INSERT OR REPLACE INTO scheduled
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /** The one thing the scheduler needs from the process manager. */
-export interface ExclusiveRunner {
-  executeExclusive<T>(action: () => Promise<T>): Promise<T>;
+export interface SendRunner {
+  runDelegated<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T>;
 }
 
 export class Scheduler {
@@ -170,7 +171,7 @@ export class Scheduler {
   private hydrated = false;
   private timer: NodeJS.Timeout | null = null;
   private eventBridge: EventBridge | null = null;
-  private exclusiveRunner: ExclusiveRunner | null = null;
+  private sendRunner: SendRunner | null = null;
   /** Ids currently being dispatched, to prevent overlapping ticks double-sending. */
   private inFlight: Set<string> = new Set();
   private isChecking = false;
@@ -204,23 +205,23 @@ export class Scheduler {
     this.eventBridge = bridge;
   }
 
-  public setExclusiveRunner(runner: ExclusiveRunner): void {
-    this.exclusiveRunner = runner;
+  public setSendRunner(runner: SendRunner): void {
+    this.sendRunner = runner;
   }
 
   /**
-   * Runs a send with the store to itself.
+   * Runs a send through the sync daemon.
    *
    * A due message dispatches on a 3s timer, which means it almost always fires
    * while the sync daemon is up and holding the store lock — and the daemon
-   * never releases it between polls, so the send simply fails. Pausing the
-   * daemon around the send is what makes it land, the same as for the
-   * interactive routes. Left unset the action runs as-is, which is what the
-   * scheduler tests want.
+   * never releases it between polls, so a send run beside it simply fails.
+   * Handing it to the daemon, or pausing the daemon when it cannot take it, is
+   * what makes it land, the same as for the interactive routes. Left unset the
+   * action runs as-is, which is what the scheduler tests want.
    */
-  private async exclusively<T>(action: () => Promise<T>): Promise<T> {
-    if (!this.exclusiveRunner) return action();
-    return this.exclusiveRunner.executeExclusive(action);
+  private async throughDaemon<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T> {
+    if (!this.sendRunner) return action({});
+    return this.sendRunner.runDelegated(action);
   }
 
   /**
@@ -229,15 +230,16 @@ export class Scheduler {
    * `pending` on disk means "not sent yet", and a restart sends whatever is
    * pending and due. A crash after wacli sent but before `sent` was written
    * left exactly that, and the message went out again on the next boot. So
-   * `sending` is written first, once the store is ours and just before wacli
-   * is asked; if even that cannot be written, nothing is sent.
+   * `sending` is written first, just before wacli is asked (again, when the
+   * daemon would not take the send and it is retried with the daemon paused);
+   * if even that cannot be written, nothing is sent.
    */
   private sendClaimed(
     item: ScheduledMessage,
     args: string[],
     timeoutMs: number
   ): Promise<Record<string, unknown>> {
-    return this.exclusively(async () => {
+    return this.throughDaemon(async (lock) => {
       item.status = 'sending';
       try {
         this.writeRow(item);
@@ -248,7 +250,7 @@ export class Scheduler {
         });
       }
       this.broadcastUpdate(item);
-      return execWacli<Record<string, unknown>>(args, { allowMutation: true, timeoutMs });
+      return execWacli<Record<string, unknown>>(args, { allowMutation: true, timeoutMs, ...lock });
     });
   }
 

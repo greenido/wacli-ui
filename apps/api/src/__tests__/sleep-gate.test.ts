@@ -190,7 +190,7 @@ describe('resending while asleep', () => {
     daemon.start();
     const sleep = new SleepController({ daemon });
     const scheduler = new Scheduler(dbFile);
-    scheduler.setExclusiveRunner(daemon);
+    scheduler.setSendRunner(daemon);
 
     execWacliMock.mockRejectedValueOnce(new Error('wacli exploded'));
     const item = scheduler.schedule({

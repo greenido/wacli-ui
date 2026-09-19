@@ -177,4 +177,17 @@ describe('the shutdown sequence', () => {
 
     expect(exit).toHaveBeenCalledTimes(1);
   });
+
+  it('leaves anyway while the daemon is finishing a send', async () => {
+    // Stopping the daemon waits for a send it is carrying, which can take as
+    // long as the send's own timeout. The backstop covers that wait too.
+    const { built, exit } = deps({
+      processManager: { stop: vi.fn(() => new Promise<void>(() => {})) },
+    });
+
+    void shutdown('SIGINT', built);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(exit).toHaveBeenCalledTimes(1);
+  });
 });
