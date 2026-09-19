@@ -235,7 +235,7 @@ Clicking a chat puts the caret in the composer. Press <kbd>Esc</kbd> to step out
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     UI["Browser UI<br/>React 19 · Vite 7"]
     API["Mission Control API<br/>Express 5 on 127.0.0.1:3002<br/>+ its own SQLite database"]
     CLI["wacli … --json<br/>one-shot commands"]
