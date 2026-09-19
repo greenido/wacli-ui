@@ -76,6 +76,28 @@ function formatQuery(query: Request['query']): string | undefined {
 }
 
 /**
+ * What a caller is told when its request is refused before any route runs.
+ * The JSON parser's own message can quote the body back — the text of a
+ * message being sent, say — so it is neither returned nor logged.
+ */
+const CLIENT_ERROR_MESSAGES: Record<string, string> = {
+  'entity.parse.failed': 'The request body is not valid JSON.',
+  'entity.too.large': 'The request body is too large.',
+};
+
+/**
+ * The 4xx a library put on an error it raised about the request itself, or
+ * null. `expose` is how http-errors marks one as the caller's fault, so an
+ * error that merely has a `status` of its own is not taken at its word.
+ */
+function clientErrorStatus(err: unknown): number | null {
+  const { status, expose } = (err ?? {}) as { status?: unknown; expose?: unknown };
+  return typeof status === 'number' && status >= 400 && status < 500 && expose === true
+    ? status
+    : null;
+}
+
+/**
  * One line per API call: verb, path, query, status, duration. This is the log
  * that answers "did the UI even ask for that, and what came back?" — where most
  * debugging starts, and the one thing the console had no record of at all.
@@ -170,8 +192,10 @@ export function createApp(
     },
   }));
 
-  // JSON body parser for REST API
-  app.use('/api', express.json({ limit: '64kb' }));
+  // JSON body parser for REST API. WhatsApp allows 65,536 characters in a
+  // message; in Hebrew that is 128 KB of UTF-8, so the old 64 KB limit refused
+  // a long message with a 500 before any route saw it.
+  app.use('/api', express.json({ limit: '512kb' }));
 
   const sleep = new SleepController({
     daemon: processManager,
@@ -223,6 +247,23 @@ export function createApp(
         error: err.message,
         code: err.code,
         lockHolderPid: err.lockHolderPid,
+      });
+      return;
+    }
+
+    // A request the caller got wrong — malformed JSON, a body over the limit —
+    // arrives with its own 4xx from the library that refused it. Answering 500
+    // told the caller to retry what could only fail the same way, and logged
+    // an ERROR for something that was never the server's fault.
+    const clientStatus = clientErrorStatus(err);
+    if (clientStatus !== null) {
+      const { type, headers } = err as { type?: string; headers?: Record<string, string> };
+      logger.warn('api', 'Refused a request it could not use', { route, status: clientStatus, type });
+      if (headers) res.set(headers);
+      res.status(clientStatus).json({
+        success: false,
+        data: null,
+        error: (type && CLIENT_ERROR_MESSAGES[type]) ?? http.STATUS_CODES[clientStatus] ?? 'Bad request',
       });
       return;
     }
