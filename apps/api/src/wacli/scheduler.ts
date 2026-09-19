@@ -21,7 +21,12 @@ export interface ScheduledMessage {
   mimeType?: string;
   scheduledAt: string;
   createdAt: string;
-  status: 'pending' | 'sent' | 'cancelled' | 'failed';
+  /**
+   * `sending` is written just before wacli is asked and replaced when it
+   * answers, so a record still saying it after a restart is one whose fate
+   * nobody knows.
+   */
+  status: 'pending' | 'sending' | 'sent' | 'cancelled' | 'failed';
   error?: string;
   sentMessageId?: string;
   /** How many times the operator has manually resent this after a failure. */
@@ -132,6 +137,16 @@ function missingAttachment(item: ScheduledMessage): string {
   return `${name} is no longer on disk.`;
 }
 
+/** What a restart says about a message it finds still marked `sending`. */
+export const INTERRUPTED_SEND =
+  'Interrupted: Mission Control stopped while this was being sent, so it may or may not ' +
+  'have gone out. Check the conversation before resending.';
+
+const UPSERT_ROW = `INSERT OR REPLACE INTO scheduled
+  (id, to_jid, recipient_name, message, reply_to, file_path, file_name, mime_type,
+   scheduled_at, created_at, status, error, sent_message_id, resend_count, last_attempt_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
 /** The one thing the scheduler needs from the process manager. */
 export interface ExclusiveRunner {
   executeExclusive<T>(action: () => Promise<T>): Promise<T>;
@@ -208,6 +223,35 @@ export class Scheduler {
     return this.exclusiveRunner.executeExclusive(action);
   }
 
+  /**
+   * Records that the message is on its way, then sends it.
+   *
+   * `pending` on disk means "not sent yet", and a restart sends whatever is
+   * pending and due. A crash after wacli sent but before `sent` was written
+   * left exactly that, and the message went out again on the next boot. So
+   * `sending` is written first, once the store is ours and just before wacli
+   * is asked; if even that cannot be written, nothing is sent.
+   */
+  private sendClaimed(
+    item: ScheduledMessage,
+    args: string[],
+    timeoutMs: number
+  ): Promise<Record<string, unknown>> {
+    return this.exclusively(async () => {
+      item.status = 'sending';
+      try {
+        this.writeRow(item);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(`Not sent: could not record the send before starting it (${detail}).`, {
+          cause: err,
+        });
+      }
+      this.broadcastUpdate(item);
+      return execWacli<Record<string, unknown>>(args, { allowMutation: true, timeoutMs });
+    });
+  }
+
   /** A stored row, back in the shape the rest of this file works in. */
   private static fromRow(row: ScheduledRow): ScheduledMessage {
     const opt = (v: string | null): string | undefined => v ?? undefined;
@@ -234,8 +278,10 @@ export class Scheduler {
     try {
       const rows = this.db().prepare('SELECT * FROM scheduled').all() as unknown as ScheduledRow[];
       let healed = 0;
+      const interrupted: string[] = [];
       for (const row of rows) {
         const item = Scheduler.fromRow(row);
+        let changed = false;
         // Records written before wacli's id was read correctly carry a
         // placeholder no archive can match. Dropping it on the way in is
         // what stops every one of them answering a click with "that
@@ -243,14 +289,29 @@ export class Scheduler {
         if (isSynthesisedMessageId(item.sentMessageId)) {
           delete item.sentMessageId;
           healed++;
+          changed = true;
+        }
+        // The process stopped between asking wacli and hearing back. Back to
+        // pending would send it again; failed, with the reason, leaves the
+        // call to the operator.
+        if (item.status === 'sending') {
+          item.status = 'failed';
+          item.error = INTERRUPTED_SEND;
+          interrupted.push(item.id);
+          changed = true;
         }
         this.items.set(item.id, item);
+        if (changed) this.persist(item);
       }
       if (healed > 0) {
         logger.info('send', 'Dropped placeholder message ids from scheduled history', {
           count: healed,
         });
-        this.save();
+      }
+      if (interrupted.length > 0) {
+        logger.warn('send', 'Scheduled messages were interrupted mid-send; marked failed', {
+          ids: interrupted.join(','),
+        });
       }
     } catch (err) {
       logger.warn('send', 'Failed to load scheduled messages', { err });
@@ -258,62 +319,50 @@ export class Scheduler {
   }
 
   /**
-   * Writes the map back to the table.
+   * Writes one record, and throws if it cannot.
    *
-   * Still whole-set rather than per-row, because the callers that reach here
-   * mutate an item in place and then say "persist" without naming it. The
-   * difference from the file it replaces is that this is a transaction over an
-   * indexed table rather than a re-serialisation of every record — and a
-   * partial write can no longer truncate the queue to nothing.
+   * One row at a time. The whole map used to be rewritten in one transaction,
+   * so a single record the table refused rolled back every save after it —
+   * logged as a warning, and the queue on disk simply stopped changing. It
+   * also deleted every row this process did not hold, so a second console on
+   * the same file erased the first one's queue.
    */
-  private save(): void {
-    try {
-      const db = this.db();
-      const upsert = db.prepare(
-        `INSERT OR REPLACE INTO scheduled
-           (id, to_jid, recipient_name, message, reply_to, file_path, file_name, mime_type,
-            scheduled_at, created_at, status, error, sent_message_id, resend_count, last_attempt_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  private writeRow(item: ScheduledMessage): void {
+    this.db()
+      .prepare(UPSERT_ROW)
+      .run(
+        item.id,
+        item.to,
+        item.recipientName ?? null,
+        item.message,
+        item.replyTo ?? null,
+        item.filePath ?? null,
+        item.fileName ?? null,
+        item.mimeType ?? null,
+        item.scheduledAt,
+        item.createdAt,
+        item.status,
+        item.error ?? null,
+        item.sentMessageId ?? null,
+        item.resendCount ?? null,
+        item.lastAttemptAt ?? null
       );
+  }
 
-      db.exec('BEGIN');
-      try {
-        for (const item of this.items.values()) {
-          upsert.run(
-            item.id,
-            item.to,
-            item.recipientName ?? null,
-            item.message,
-            item.replyTo ?? null,
-            item.filePath ?? null,
-            item.fileName ?? null,
-            item.mimeType ?? null,
-            item.scheduledAt,
-            item.createdAt,
-            item.status,
-            item.error ?? null,
-            item.sentMessageId ?? null,
-            item.resendCount ?? null,
-            item.lastAttemptAt ?? null
-          );
-        }
-        // discard() drops an item from the map; this is what makes that reach
-        // the table. Deleting by "not in the map" rather than by id keeps save()
-        // callers from having to say what they removed.
-        const ids = [...this.items.keys()];
-        const placeholders = ids.map(() => '?').join(', ');
-        db.prepare(
-          ids.length
-            ? `DELETE FROM scheduled WHERE id NOT IN (${placeholders})`
-            : 'DELETE FROM scheduled'
-        ).run(...ids);
-        db.exec('COMMIT');
-      } catch (err) {
-        db.exec('ROLLBACK');
-        throw err;
-      }
+  /** Writes one record where carrying on without the write is still correct. */
+  private persist(item: ScheduledMessage): void {
+    try {
+      this.writeRow(item);
     } catch (err) {
-      logger.warn('send', 'Failed to persist scheduled messages', { err });
+      logger.warn('send', 'Failed to persist a scheduled message', { id: item.id, err });
+    }
+  }
+
+  private deleteRow(id: string): void {
+    try {
+      this.db().prepare('DELETE FROM scheduled WHERE id = ?').run(id);
+    } catch (err) {
+      logger.warn('send', 'Failed to delete a scheduled message', { id, err });
     }
   }
 
@@ -343,8 +392,11 @@ export class Scheduler {
       status: 'pending',
     };
 
+    // On disk before it is in the queue: a message that cannot be stored is
+    // refused now, where the operator sees it, rather than kept only in memory
+    // and lost at the next restart.
+    this.writeRow(item);
     this.items.set(id, item);
-    this.save();
     logger.info('send', 'Message scheduled', { id, to: item.to, scheduledAt: item.scheduledAt });
 
     this.broadcastUpdate(item);
@@ -379,7 +431,17 @@ export class Scheduler {
     }
 
     item.status = 'cancelled';
-    this.save();
+    try {
+      this.writeRow(item);
+    } catch (err) {
+      // Still pending on disk, so the next restart would send it. Refuse,
+      // rather than report a cancel that would not survive one.
+      item.status = 'pending';
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Could not record the cancellation, so the message is still scheduled: ${detail}`, {
+        cause: err,
+      });
+    }
     // Nothing will ever send it now, and a private file should not outlive its
     // message. It used to sit in the temp directory until the OS cleared it.
     this.removeAttachment(item);
@@ -459,7 +521,7 @@ export class Scheduler {
     item.scheduledAt = dueAt;
     item.resendCount = (item.resendCount ?? 0) + 1;
     item.lastAttemptAt = new Date().toISOString();
-    this.save();
+    this.persist(item);
     this.broadcastUpdate(item);
 
     if (!sendNow) {
@@ -495,7 +557,7 @@ export class Scheduler {
     this.removeAttachment(item);
 
     this.items.delete(id);
-    this.save();
+    this.deleteRow(id);
     logger.info('send', 'Failed scheduled message discarded', { id });
     this.broadcastUpdate(item);
 
@@ -532,13 +594,15 @@ export class Scheduler {
       .filter((item) => !opts.chat || item.to === opts.chat)
       .map((item) => this.decorate(item));
 
-    // Soonest first: this is a queue of what happens next, not a history.
+    // Soonest first: this is a queue of what happens next, not a history. A
+    // message on its way out has not finished, so it stays here until it has.
+    const isOpen = (i: ScheduledMessage) => i.status === 'pending' || i.status === 'sending';
     const pending = all
-      .filter((i) => i.status === 'pending')
+      .filter(isOpen)
       .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
 
     const finished = all
-      .filter((i) => i.status !== 'pending')
+      .filter((i) => !isOpen(i))
       .sort((a, b) => cursorFor(b).localeCompare(cursorFor(a)));
 
     // A cursor rather than an offset: a message resolving mid-scroll shifts
@@ -633,7 +697,7 @@ export class Scheduler {
   private fail(item: ScheduledMessage, error: string): void {
     item.status = 'failed';
     item.error = error;
-    this.save();
+    this.persist(item);
     logger.error('send', 'Scheduled message failed', { id: item.id, to: item.to, reason: error });
     this.recordActivity(item, 'error', error);
     this.broadcastUpdate(item);
@@ -692,12 +756,7 @@ export class Scheduler {
           args.push('--reply-to', item.replyTo);
         }
 
-        result = await this.exclusively(() =>
-          execWacli<Record<string, unknown>>(args, {
-            allowMutation: true,
-            timeoutMs: 120000,
-          })
-        );
+        result = await this.sendClaimed(item, args, 120000);
 
         this.removeAttachment(item);
       } else {
@@ -706,12 +765,7 @@ export class Scheduler {
           args.push('--reply-to', item.replyTo);
         }
 
-        result = await this.exclusively(() =>
-          execWacli<Record<string, unknown>>(args, {
-            allowMutation: true,
-            timeoutMs: 60000,
-          })
-        );
+        result = await this.sendClaimed(item, args, 60000);
       }
 
       item.status = 'sent';
@@ -725,7 +779,9 @@ export class Scheduler {
       if (sentId) {
         item.sentMessageId = sentId;
       }
-      this.save();
+      // If this write fails the row still says `sending`, and the next restart
+      // reports it as possibly sent — never as pending.
+      this.persist(item);
       logger.info('send', 'Scheduled message sent', { id: item.id });
 
       this.recordActivity(item, 'success');

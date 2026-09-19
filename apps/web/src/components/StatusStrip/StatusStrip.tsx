@@ -675,7 +675,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
                           className={`font-semibold uppercase ${
                             item.status === 'sent'
                               ? 'text-mc-live'
-                              : item.status === 'pending'
+                              : item.status === 'pending' || item.status === 'sending'
                               ? 'text-mc-safe'
                               : isFailed
                               ? 'text-mc-danger'

@@ -24,7 +24,13 @@ import { modeManager } from './wacli/mode.js';
 import { scheduler } from './wacli/scheduler.js';
 import { SleepController, sleepGate } from './wacli/sleep.js';
 import { StoreLockedError } from './wacli/store-lock.js';
-import { initDatabase, closeDatabase, DatabaseUnavailableError, resolveDbPath } from './db/index.js';
+import {
+  initDatabase,
+  closeDatabase,
+  DatabaseInUseError,
+  DatabaseUnavailableError,
+  resolveDbPath,
+} from './db/index.js';
 import { migrateJsonStores } from './db/migrate-json.js';
 import { activityStore } from './wacli/activity.js';
 
@@ -309,7 +315,9 @@ export async function shutdown(signal: string, deps: ShutdownDeps): Promise<void
  */
 export function bootDatabase(exit: (code: number) => never = process.exit): void {
   try {
-    const db = initDatabase();
+    // Exclusive: this server is the only thing that may use the file while it
+    // runs. A second one would run a second scheduler over the same queue.
+    const db = initDatabase(resolveDbPath(), { exclusive: true });
     migrateJsonStores(db);
     // Here rather than on a timer: a console left open for a month is not the
     // case worth a background job, and a restart is when the count is visible.
@@ -332,9 +340,16 @@ export function bootDatabase(exit: (code: number) => never = process.exit): void
         '',
         `  ${detail}`,
         '',
-        '  This database holds safe mode, the scheduled queue and the activity log,',
-        '  so the console will not run without it. Check that the file is readable and',
-        '  the disk is not full, or set WACLI_DB_FILE to a writable path.',
+        ...(err instanceof DatabaseInUseError
+          ? [
+              '  Two consoles on one database would each send every scheduled message.',
+              '  Stop the other one first, or set WACLI_DB_FILE to give this one its own.',
+            ]
+          : [
+              '  This database holds safe mode, the scheduled queue and the activity log,',
+              '  so the console will not run without it. Check that the file is readable and',
+              '  the disk is not full, or set WACLI_DB_FILE to a writable path.',
+            ]),
         '',
       ].join('\n')
     );
