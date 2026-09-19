@@ -242,12 +242,21 @@ export class WacliProcessManager {
 
   public start(): void {
     this.wantRunning = true;
+    // Exclusive work owns the store until it is done, and brings the daemon
+    // back itself when it is. Spawning now only loses the lock to it — which
+    // is how a Restart pressed mid-send used to end with a daemon nothing
+    // tracked.
+    if (this.exclusiveWaiters > 0) {
+      this.setState('paused', 'Paused for exclusive command');
+      return;
+    }
     if (this.child || this.state === 'running' || this.state === 'starting') {
       return;
     }
 
     this.isPaused = false;
     this.cancelPendingRespawn();
+    this.cancelRestartTimer();
     this.spawnSyncProcess();
   }
 
@@ -275,6 +284,9 @@ export class WacliProcessManager {
    */
   private scheduleRespawn(): void {
     this.cancelPendingRespawn();
+    // One way back at a time: a crash's backoff timer left armed alongside
+    // this one would spawn a second daemon.
+    this.cancelRestartTimer();
     this.respawnTimer = setTimeout(() => {
       this.respawnTimer = null;
       if (this.isPaused || this.exclusiveWaiters > 0 || this.child) {
@@ -288,6 +300,13 @@ export class WacliProcessManager {
     if (this.respawnTimer) {
       clearTimeout(this.respawnTimer);
       this.respawnTimer = null;
+    }
+  }
+
+  private cancelRestartTimer(): void {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
     }
   }
 
@@ -377,11 +396,11 @@ export class WacliProcessManager {
       child.on('error', (err) => {
         this.lastError = err.message;
         logger.error('process', 'Sync daemon failed to spawn', { err });
-        this.handleProcessExit(-1, null);
+        this.handleProcessExit(child, -1, null);
       });
 
       child.on('close', (code, signal) => {
-        this.handleProcessExit(code, signal);
+        this.handleProcessExit(child, code, signal);
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -434,7 +453,16 @@ export class WacliProcessManager {
     }
   }
 
-  private handleProcessExit(code: number | null, signal: NodeJS.Signals | null): void {
+  private handleProcessExit(
+    child: ChildProcess,
+    code: number | null,
+    signal: NodeJS.Signals | null
+  ): void {
+    // Only the daemon we track can end the one we track. A child that is not
+    // it has already been handled — a failed spawn raises `error` and then
+    // `close`, which used to count one failure twice — or was replaced, and
+    // clearing `child` on its behalf would lose track of the live one.
+    if (child !== this.child) return;
     this.child = null;
     this.daemonConnected = false;
     if (this.uptimeTimer) {
@@ -467,8 +495,13 @@ export class WacliProcessManager {
 
     this.setState('restarting', `${reason}. Restarting in ${delay}ms (attempt #${this.reconnectAttempts})`);
 
-    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.cancelRestartTimer();
     this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      // Something else may have brought the daemon back, or taken it down on
+      // purpose, since this was armed. Spawning regardless started a second
+      // daemon beside the first and lost track of one of them.
+      if (this.child || this.isPaused || !this.wantRunning || this.exclusiveWaiters > 0) return;
       this.spawnSyncProcess();
     }, delay);
   }
@@ -477,10 +510,7 @@ export class WacliProcessManager {
     this.wantRunning = false;
     this.isPaused = true;
     this.cancelPendingRespawn();
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
+    this.cancelRestartTimer();
 
     if (!this.child) {
       this.setState('stopped');
@@ -540,10 +570,7 @@ export class WacliProcessManager {
       logger.info('process', 'Pausing sync daemon for exclusive store access');
       this.cancelPendingRespawn();
       this.isPaused = true;
-      if (this.restartTimer) {
-        clearTimeout(this.restartTimer);
-        this.restartTimer = null;
-      }
+      this.cancelRestartTimer();
 
       if (this.child) {
         await new Promise<void>((resolve) => {
