@@ -92,6 +92,24 @@ function slowThresholdFor(args: string[]): number {
   return SLOW_COMMAND_MS + parseDurationMs(args[waitIdx + 1] ?? '');
 }
 
+/** Flags whose value is what the operator wrote to someone. */
+const MESSAGE_TEXT_FLAGS = new Set(['--message', '--caption']);
+
+/**
+ * The command line as the log and every error may show it.
+ *
+ * Which command ran, and with which options, is what makes a log line useful.
+ * The message itself is not: it went to the log on every slow send, and into
+ * the error of every failed one, which is stored with the scheduled message
+ * and the activity log as well. A log file is the first thing anyone pastes
+ * into a bug report.
+ */
+export function redactCommand(args: string[]): string[] {
+  return args.map((arg, index) =>
+    index > 0 && MESSAGE_TEXT_FLAGS.has(args[index - 1]) ? '<redacted>' : arg
+  );
+}
+
 let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
 
 export function resetWacliInstallCache(): void {
@@ -147,7 +165,9 @@ async function probeWacliInstalled(bin: string): Promise<WacliInstallStatus> {
 function classifyCommandError(
   err: unknown,
   commandLabel: string,
-  timeoutMs?: number
+  timeoutMs?: number,
+  /** Takes the message text back out of whatever Node put the argv into. */
+  scrub: (text: string) => string = (text) => text
 ): WacliCommandError {
   if (err instanceof WacliCommandError) {
     return err;
@@ -195,8 +215,10 @@ function classifyCommandError(
     );
   }
 
+  // A failed execFile says `Command failed: <the whole argv>`, message text and
+  // all.
   return new WacliCommandError(
-    compactUrls(execErr.message || 'Unknown execution error'),
+    compactUrls(scrub(execErr.message || 'Unknown execution error')),
     exitCode,
     rawOut,
     commandLabel
@@ -252,8 +274,11 @@ async function execWacliOnce<T>(
     fullArgs.push('--timeout', `${Math.max(1, Math.round((timeout * 0.8) / 1000))}s`);
   }
 
-  const commandLabel = `${bin} ${args.join(' ')}`;
-  const cmd = args.join(' ');
+  const cmd = redactCommand(args).join(' ');
+  const commandLabel = `${bin} ${cmd}`;
+  const fullLine = [bin, ...fullArgs].join(' ');
+  const shownLine = [bin, ...redactCommand(fullArgs)].join(' ');
+  const scrub = (text: string) => text.split(fullLine).join(shownLine);
   const startedAt = Date.now();
 
   try {
@@ -302,7 +327,7 @@ async function execWacliOnce<T>(
       );
     }
   } catch (err: unknown) {
-    const cmdErr = classifyCommandError(err, commandLabel, timeout);
+    const cmdErr = classifyCommandError(err, commandLabel, timeout, scrub);
 
     // Only the caller knows whether a failure is expected — expired media, a
     // chat with no rows — so the severity is theirs to choose. Logging it as an
@@ -325,7 +350,8 @@ export async function execWacli<T>(
 ): Promise<T> {
   const maxAttempts = options.lockRetryAttempts ?? 3;
   const retryDelayMs = options.lockRetryDelayMs ?? 400;
-  const commandLabel = `${process.env.WACLI_BIN ?? 'wacli'} ${args.join(' ')}`;
+  const cmd = redactCommand(args).join(' ');
+  const commandLabel = `${process.env.WACLI_BIN ?? 'wacli'} ${cmd}`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -337,7 +363,7 @@ export async function execWacli<T>(
 
       if (isLock && !isLastAttempt) {
         logger.warn('api', 'Store locked; retrying', {
-          cmd: args.join(' '),
+          cmd,
           attempt,
           maxAttempts,
           retryInMs: retryDelayMs,
