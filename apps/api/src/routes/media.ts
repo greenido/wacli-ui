@@ -102,44 +102,6 @@ function realpathAllowingMissing(target: string): string {
   }
 }
 
-/** Strips characters that would break out of the quoted Content-Disposition value. */
-function sanitizeFilename(name: string): string {
-  return path.basename(name).replace(/["\\\r\n]/g, '_') || 'download';
-}
-
-/**
- * Parses a single byte range, clamped to the file. Returns null for absent,
- * malformed, or unsatisfiable ranges so the caller falls back to a full body —
- * previously a suffix range like `bytes=-500` produced NaN offsets and threw.
- */
-export function parseRangeHeader(
-  header: string,
-  size: number
-): { start: number; end: number } | null {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || size <= 0) return null;
-
-  const [, rawStart, rawEnd] = match;
-  let start: number;
-  let end: number;
-
-  if (rawStart === '') {
-    if (rawEnd === '') return null;
-    // Suffix range: the last N bytes.
-    const suffixLength = Number(rawEnd);
-    if (suffixLength <= 0) return null;
-    start = Math.max(0, size - suffixLength);
-    end = size - 1;
-  } else {
-    start = Number(rawStart);
-    end = rawEnd === '' ? size - 1 : Math.min(Number(rawEnd), size - 1);
-  }
-
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  if (start > end || start >= size) return null;
-
-  return { start, end };
-}
 
 const MIME_MAP: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -166,39 +128,31 @@ const MIME_MAP: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
+/**
+ * What the browser is told a file is: only what this list says, by extension,
+ * and anything else is opaque bytes. Never a guess from the name a download is
+ * given, which the caller chooses.
+ */
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   return MIME_MAP[ext] || 'application/octet-stream';
 }
 
 /**
- * Streams a file to the response, and survives it going away mid-body.
- *
- * `pipe()` does not forward errors, and an unhandled `error` on a read stream
- * is an uncaught exception — so a file deleted, unmounted or truncated while it
- * was being served took the whole API down with it, and with it the sync daemon
- * and every other pane. Headers are already sent by this point, so there is no
- * status left to send: the honest thing is to log it and cut the body off,
- * which is what the client sees as a truncated download.
- *
- * The response ending first is the ordinary case — a seek, a closed tab, a
- * paused video — so the stream is destroyed with it rather than left reading a
- * file nobody is waiting for.
+ * What this route and `send` say about the file itself. When serving fails
+ * before anything has gone out, the error is answered in JSON, and these would
+ * label that answer as the file: a 416 for a seek past the end arriving as
+ * video/mp4, or as a download named after the attachment.
  */
-function streamFile(res: Response, filePath: string, range?: { start: number; end: number }): void {
-  const stream = fs.createReadStream(filePath, range);
-
-  stream.on('error', (err) => {
-    logger.warn('media', 'Media stream failed mid-body', { path: filePath, err });
-    res.destroy();
-  });
-
-  res.on('close', () => {
-    stream.destroy();
-  });
-
-  stream.pipe(res);
-}
+const FILE_HEADERS = [
+  'Content-Disposition',
+  'Content-Type',
+  'Content-Length',
+  'Content-Range',
+  'Accept-Ranges',
+  'ETag',
+  'Last-Modified',
+];
 
 export function createMediaRouter(): Router {
   const router = Router();
@@ -309,7 +263,9 @@ export function createMediaRouter(): Router {
         }
       }
 
-      if (!filePath || !fs.existsSync(filePath)) {
+      // A folder under media is not an attachment either, and `send` would
+      // answer one as a server error.
+      if (!filePath || !fs.statSync(filePath, { throwIfNoEntry: false })?.isFile()) {
         res.status(404).json({
           success: false,
           data: null,
@@ -318,42 +274,43 @@ export function createMediaRouter(): Router {
         return;
       }
 
-      const stat = fs.statSync(filePath);
-      const contentType = getMimeType(filePath);
-      const basename = sanitizeFilename(customFilename || path.basename(filePath));
-
       // An SVG rendered inline executes script on this origin, which would give a
       // contact-supplied file access to the whole console. Always hand it over as
       // a download instead.
       const forceAttachment = isDownload || path.extname(filePath).toLowerCase() === '.svg';
-      const disposition = forceAttachment ? `attachment; filename="${basename}"` : 'inline';
-
-      // Support HTTP byte range requests for audio / video streaming & seeking
-      const range = req.headers.range;
-      const parsedRange = range ? parseRangeHeader(range, stat.size) : null;
-
-      if (parsedRange) {
-        const { start, end } = parsedRange;
-
-        res.writeHead(206, {
-          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': end - start + 1,
-          'Content-Type': contentType,
-          'Content-Disposition': disposition,
-          'X-Content-Type-Options': 'nosniff',
-        });
-        streamFile(res, filePath, { start, end });
+      if (forceAttachment) {
+        // Any name, a Hebrew one included: it goes out as RFC 6266 filename*.
+        // Writing it into the header raw failed the whole download instead.
+        res.attachment(customFilename || path.basename(filePath));
       } else {
-        res.writeHead(200, {
-          'Content-Length': stat.size,
-          'Content-Type': contentType,
-          'Accept-Ranges': 'bytes',
-          'Content-Disposition': disposition,
-          'X-Content-Type-Options': 'nosniff',
-        });
-        streamFile(res, filePath);
+        res.setHeader('Content-Disposition', 'inline');
       }
+      // After attachment(), which sets a type from the name it was given — a
+      // name the caller chose. The allowlist has the last word.
+      res.setHeader('Content-Type', getMimeType(filePath));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      // Kept, but checked before each use: a repeat load is a 304 rather than
+      // the whole file, and never a copy of something the store has replaced.
+      res.setHeader('Cache-Control', 'no-cache');
+
+      // Ranges for seeking audio and video, conditional requests, HEAD. The store
+      // is usually ~/.wacli, which `send` would refuse as a dotfile path.
+      res.sendFile(filePath, { dotfiles: 'allow' }, (err?: NodeJS.ErrnoException) => {
+        // Done, or the client left first: a seek, a closed tab, a paused video.
+        if (!err || err.code === 'ECONNABORTED') return;
+        if (!res.headersSent) {
+          // A 416, or a read that failed before the first byte. The error
+          // handler answers it, with the headers the error carries.
+          for (const header of FILE_HEADERS) res.removeHeader(header);
+          next(err);
+          return;
+        }
+        // A file deleted, unmounted or truncated while it was being served.
+        // Headers are out, so there is no status left to send; cut the body off,
+        // which the client sees as a truncated download.
+        logger.warn('media', 'Media stream failed mid-body', { path: filePath, err });
+        res.destroy();
+      });
     } catch (err) {
       next(err);
     }
