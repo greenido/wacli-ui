@@ -132,30 +132,132 @@ describe('Media Routes', () => {
     }
   });
 
-  it('GET /api/media/content sanitizes the download filename header', async () => {
-    const res = await request(app).get(
-      `/api/media/content?path=${encodeURIComponent(tmpFile)}&download=1&filename=${encodeURIComponent('ev"il.ogg')}`
-    );
+  describe('the name a download is given', () => {
+    // The caller chooses it, so it may be anything, and it lands in a header.
+    it.each([
+      ['invoice.pdf', 'attachment; filename="invoice.pdf"'],
+      // Written into the header raw, this failed the whole download with a 500.
+      [
+        'חשבונית.pdf',
+        `attachment; filename="???????.pdf"; filename*=UTF-8''${encodeURIComponent('חשבונית.pdf')}`,
+      ],
+      ['café.pdf', 'attachment; filename="café.pdf"'],
+      ['ev"il.ogg', 'attachment; filename="ev\\"il.ogg"'],
+    ])('downloads under %s', async (filename, disposition) => {
+      const res = await request(app)
+        .get('/api/media/content')
+        .query({ path: tmpFile, download: '1', filename });
 
-    expect(res.status).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="ev_il.ogg"');
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toBe(disposition);
+    });
+
+    it('cannot add a header of its own', async () => {
+      const res = await request(app)
+        .get('/api/media/content')
+        .query({ path: tmpFile, download: '1', filename: 'a\r\nSet-Cookie: session=stolen.ogg' });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['set-cookie']).toBeUndefined();
+      expect(res.headers['content-disposition']).not.toMatch(/[\r\n]/);
+    });
+
+    it('does not decide what the file is', async () => {
+      const res = await request(app)
+        .get('/api/media/content')
+        .query({ path: tmpFile, download: '1', filename: 'evil.html' });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toBe('attachment; filename="evil.html"');
+      expect(res.headers['content-type']).toMatch(/^audio\/ogg\b/);
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+    });
+  });
+
+  it('GET /api/media/content serves a type it does not list as opaque bytes', async () => {
+    const page = path.join(TEST_MEDIA_DIR, `page-${Date.now()}.html`);
+    fs.writeFileSync(page, '<script>alert(1)</script>');
+
+    try {
+      const res = await request(app).get('/api/media/content').query({ path: page });
+
+      // Not text/html, which `send` would have guessed from the extension.
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toBe('application/octet-stream');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+    } finally {
+      fs.rmSync(page, { force: true });
+    }
+  });
+
+  // `send` takes the path as a URL path; a name that means something in a URL
+  // must still reach the file it names.
+  it.each(['a b.ogg', 'a%20b.ogg', '100%.ogg', 'a#b.ogg', 'a?b.ogg', 'הקלטה.ogg'])(
+    'GET /api/media/content serves a file named %s',
+    async (name) => {
+      const file = path.join(TEST_MEDIA_DIR, name);
+      fs.writeFileSync(file, `bytes of ${name}`);
+
+      try {
+        const res = await request(app).get('/api/media/content').query({ path: file });
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-length']).toBe(String(Buffer.byteLength(`bytes of ${name}`)));
+      } finally {
+        fs.rmSync(file, { force: true });
+      }
+    }
+  );
+
+  it('GET /api/media/content answers a folder under media with 404', async () => {
+    const folder = fs.mkdtempSync(path.join(TEST_MEDIA_DIR, 'chat-'));
+
+    try {
+      const res = await request(app).get('/api/media/content').query({ path: folder });
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+    } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   it('GET /api/media/content handles a suffix byte range', async () => {
+    const size = fs.statSync(tmpFile).size;
     const res = await request(app)
       .get(`/api/media/content?path=${encodeURIComponent(tmpFile)}`)
       .set('Range', 'bytes=-10');
 
     expect(res.status).toBe(206);
-    expect(res.headers['content-range']).toMatch(/^bytes \d+-\d+\/\d+$/);
+    expect(res.headers['content-range']).toBe(`bytes ${size - 10}-${size - 1}/${size}`);
   });
 
-  it('GET /api/media/content falls back to 200 for an unsatisfiable range', async () => {
+  it('GET /api/media/content answers a range past the end with 416 and the real size', async () => {
+    const size = fs.statSync(tmpFile).size;
     const res = await request(app)
-      .get(`/api/media/content?path=${encodeURIComponent(tmpFile)}`)
+      .get('/api/media/content')
+      .query({ path: tmpFile, download: '1' })
       .set('Range', 'bytes=99999-100000');
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(416);
+    // What a player needs to ask again for something that exists.
+    expect(res.headers['content-range']).toBe(`bytes */${size}`);
+    // An answer about the request, not a piece of the file, and not a download.
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(res.headers['content-disposition']).toBeUndefined();
+    expect(res.body).toEqual({ success: false, data: null, error: 'Range Not Satisfiable' });
+  });
+
+  it('GET /api/media/content answers a repeat load with 304', async () => {
+    const first = await request(app).get('/api/media/content').query({ path: tmpFile });
+    expect(first.headers['cache-control']).toBe('no-cache');
+
+    const again = await request(app)
+      .get('/api/media/content')
+      .query({ path: tmpFile })
+      .set('If-None-Match', first.headers.etag);
+
+    expect(again.status).toBe(304);
   });
 
   it('POST /api/media/download rejects request without chat or id', async () => {
