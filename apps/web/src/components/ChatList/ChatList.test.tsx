@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatList } from './ChatList.tsx';
 import { useAppStore } from '../../store/appStore.ts';
+import { flushPendingReads } from '../../lib/chatRead.ts';
 import type { SleepState, UnifiedChat } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
@@ -254,5 +255,49 @@ describe('ChatList preview direction', () => {
 
     const preview = await screen.findByText('running ten late');
     expect(preview.closest('[dir]')).toHaveAttribute('dir', 'ltr');
+  });
+});
+
+describe('ChatList opening a chat on load', () => {
+  const UNREAD_ALICE = chat(ALICE.jid, 'Alice', { unread: true, unreadCount: 3 });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getHealth.mockResolvedValue({
+      wacliInstalled: true,
+      wacliWorking: true,
+      processState: 'running',
+      statusSummary: 'ok',
+    });
+    getChats.mockResolvedValue([UNREAD_ALICE, BOB]);
+    getTags.mockResolvedValue({ tags: [], byJid: {} });
+    markChatRead.mockResolvedValue({});
+    useAppStore.setState({ selectedChat: null, chatFilter: 'all', tagFilter: null, searchQuery: '' });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  it('opens a chat by itself without sending it a read receipt', async () => {
+    renderList();
+    await screen.findByText('Alice');
+    expect(useAppStore.getState().selectedChat?.jid).toBe(ALICE.jid);
+
+    // Nobody chose this chat. A console opened in a background tab, or just to
+    // glance at the queue, has not read it.
+    flushPendingReads();
+    expect(markChatRead).not.toHaveBeenCalled();
+    expect(useAppStore.getState().selectedChat).toMatchObject({ unread: true, unreadCount: 3 });
+  });
+
+  it('still sends the receipt when the operator clicks that chat', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(await screen.findByText('Alice'));
+    flushPendingReads();
+
+    expect(markChatRead).toHaveBeenCalledWith(ALICE.jid);
   });
 });
