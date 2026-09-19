@@ -372,7 +372,7 @@ grep 'durationMs=[0-9]\{4,\}' apps/api/logs/run-*.log
 - **`LOG_LEVEL=DEBUG`** — adds per-command timings, the wacli invocation behind each failure, and wacli's own stderr. Start here when a read returns something you did not expect.
 - **Repeats collapse** — a warning that fires once per attachment in a thread is logged once and then tallied (`... (repeated 24x more)`) rather than copied down the page. Only `WARN` and `ERROR` collapse; routine lines keep every occurrence, because their fields differ.
 
-Secrets are kept out: the daemon's spawn line prints `--webhook-secret <redacted>`, and message bodies stay out of the file unless `WACLI_LOG_WEBHOOK_PAYLOADS=1`.
+Secrets are kept out: the daemon's spawn line prints `--webhook-secret <redacted>`. What you send appears as `--message <redacted>` or `--caption <redacted>` wherever a command is named, in the log and in errors. That includes a failed scheduled message's stored reason and the activity log. Incoming message bodies stay out of the file unless `WACLI_LOG_WEBHOOK_PAYLOADS=1`.
 
 ---
 
