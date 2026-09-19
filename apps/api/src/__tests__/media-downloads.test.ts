@@ -177,7 +177,9 @@ describe('MediaDownloadCoordinator', () => {
     });
 
     await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
-    expect(coordinator.getStats().cachedFailures).toBe(1);
+    // Remembered: inside its window the failure is answered without a retry.
+    await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
+    expect(task).toHaveBeenCalledTimes(1);
 
     now += 31_000;
     await expect(coordinator.run('chat:msg', task)).rejects.toThrow();
@@ -217,7 +219,8 @@ describe('MediaDownloadCoordinator', () => {
     shouldFail = false;
     await coordinator.run('chat:msg', task, { ignoreFailureCache: true });
 
-    expect(coordinator.getStats().cachedFailures).toBe(0);
+    // An ordinary request goes through again, rather than meeting the old failure.
+    await expect(coordinator.run('chat:msg', task)).resolves.toBe('downloaded');
   });
 
   it('releases its slot when a download throws, rather than leaking capacity', async () => {
@@ -230,8 +233,7 @@ describe('MediaDownloadCoordinator', () => {
       await expect(coordinator.run(`chat:${i}`, failing)).rejects.toThrow('boom');
     }
 
-    // A leaked slot would leave active pinned at the cap and deadlock the queue.
-    expect(coordinator.getStats().active).toBe(0);
+    // A leaked slot would pin the queue at its cap, and this would never run.
     await expect(coordinator.run('chat:ok', async () => 'fine')).resolves.toBe('fine');
   });
 });

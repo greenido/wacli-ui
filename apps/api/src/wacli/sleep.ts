@@ -35,7 +35,6 @@ export const SLEEP_ROUTES = {
     'POST /api/contacts/alias',
     'POST /api/history/backfill',
     'POST /api/media/download',
-    'POST /api/daemon/start',
     'POST /api/daemon/restart',
   ],
   // Mission Control's own state, and the scheduler, which is the one thing
@@ -53,18 +52,11 @@ export const SLEEP_ROUTES = {
     'POST /api/messages/bookmark',
     'GET /api/activity',
     'GET /api/send/scheduled',
-    'GET /api/scheduled',
     'POST /api/send/schedule',
     'POST /api/send/schedule-file',
     'DELETE /api/send/scheduled/:id',
-    'DELETE /api/scheduled/:id',
     'POST /api/send/scheduled/:id/resend',
-    'POST /api/scheduled/:id/resend',
     'POST /api/send/scheduled/:id/discard',
-    'POST /api/scheduled/:id/discard',
-    'POST /api/send/scheduled/:id/cancel',
-    'POST /api/scheduled/:id/cancel',
-    'POST /api/daemon/stop',
     // Serves what is already on disk, and makes its own call about the wacli
     // download it would otherwise fall back to (see routes/media.ts).
     'GET /api/media/content',

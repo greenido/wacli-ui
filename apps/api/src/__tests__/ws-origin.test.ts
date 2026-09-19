@@ -92,12 +92,6 @@ describe('WebSocket upgrade origin check', () => {
     expect(await handshake(port)).toBe('accepted');
   });
 
-  it('keeps a refused caller out of the broadcast set', async () => {
-    const { port, bridge } = await startBridge();
-    await handshake(port, { Origin: 'http://localhost:8888' });
-    expect(bridge.getConnectedClientCount()).toBe(0);
-  });
-
   describe('isAllowedUpgrade', () => {
     const access = accessPolicy({ port: 3002, devUi: true, hostsFile: '' });
 

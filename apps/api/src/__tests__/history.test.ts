@@ -84,7 +84,6 @@ describe('History coverage and backfill', () => {
 
     const res = await request(app)
       .post('/api/history/backfill')
-      .set('X-Mission-Control-Request', '1')
       .send({ chat: 'alice@s.whatsapp.net' });
 
     expect(res.status).toBe(403);
@@ -95,7 +94,6 @@ describe('History coverage and backfill', () => {
   it('requires a chat to backfill', async () => {
     const res = await request(app)
       .post('/api/history/backfill')
-      .set('X-Mission-Control-Request', '1')
       .send({});
 
     expect(res.status).toBe(400);
@@ -105,7 +103,6 @@ describe('History coverage and backfill', () => {
   it('asks the primary device for older messages', async () => {
     const res = await request(app)
       .post('/api/history/backfill')
-      .set('X-Mission-Control-Request', '1')
       .send({ chat: 'alice@s.whatsapp.net', count: 200 });
 
     expect(res.status).toBe(200);
@@ -120,7 +117,6 @@ describe('History coverage and backfill', () => {
   it('clamps an absurd backfill request instead of tying up the store lock', async () => {
     const res = await request(app)
       .post('/api/history/backfill')
-      .set('X-Mission-Control-Request', '1')
       .send({ chat: 'alice@s.whatsapp.net', count: 999999 });
 
     expect(res.status).toBe(200);
@@ -131,7 +127,6 @@ describe('History coverage and backfill', () => {
   it('runs a backfill as a mutation, so wacli is not started in read-only', async () => {
     await request(app)
       .post('/api/history/backfill')
-      .set('X-Mission-Control-Request', '1')
       .send({ chat: 'alice@s.whatsapp.net' });
 
     const call = execWacli.mock.calls.find(([args]) => args.join(' ').startsWith('history backfill'))!;

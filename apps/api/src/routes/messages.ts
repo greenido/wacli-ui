@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { execWacli } from '../wacli/commands.js';
 import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
@@ -17,25 +17,6 @@ interface RawMessagesListResponse {
  */
 const EXPORT_DEFAULT_LIMIT = 1000;
 const EXPORT_MAX_LIMIT = 5000;
-
-/**
- * Bookmarks are local-only state, so unlike a send or a chat mutation they are
- * still allowed while safe read-only mode is on: nothing reaches WhatsApp or
- * the wacli store. The custom header is still required, to keep stray scripts
- * pointed at localhost from writing here.
- */
-function requireUiRequest(req: Request, res: Response, next: NextFunction): void {
-  const customHeader = req.headers['x-mission-control-request'];
-  if (!customHeader && process.env.NODE_ENV !== 'test') {
-    res.status(400).json({
-      success: false,
-      data: null,
-      error: 'Missing required "X-Mission-Control-Request: 1" header.',
-    });
-    return;
-  }
-  next();
-}
 
 export function createMessagesRouter(): Router {
   const router = Router();
@@ -138,8 +119,11 @@ export function createMessagesRouter(): Router {
     }
   });
 
-  // POST /api/messages/bookmark - toggle this machine's local bookmark
-  router.post('/messages/bookmark', requireUiRequest, (req: Request, res: Response) => {
+  // POST /api/messages/bookmark - toggle this machine's local bookmark.
+  // Bookmarks are local-only state, so unlike a send or a chat mutation they
+  // are still allowed while safe read-only mode is on: nothing reaches WhatsApp
+  // or the wacli store.
+  router.post('/messages/bookmark', (req: Request, res: Response) => {
     const { chat, id, bookmarked } = req.body as {
       chat?: string;
       id?: string;

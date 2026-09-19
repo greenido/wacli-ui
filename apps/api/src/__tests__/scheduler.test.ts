@@ -17,11 +17,18 @@ import {
   Scheduler,
   keepScheduledAttachment,
   scheduledFilesDir,
+  type ScheduledMessage,
   type ScheduledPage,
 } from '../wacli/scheduler.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 import { openDatabaseAt } from '../db/index.js';
 import { modeManager } from '../wacli/mode.js';
+
+/** Every record the scheduler holds, pending first, as one list. */
+function listAll(scheduler: Scheduler, chat?: string): ScheduledMessage[] {
+  const page = scheduler.getPage({ chat, limit: 200 });
+  return [...page.pending, ...page.history];
+}
 
 describe('Scheduler Service', () => {
   let tmpSchedFile: string;
@@ -53,13 +60,13 @@ describe('Scheduler Service', () => {
     expect(item.scheduledAt).toBe(scheduledAt);
 
     // Verify retrieval
-    const list = scheduler.getList();
+    const list = listAll(scheduler);
     expect(list.length).toBe(1);
     expect(list[0].id).toBe(item.id);
 
     // Verify reload from disk
     const reloaded = new Scheduler(tmpSchedFile);
-    const reloadedList = reloaded.getList();
+    const reloadedList = listAll(reloaded);
     expect(reloadedList.length).toBe(1);
     expect(reloadedList[0].message).toBe('Happy Birthday!');
   });
@@ -76,7 +83,7 @@ describe('Scheduler Service', () => {
 
     expect(scheduler.cancel(item.id)).toEqual({ ok: true });
 
-    const list = scheduler.getList();
+    const list = listAll(scheduler);
     const found = list.find((i) => i.id === item.id);
     expect(found?.status).toBe('cancelled');
 
@@ -100,9 +107,9 @@ describe('Scheduler Service', () => {
       scheduledAt: new Date(Date.now() + 120000).toISOString(),
     });
 
-    expect(scheduler.getList('15551111111@s.whatsapp.net').length).toBe(1);
-    expect(scheduler.getList('15552222222@s.whatsapp.net').length).toBe(1);
-    expect(scheduler.getList().length).toBe(2);
+    expect(listAll(scheduler, '15551111111@s.whatsapp.net').length).toBe(1);
+    expect(listAll(scheduler, '15552222222@s.whatsapp.net').length).toBe(1);
+    expect(listAll(scheduler).length).toBe(2);
   });
 });
 
@@ -152,7 +159,7 @@ describe('Scheduler dispatch', () => {
     await Promise.all(ticks);
 
     expect(execWacliMock).toHaveBeenCalledTimes(1);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('refuses to cancel a message that is already being sent', async () => {
@@ -202,7 +209,7 @@ describe('Scheduler dispatch', () => {
     expect(execWacliMock).not.toHaveBeenCalled();
 
     // Visibly failed with a reason, not silently stuck pending.
-    const item = scheduler.getList()[0];
+    const item = listAll(scheduler)[0];
     expect(item.status).toBe('failed');
     expect(item.error).toContain('safe read-only mode');
   });
@@ -214,7 +221,7 @@ describe('Scheduler dispatch', () => {
     scheduler.schedule(dueMessage);
     await scheduler.checkDueMessages();
 
-    const reloaded = new Scheduler(tmpSchedFile).getList()[0];
+    const reloaded = listAll(new Scheduler(tmpSchedFile))[0];
     expect(reloaded.status).toBe('failed');
     expect(reloaded.error).toContain('safe read-only mode');
   });
@@ -237,14 +244,14 @@ describe('Scheduler dispatch', () => {
     const scheduler = new Scheduler(tmpSchedFile);
     scheduler.schedule(dueMessage);
     await scheduler.checkDueMessages();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
 
     // Unlocking must not quietly send a message the operator was told failed.
     modeManager.setReadOnly(false);
     await scheduler.checkDueMessages();
 
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
   });
 
   it('marks a message failed when the send errors, without retrying it', async () => {
@@ -257,7 +264,7 @@ describe('Scheduler dispatch', () => {
     await scheduler.checkDueMessages();
 
     expect(execWacliMock).toHaveBeenCalledTimes(1);
-    const item = scheduler.getList()[0];
+    const item = listAll(scheduler)[0];
     expect(item.status).toBe('failed');
     expect(item.error).toContain('wacli exploded');
   });
@@ -269,7 +276,7 @@ describe('Scheduler dispatch', () => {
     await scheduler.checkDueMessages();
 
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
   });
 });
 
@@ -300,7 +307,7 @@ describe('Scheduler resend', () => {
     execWacliMock.mockRejectedValueOnce(new Error('wacli exploded'));
     const item = scheduler.schedule({ ...dueMessage, ...overrides });
     await scheduler.checkDueMessages();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
     // Drop the setup call so each test's call count means "sends the resend caused".
     execWacliMock.mockClear();
     return item;
@@ -316,7 +323,7 @@ describe('Scheduler resend', () => {
     expect(outcome.ok).toBe(true);
 
     // One record, not two: the queue does not grow a duplicate on every retry.
-    const list = scheduler.getList();
+    const list = listAll(scheduler);
     expect(list.length).toBe(1);
     expect(list[0].id).toBe(item.id);
     expect(list[0].status).toBe('sent');
@@ -338,7 +345,7 @@ describe('Scheduler resend', () => {
 
     expect(second.ok).toBe(false);
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('sends only once when two resends of the same message overlap', async () => {
@@ -362,7 +369,7 @@ describe('Scheduler resend', () => {
     expect(execWacliMock).toHaveBeenCalledTimes(1);
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(false);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('does not let a scheduler tick double-send a message being resent', async () => {
@@ -386,7 +393,7 @@ describe('Scheduler resend', () => {
     await Promise.all([resending, ...ticks]);
 
     expect(execWacliMock).toHaveBeenCalledTimes(1);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('leaves the record failed and resendable when the retry also fails', async () => {
@@ -397,7 +404,7 @@ describe('Scheduler resend', () => {
     const outcome = await scheduler.resend(item.id);
 
     expect(outcome.ok).toBe(true);
-    const failed = scheduler.getList()[0];
+    const failed = listAll(scheduler)[0];
     expect(failed.status).toBe('failed');
     expect(failed.error).toContain('still broken');
     expect(failed.resendCount).toBe(1);
@@ -405,8 +412,8 @@ describe('Scheduler resend', () => {
     // Still eligible, and the counter keeps climbing across attempts.
     execWacliMock.mockResolvedValueOnce({ messageId: 'wamid.THIRD' });
     await scheduler.resend(item.id);
-    expect(scheduler.getList()[0].resendCount).toBe(2);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].resendCount).toBe(2);
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('refuses an immediate resend while safe read-only mode is active', async () => {
@@ -420,7 +427,7 @@ describe('Scheduler resend', () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.ok === false && outcome.error).toContain('read-only');
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
   });
 
   it('requeues a failed message for a later time without dispatching it', async () => {
@@ -432,7 +439,7 @@ describe('Scheduler resend', () => {
 
     expect(outcome.ok).toBe(true);
     expect(execWacliMock).not.toHaveBeenCalled();
-    const queued = scheduler.getList()[0];
+    const queued = listAll(scheduler)[0];
     expect(queued.status).toBe('pending');
     expect(queued.scheduledAt).toBe(future);
     expect(queued.error).toBeUndefined();
@@ -440,7 +447,7 @@ describe('Scheduler resend', () => {
     // Still not due, so the ticks leave it alone.
     await scheduler.checkDueMessages();
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('pending');
+    expect(listAll(scheduler)[0].status).toBe('pending');
   });
 
   it('dispatches a requeued message exactly once when it comes due', async () => {
@@ -466,7 +473,7 @@ describe('Scheduler resend', () => {
     await Promise.all(ticks);
 
     expect(execWacliMock).toHaveBeenCalledTimes(1);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(listAll(scheduler)[0].status).toBe('sent');
   });
 
   it('refuses to resend a pending message that has not failed', async () => {
@@ -480,7 +487,7 @@ describe('Scheduler resend', () => {
 
     expect(outcome.ok).toBe(false);
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()[0].status).toBe('pending');
+    expect(listAll(scheduler)[0].status).toBe('pending');
   });
 
   it('rejects a resend for an unknown id or an unparseable time', async () => {
@@ -489,7 +496,7 @@ describe('Scheduler resend', () => {
 
     expect((await scheduler.resend('sched-nope')).ok).toBe(false);
     expect((await scheduler.resend(item.id, { scheduledAt: 'not-a-date' })).ok).toBe(false);
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(listAll(scheduler)[0].status).toBe('failed');
   });
 
   it('discards a failed message and refuses to discard a pending one', async () => {
@@ -504,12 +511,12 @@ describe('Scheduler resend', () => {
     expect(scheduler.discard(failed.id)).toBe(true);
     expect(scheduler.discard(failed.id)).toBe(false);
 
-    const remaining = scheduler.getList();
+    const remaining = listAll(scheduler);
     expect(remaining.length).toBe(1);
     expect(remaining[0].id).toBe(pending.id);
 
     // Gone from disk too, not just from memory.
-    expect(new Scheduler(tmpSchedFile).getList().length).toBe(1);
+    expect(listAll(new Scheduler(tmpSchedFile)).length).toBe(1);
   });
 
   it('reports a failed file message whose attachment has gone from disk', async () => {
@@ -519,10 +526,10 @@ describe('Scheduler resend', () => {
     const scheduler = new Scheduler(tmpSchedFile);
     const item = await failedItem(scheduler, { filePath: attachment, fileName: 'notes.txt' });
 
-    expect(scheduler.getList()[0].attachmentMissing).toBe(false);
+    expect(listAll(scheduler)[0].attachmentMissing).toBe(false);
 
     fs.unlinkSync(attachment);
-    expect(scheduler.getList()[0].attachmentMissing).toBe(true);
+    expect(listAll(scheduler)[0].attachmentMissing).toBe(true);
 
     // The derived flag is never written back into the persisted record: there is
     // no column for it, so a reload cannot resurrect a stale answer.
@@ -568,7 +575,7 @@ describe('Scheduler records only a real message ID', () => {
     scheduler.schedule(dueMessage);
     await scheduler.checkDueMessages();
 
-    const item = scheduler.getList()[0];
+    const item = listAll(scheduler)[0];
     expect(item.status).toBe('sent');
     expect(item.sentMessageId).toBe('3EB0A1B2C3');
   });
@@ -580,7 +587,7 @@ describe('Scheduler records only a real message ID', () => {
     scheduler.schedule(dueMessage);
     await scheduler.checkDueMessages();
 
-    const item = scheduler.getList()[0];
+    const item = listAll(scheduler)[0];
     expect(item.status).toBe('sent');
     // The old fallback stamped every sent item with `out-<now>`. Clicking the
     // row in LATER then asked the thread to focus an ID the archive could never
@@ -631,7 +638,7 @@ describe('Scheduler drops placeholder ids already on disk', () => {
       '3EB0626F628F3B645B291E'
     );
 
-    const list = new Scheduler(tmpSchedFile).getList();
+    const list = listAll(new Scheduler(tmpSchedFile));
     expect(list.find((i) => i.id === 'sched-legacy')?.sentMessageId).toBeUndefined();
     expect(list.find((i) => i.id === 'sched-real')?.sentMessageId).toBe('3EB0626F628F3B645B291E');
 
@@ -935,7 +942,7 @@ describe('Scheduler sends at most once', () => {
     await restarted.checkDueMessages();
 
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(restarted.getList()).toMatchObject([
+    expect(listAll(restarted)).toMatchObject([
       { id: item.id, status: 'failed', error: INTERRUPTED_SEND },
     ]);
     expect(statusOnDisk(item.id)).toBe('failed');
@@ -949,7 +956,7 @@ describe('Scheduler sends at most once', () => {
     await scheduler.checkDueMessages();
 
     expect(execWacliMock).not.toHaveBeenCalled();
-    expect(scheduler.getList()).toMatchObject([
+    expect(listAll(scheduler)).toMatchObject([
       { id: item.id, status: 'failed', error: expect.stringMatching(/^Not sent: .*disk I\/O error/) },
     ]);
   });
@@ -986,7 +993,7 @@ describe('Scheduler sends at most once', () => {
     const cancelled = scheduler.schedule({ ...due, message: 'scheduled, then cancelled' });
     expect(scheduler.cancel(cancelled.id)).toEqual({ ok: true });
 
-    const reloaded = new Scheduler(tmpSchedFile).getList();
+    const reloaded = listAll(new Scheduler(tmpSchedFile));
     expect(reloaded.map((i) => [i.id, i.status]).sort()).toEqual(
       [
         [kept.id, 'pending'],
@@ -1000,11 +1007,11 @@ describe('Scheduler sends at most once', () => {
     // process on the file erased what the first had scheduled since.
     const a = new Scheduler(tmpSchedFile);
     const b = new Scheduler(tmpSchedFile);
-    b.getList();
+    b.getPage();
     const fromA = a.schedule({ ...due, message: 'from A' });
     const fromB = b.schedule({ ...due, message: 'from B' });
 
-    const ids = new Scheduler(tmpSchedFile).getList().map((i) => i.id);
+    const ids = listAll(new Scheduler(tmpSchedFile)).map((i) => i.id);
     expect(ids.sort()).toEqual([fromA.id, fromB.id].sort());
   });
 
@@ -1014,7 +1021,7 @@ describe('Scheduler sends at most once', () => {
     failWritesOnce(scheduler);
 
     expect(() => scheduler.cancel(item.id)).toThrow(/still scheduled.*disk I\/O error/);
-    expect(scheduler.getList()[0].status).toBe('pending');
+    expect(listAll(scheduler)[0].status).toBe('pending');
     expect(statusOnDisk(item.id)).toBe('pending');
   });
 });

@@ -16,8 +16,8 @@ import { modeManager } from '../wacli/mode.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { Scheduler } from '../wacli/scheduler.js';
 import { ASLEEP_CODE, SLEEP_ROUTES, SleepController } from '../wacli/sleep.js';
+import { callRoute as call, registeredApiRoutes } from './api-routes.js';
 
-const UI = { 'X-Mission-Control-Request': '1' };
 
 /** A manager whose daemon spawn is a spy, so no wacli ever starts. */
 function makeDaemon() {
@@ -26,52 +26,6 @@ function makeDaemon() {
     .spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess')
     .mockImplementation(() => {});
   return { pm, spawn };
-}
-
-interface RouteLayer {
-  route?: { path: string | string[]; methods: Record<string, boolean> };
-}
-
-interface AppLayer {
-  handle?: { stack?: RouteLayer[] };
-  match(path: string): boolean;
-}
-
-/**
- * Every route the app serves under /api, as "METHOD /api/path", read off the
- * app itself rather than a list someone keeps: a route added tomorrow shows up
- * here whether or not anyone remembered sleep.
- */
-function registeredApiRoutes(app: ReturnType<typeof createApp>): string[] {
-  const stack = (app as unknown as { router: { stack: AppLayer[] } }).router.stack;
-  const keys: string[] = [];
-  for (const layer of stack) {
-    const routes = layer.handle?.stack;
-    if (!routes || !layer.match('/api/__probe__')) continue;
-    for (const { route } of routes) {
-      if (!route) continue;
-      const paths = Array.isArray(route.path) ? route.path : [route.path];
-      for (const method of Object.keys(route.methods)) {
-        for (const p of paths) keys.push(`${method.toUpperCase()} /api${p}`);
-      }
-    }
-  }
-  return keys;
-}
-
-/** Sends `METHOD /api/...` with a harmless body, filling in any `:id`. */
-function call(app: ReturnType<typeof createApp>, key: string) {
-  const [method, rawPath] = key.split(' ');
-  const url = rawPath.replace(':id', 'sched-does-not-exist');
-  const agent = request(app);
-  switch (method) {
-    case 'GET':
-      return agent.get(url).set(UI);
-    case 'DELETE':
-      return agent.delete(url).set(UI);
-    default:
-      return agent.post(url).set(UI).send({});
-  }
 }
 
 let pm: WacliProcessManager;
@@ -148,7 +102,7 @@ describe('sleep gate while asleep', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set(UI)
+      
       .send({ to: '15550100001@s.whatsapp.net', message: 'Good morning', confirm: true });
 
     expect(res.status).toBe(200);
@@ -245,7 +199,7 @@ describe('resending while asleep', () => {
       scheduledAt: new Date(Date.now() - 1000).toISOString(),
     });
     await scheduler.checkDueMessages();
-    expect(scheduler.getList()[0].status).toBe('failed');
+    expect(scheduler.getPage().history[0].status).toBe('failed');
 
     await sleep.sleep('test');
     spawn.mockClear();
@@ -255,7 +209,7 @@ describe('resending while asleep', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(outcome.ok).toBe(true);
-    expect(scheduler.getList()[0].status).toBe('sent');
+    expect(scheduler.getPage().history[0].status).toBe('sent');
     expect(modeManager.isSleeping()).toBe(true);
     expect(spawn).not.toHaveBeenCalled();
     daemon.dispose();

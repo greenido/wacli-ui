@@ -167,9 +167,4 @@ export function closeDatabase(): void {
   openedExclusive = false;
 }
 
-/** The path currently open, for diagnostics and the health endpoint. */
-export function currentDbPath(): string | null {
-  return openedPath;
-}
-
 export { resolveDbPath } from './paths.js';

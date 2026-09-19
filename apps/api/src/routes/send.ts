@@ -29,18 +29,7 @@ const upload = multer({
 });
 
 function requireMutationPermission(req: Request, res: Response, next: NextFunction): void {
-  // 1. Guard against accidental scripts / non-UI requests
-  const customHeader = req.headers['x-mission-control-request'];
-  if (!customHeader && process.env.NODE_ENV !== 'test') {
-    res.status(400).json({
-      success: false,
-      data: null,
-      error: 'Missing required "X-Mission-Control-Request: 1" header.',
-    });
-    return;
-  }
-
-  // 2. Read-only global mode check
+  // Read-only global mode check
   if (modeManager.isReadOnly()) {
     logger.warn('send', 'Blocked send attempt; read-only safe mode is active', { route: req.path });
     res.status(403).json({
@@ -460,7 +449,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
   //
   // Everything pending, always, plus one page of resolved history. See
   // Scheduler.getPage for why pending is never paged.
-  router.get(['/send/scheduled', '/scheduled'], (req: Request, res: Response) => {
+  router.get('/send/scheduled', (req: Request, res: Response) => {
     res.json({
       success: true,
       data: scheduler.getPage({
@@ -516,14 +505,14 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
     answerStateChange(res, outcome.ok, 'cancelled', outcome.ok ? '' : outcome.error);
   }
 
-  // DELETE & POST cancel scheduled message
-  router.delete(['/scheduled/:id', '/send/scheduled/:id'], cancelScheduled);
+  // DELETE cancels a scheduled message
+  router.delete('/send/scheduled/:id', cancelScheduled);
 
   // POST resend a failed scheduled message. requireMutationPermission already
   // turns this away in safe read-only mode; the scheduler re-checks anyway so
   // the guarantee does not depend on which door the request came through.
   router.post(
-    ['/scheduled/:id/resend', '/send/scheduled/:id/resend'],
+    '/send/scheduled/:id/resend',
     requireMutationPermission,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
@@ -580,7 +569,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
   );
 
   // POST discard a failed scheduled message (drops the record for good)
-  router.post(['/scheduled/:id/discard', '/send/scheduled/:id/discard'], (req: Request, res: Response) => {
+  router.post('/send/scheduled/:id/discard', (req: Request, res: Response) => {
     const rawId = req.params.id;
     const id = Array.isArray(rawId) ? rawId[0] : rawId;
     const discarded = id ? scheduler.discard(id) : false;
@@ -591,8 +580,6 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
       'Scheduled message not found, or not in a failed state.'
     );
   });
-
-  router.post(['/scheduled/:id/cancel', '/send/scheduled/:id/cancel'], cancelScheduled);
 
   return router;
 }

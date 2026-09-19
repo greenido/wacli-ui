@@ -309,7 +309,7 @@ A browser may call these endpoints only from a page Mission Control served: `htt
 | `GET` | `/api/media/content` | Stream an attachment for inline rendering (`?chat=<jid>&id=<msgId>`), downloading it through wacli if it is not on disk yet. Serves only files under the store's `media/` directory |
 | `POST`| `/internal/wacli/webhook`| Internal HMAC-verified webhook endpoint for `wacli sync` |
 
-While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it. That covers health, chats, messages, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what is already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download, or daemon start or restart) wakes the app first.
+While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it. That covers health, chats, messages, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what is already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download, or a daemon restart) wakes the app first.
 
 ### WebSocket Event Stream
 

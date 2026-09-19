@@ -14,16 +14,6 @@ import type { RawContact, RawGroup } from '../types.js';
  * bookmarks.
  */
 function requireMutationPermission(req: Request, res: Response, next: NextFunction): void {
-  const customHeader = req.headers['x-mission-control-request'];
-  if (!customHeader && process.env.NODE_ENV !== 'test') {
-    res.status(400).json({
-      success: false,
-      data: null,
-      error: 'Missing required "X-Mission-Control-Request: 1" header.',
-    });
-    return;
-  }
-
   if (modeManager.isReadOnly()) {
     res.status(403).json({
       success: false,
@@ -33,19 +23,6 @@ function requireMutationPermission(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  next();
-}
-
-function requireUiRequest(req: Request, res: Response, next: NextFunction): void {
-  const customHeader = req.headers['x-mission-control-request'];
-  if (!customHeader && process.env.NODE_ENV !== 'test') {
-    res.status(400).json({
-      success: false,
-      data: null,
-      error: 'Missing required "X-Mission-Control-Request: 1" header.',
-    });
-    return;
-  }
   next();
 }
 
@@ -148,7 +125,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
   });
 
   // POST /api/tags - add or remove one of this machine's own labels
-  router.post('/tags', requireUiRequest, (req: Request, res: Response) => {
+  router.post('/tags', (req: Request, res: Response) => {
     const { jid, tag, add } = req.body as { jid?: string; tag?: string; add?: boolean };
 
     if (!jid || !tag) {
@@ -168,7 +145,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
    */
 
   // POST /api/tags/rename - rename one label everywhere it is used
-  router.post('/tags/rename', requireUiRequest, (req: Request, res: Response) => {
+  router.post('/tags/rename', (req: Request, res: Response) => {
     const { from, to } = req.body as { from?: string; to?: string };
 
     if (!from || !to) {
@@ -195,7 +172,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
   });
 
   // POST /api/tags/delete - drop one label from every chat carrying it
-  router.post('/tags/delete', requireUiRequest, (req: Request, res: Response) => {
+  router.post('/tags/delete', (req: Request, res: Response) => {
     const { tag } = req.body as { tag?: string };
 
     if (!tag) {

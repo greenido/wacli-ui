@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
+
+const execWacliMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../wacli/commands.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../wacli/commands.js')>();
+  return { ...actual, execWacli: execWacliMock };
+});
+
 import { createApp } from '../index.js';
 import {
   accessPolicy,
@@ -9,6 +17,7 @@ import {
 } from '../net/loopback.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { modeManager } from '../wacli/mode.js';
+import { callRoute, registeredApiRoutes } from './api-routes.js';
 
 /**
  * Mission Control authenticates nothing, so which pages may call it is the
@@ -63,7 +72,7 @@ describe('which pages may call the API', () => {
       .options('/api/send/text')
       .set('Origin', 'http://localhost:8888')
       .set('Access-Control-Request-Method', 'POST')
-      .set('Access-Control-Request-Headers', 'content-type,x-mission-control-request');
+      .set('Access-Control-Request-Headers', 'content-type');
 
     expect(res.status).toBe(403);
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
@@ -186,5 +195,30 @@ describe('access policy helpers', () => {
     expect(isAllowedHost('WACLI-UI:3002', access)).toBe(true);
     expect(isAllowedHost(undefined, access)).toBe(false);
     expect(isAllowedHost('evil.example:3002', access)).toBe(false);
+  });
+});
+
+describe('the one check between another page and every route', () => {
+  it('refuses another site on every route the app serves, before any of them runs', async () => {
+    const pm = new WacliProcessManager({ apiPort: PORT });
+    vi.spyOn(pm as unknown as { spawnSyncProcess: () => void }, 'spawnSyncProcess').mockImplementation(
+      () => {}
+    );
+    const app = createApp(pm, undefined, accessPolicy({ port: PORT, hostsFile: HOSTS_FILE }));
+
+    // No route carries a guard of its own any more — the custom header each
+    // write used to check is gone — so this check has to cover all of them.
+    const routes = registeredApiRoutes(app);
+    expect(routes).toEqual(
+      expect.arrayContaining(['POST /api/send/text', 'POST /api/mode', 'POST /api/sleep', 'POST /api/tags'])
+    );
+
+    for (const key of routes) {
+      const res = await callRoute(app, key).set('Origin', 'https://evil.example');
+      expect(res.status, key).toBe(403);
+      expect(res.body.code, key).toBe('FORBIDDEN_ORIGIN');
+    }
+    expect(execWacliMock).not.toHaveBeenCalled();
+    pm.dispose();
   });
 });

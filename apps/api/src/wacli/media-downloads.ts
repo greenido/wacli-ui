@@ -135,18 +135,6 @@ export class MediaDownloadCoordinator {
     return promise;
   }
 
-  /** Drops a remembered failure, e.g. once the media arrives another way. */
-  public forget(key: string): void {
-    this.failures.delete(key);
-  }
-
-  public getStats(): { active: number; queued: number; cachedFailures: number } {
-    return {
-      active: this.active,
-      queued: this.queue.length,
-      cachedFailures: this.failures.size,
-    };
-  }
 
   /** 0 means "do not remember this one at all". */
   private failureTtlFor(message: string): number {

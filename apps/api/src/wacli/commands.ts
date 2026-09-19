@@ -112,10 +112,6 @@ export function redactCommand(args: string[]): string[] {
 
 let installCache: { status: WacliInstallStatus; bin: string; expiresAt: number } | null = null;
 
-export function resetWacliInstallCache(): void {
-  installCache = null;
-}
-
 export async function checkWacliInstalled(): Promise<WacliInstallStatus> {
   const bin = process.env.WACLI_BIN ?? 'wacli';
 

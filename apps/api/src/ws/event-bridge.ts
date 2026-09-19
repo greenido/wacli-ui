@@ -70,10 +70,6 @@ export class EventBridge {
     }
   }
 
-  public getConnectedClientCount(): number {
-    return this.clients.size;
-  }
-
   /**
    * Drops every client and stops accepting new ones.
    *

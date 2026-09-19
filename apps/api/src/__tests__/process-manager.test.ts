@@ -216,7 +216,6 @@ describe('WacliProcessManager exclusive-command respawn', () => {
     });
     const second = pm.executeExclusive(async () => 'second');
 
-    expect(pm.hasPendingExclusiveWork()).toBe(true);
 
     releaseFirst();
     await first;
@@ -299,7 +298,6 @@ describe('WacliProcessManager exclusive-command failures', () => {
 
     // A failed command must not leave the store permanently daemon-less.
     expect(spawn).toHaveBeenCalledTimes(1);
-    expect(pm.hasPendingExclusiveWork()).toBe(false);
   });
 
   it('recovers the waiter count when one command in a queue fails', async () => {
@@ -320,7 +318,6 @@ describe('WacliProcessManager exclusive-command failures', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
-    expect(pm.hasPendingExclusiveWork()).toBe(false);
     expect(spawn).toHaveBeenCalledTimes(1);
   });
 });

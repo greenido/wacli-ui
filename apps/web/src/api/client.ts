@@ -105,7 +105,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({ readOnly }),
     }),
@@ -119,7 +118,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({ sleeping, reason }),
     }),
@@ -138,7 +136,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({ chat }),
     }),
@@ -175,7 +172,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -193,7 +189,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -208,7 +203,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -219,7 +213,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -237,7 +230,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -257,7 +249,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -265,9 +256,6 @@ export const api = {
   sendFile: (formData: FormData) =>
     request<{ sent: boolean; messageId?: string }>('/api/send/file', {
       method: 'POST',
-      headers: {
-        'X-Mission-Control-Request': '1',
-      },
       body: formData,
     }),
 
@@ -276,7 +264,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -293,7 +280,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -301,9 +287,6 @@ export const api = {
   scheduleFile: (formData: FormData) =>
     request<{ scheduled: boolean; item: ScheduledMessage }>('/api/send/schedule-file', {
       method: 'POST',
-      headers: {
-        'X-Mission-Control-Request': '1',
-      },
       body: formData,
     }),
 
@@ -322,9 +305,6 @@ export const api = {
   cancelScheduled: (id: string) =>
     request<{ cancelled: boolean }>(`/api/send/scheduled/${id}`, {
       method: 'DELETE',
-      headers: {
-        'X-Mission-Control-Request': '1',
-      },
     }),
 
   /**
@@ -338,7 +318,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({ ...data, confirm: true }),
     }),
@@ -348,7 +327,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify({}),
     }),
@@ -358,7 +336,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -382,7 +359,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
       body: JSON.stringify(data),
     }),
@@ -397,25 +373,6 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
-      },
-    }),
-
-  startDaemon: () =>
-    request<{ state: string; pid: number | null }>('/api/daemon/start', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
-      },
-    }),
-
-  stopDaemon: () =>
-    request<{ state: string; pid: number | null }>('/api/daemon/stop', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mission-Control-Request': '1',
       },
     }),
 };

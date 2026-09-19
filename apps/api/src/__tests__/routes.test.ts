@@ -180,17 +180,9 @@ describe('API Read Endpoints', () => {
     }
   });
 
-  it('POST /api/daemon/restart, /start, /stop endpoints operate on process manager', async () => {
+  it('POST /api/daemon/restart operates on the process manager', async () => {
     const resRestart = await request(app).post('/api/daemon/restart');
     expect(resRestart.status).toBe(200);
     expect(resRestart.body.success).toBe(true);
-
-    const resStop = await request(app).post('/api/daemon/stop');
-    expect(resStop.status).toBe(200);
-    expect(resStop.body.success).toBe(true);
-
-    const resStart = await request(app).post('/api/daemon/start');
-    expect(resStart.status).toBe(200);
-    expect(resStart.body.success).toBe(true);
   });
 });

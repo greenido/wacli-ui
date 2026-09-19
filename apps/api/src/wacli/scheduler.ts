@@ -564,15 +564,6 @@ export class Scheduler {
     return true;
   }
 
-  public getList(chatJid?: string): ScheduledMessage[] {
-    this.ensureLoaded();
-    const list = Array.from(this.items.values()).map((item) => this.decorate(item));
-    if (chatJid) {
-      return list.filter((i) => i.to === chatJid);
-    }
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }
-
   /**
    * The queue as the strip shows it: everything still pending, then a page of
    * what has already resolved.

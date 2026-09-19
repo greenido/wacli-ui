@@ -37,7 +37,6 @@ describe('GET /api/activity', () => {
     for (let i = 0; i < count; i++) {
       await request(app)
         .post('/api/send/text')
-        .set('X-Mission-Control-Request', '1')
         .send({ to: '15551234567@s.whatsapp.net', message: `send ${i}`, confirm: true });
     }
   }
@@ -58,7 +57,6 @@ describe('GET /api/activity', () => {
 
     await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'doomed', confirm: true });
 
     const body = (await request(app).get('/api/activity')).body.data as ActivityBody;

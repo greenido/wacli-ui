@@ -123,16 +123,6 @@ async function scanChatPreviews(): Promise<Map<string, ChatPreview>> {
 }
 
 function requireMutationPermission(req: Request, res: Response, next: NextFunction): void {
-  const customHeader = req.headers['x-mission-control-request'];
-  if (!customHeader && process.env.NODE_ENV !== 'test') {
-    res.status(400).json({
-      success: false,
-      data: null,
-      error: 'Missing required "X-Mission-Control-Request: 1" header.',
-    });
-    return;
-  }
-
   if (modeManager.isReadOnly()) {
     res.status(403).json({
       success: false,
