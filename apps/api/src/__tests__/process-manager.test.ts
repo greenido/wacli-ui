@@ -93,10 +93,13 @@ describe('WacliProcessManager', () => {
     const internals = pm as unknown as {
       state: string;
       isPaused: boolean;
-      handleProcessExit: (code: number | null, signal: NodeJS.Signals | null) => void;
+      child: unknown;
+      handleProcessExit: (child: unknown, code: number | null, signal: NodeJS.Signals | null) => void;
       setState: (state: string, reason?: string) => void;
     };
 
+    const daemon = {};
+    internals.child = daemon;
     internals.state = 'running';
     internals.isPaused = true;
 
@@ -104,7 +107,7 @@ describe('WacliProcessManager', () => {
     // wired at spawn so it fires first, and executeExclusive's own listener
     // follows. It used to announce `paused` with no reason before the real one
     // landed, so every exclusive command emitted the transition twice.
-    internals.handleProcessExit(0, null);
+    internals.handleProcessExit(daemon, 0, null);
     internals.setState('paused', 'Paused for exclusive command');
 
     expect(events).toEqual([{ state: 'paused', reason: 'Paused for exclusive command' }]);
@@ -384,6 +387,29 @@ describe('WacliProcessManager respawn cancellation', () => {
       vi.useRealTimers();
     }
   });
+
+  it('lets a crash backoff stand down when a daemon is already back', () => {
+    vi.useFakeTimers();
+    try {
+      const { pm, spawn } = makeManager();
+      const internals = pm as unknown as {
+        child: unknown;
+        handleProcessExit: (child: unknown, code: number | null, signal: NodeJS.Signals | null) => void;
+      };
+
+      const crashed = {};
+      internals.child = crashed;
+      internals.handleProcessExit(crashed, 1, null);
+      // Brought back some other way before the 1s backoff fired. Spawning
+      // regardless put a second daemon beside it, and one went untracked.
+      internals.child = {};
+      vi.advanceTimersByTime(5000);
+
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('WacliProcessManager desired state', () => {
@@ -447,6 +473,35 @@ describe('WacliProcessManager desired state', () => {
 
     expect(spawn).not.toHaveBeenCalled();
     expect(pm.getState()).toBe('stopped');
+  });
+
+  it('leaves a start() during an exclusive command to the command to finish', async () => {
+    // Restart is stop() then start(), and the button is there mid-send. A
+    // daemon spawned then either takes the store from the send or loses it and
+    // arms a crash backoff that later runs beside the real daemon.
+    const { pm, spawn } = makeManager();
+    pm.start();
+    spawn.mockClear();
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = pm.executeExclusive(async () => {
+      await gate;
+      return 'sent';
+    });
+    await tick();
+
+    await pm.restart();
+    await tick();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(pm.getState()).toBe('paused');
+
+    release();
+    await running;
+    await tick();
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 });
 
