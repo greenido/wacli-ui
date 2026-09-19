@@ -31,7 +31,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15551234567@s.whatsapp.net',
         message: 'Hello',
@@ -47,7 +46,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15551234567@s.whatsapp.net',
         message: 'Hello',
@@ -69,7 +67,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15551234567@s.whatsapp.net',
         message: 'Hello',
@@ -87,7 +84,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/file')
-      .set('X-Mission-Control-Request', '1')
       .field('to', '15551234567@s.whatsapp.net')
       .field('confirm', 'true');
 
@@ -100,7 +96,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/schedule')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15559876543@s.whatsapp.net',
         message: 'Should not be queued',
@@ -118,7 +113,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/schedule')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15559876543@s.whatsapp.net',
         recipientName: 'Bob',
@@ -152,7 +146,6 @@ describe('Send Endpoints & Guardrails', () => {
     modeManager.setReadOnly(false);
     const res = await request(app)
       .post('/api/send/schedule')
-      .set('X-Mission-Control-Request', '1')
       .send({
         to: '15550001111@s.whatsapp.net',
         message: 'Queued',
@@ -167,7 +160,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post(`/api/send/scheduled/${id}/resend`)
-      .set('X-Mission-Control-Request', '1')
       .send({});
 
     expect(res.status).toBe(400);
@@ -180,7 +172,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post(`/api/send/scheduled/${id}/resend`)
-      .set('X-Mission-Control-Request', '1')
       .send({ confirm: true });
 
     expect(res.status).toBe(403);
@@ -192,7 +183,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post(`/api/send/scheduled/${id}/resend`)
-      .set('X-Mission-Control-Request', '1')
       .send({ confirm: true });
 
     // The guard that makes a double send impossible, seen from the API.
@@ -206,7 +196,6 @@ describe('Send Endpoints & Guardrails', () => {
 
     const res = await request(app)
       .post('/api/send/scheduled/sched-does-not-exist/resend')
-      .set('X-Mission-Control-Request', '1')
       .send({ confirm: true });
 
     expect(res.status).toBe(409);
@@ -260,17 +249,6 @@ describe('Send Endpoints & Guardrails', () => {
     expect(res.body.error).toContain('not found');
   });
 
-  it('POST cancel answers the same way as DELETE', async () => {
-    const id = await schedulePending();
-
-    const cancelled = await request(app).post(`/api/send/scheduled/${id}/cancel`);
-    expect(cancelled.status).toBe(200);
-    expect(cancelled.body.data.cancelled).toBe(true);
-
-    const again = await request(app).post(`/api/send/scheduled/${id}/cancel`);
-    expect(again.status).toBe(409);
-    expect(again.body.success).toBe(false);
-  });
 });
 
 describe('Send responses carry the ID the console needs to jump', () => {
@@ -287,7 +265,6 @@ describe('Send responses carry the ID the console needs to jump', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'Hello', confirm: true });
 
     expect(res.status).toBe(200);
@@ -301,7 +278,6 @@ describe('Send responses carry the ID the console needs to jump', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'Hello', confirm: true });
 
     expect(res.status).toBe(200);

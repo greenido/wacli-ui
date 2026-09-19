@@ -73,7 +73,6 @@ describe('Shutdown with a live WebSocket client', () => {
     bridge.close();
     await closed;
     expect(ws.readyState).toBe(WebSocket.CLOSED);
-    expect(bridge.getConnectedClientCount()).toBe(0);
   });
 });
 

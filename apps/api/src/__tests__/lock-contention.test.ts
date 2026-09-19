@@ -108,7 +108,6 @@ describe('Store lock contention through the routes', () => {
 
     // A failed command must never leave the store without a daemon.
     expect(spawn).toHaveBeenCalledTimes(1);
-    expect(pm.hasPendingExclusiveWork()).toBe(false);
   });
 
   it('does not pause the daemon at all when safe mode rejects the command', async () => {
@@ -151,7 +150,6 @@ describe('Store lock contention through the routes', () => {
       .then((r) => r);
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(pm.hasPendingExclusiveWork()).toBe(true);
     expect(spawn).not.toHaveBeenCalled();
 
     releaseFirst();
@@ -173,7 +171,6 @@ describe('Store lock contention through the routes', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
     await settle();
 
@@ -186,7 +183,6 @@ describe('Store lock contention through the routes', () => {
 
     const res = await request(app)
       .post('/api/send/react')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', id: 'ABC123', reaction: '\u2764\ufe0f', confirm: true });
     await settle();
 
@@ -219,7 +215,6 @@ describe('Store lock contention through the routes', () => {
 
     const send = request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15550001@s.whatsapp.net', message: 'hi', confirm: true })
       .then((r) => r);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -243,7 +238,6 @@ describe('Store lock contention through the routes', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
     await settle();
 
@@ -258,13 +252,11 @@ describe('Store lock contention through the routes', () => {
 
     const res = await request(app)
       .post('/api/send/text')
-      .set('X-Mission-Control-Request', '1')
       .send({ to: '15551234567@s.whatsapp.net', message: 'hi', confirm: true });
     await settle();
 
     expect(res.status).toBeGreaterThanOrEqual(400);
     // A failed send must never leave the store without a daemon.
     expect(spawn).toHaveBeenCalledTimes(1);
-    expect(pm.hasPendingExclusiveWork()).toBe(false);
   });
 });

@@ -89,7 +89,6 @@ describe('Contact metadata and aliases', () => {
   it('sets an alias in the wacli store', async () => {
     const res = await request(app)
       .post('/api/contacts/alias')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', alias: 'Alice W' });
 
     expect(res.status).toBe(200);
@@ -101,7 +100,6 @@ describe('Contact metadata and aliases', () => {
   it('clears the alias when an empty one is saved', async () => {
     await request(app)
       .post('/api/contacts/alias')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', alias: '   ' });
 
     expect(argsFor('contacts alias')).toEqual([
@@ -112,7 +110,6 @@ describe('Contact metadata and aliases', () => {
   it('writes the alias as a mutation, not under wacli read-only', async () => {
     await request(app)
       .post('/api/contacts/alias')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', alias: 'Alice W' });
 
     const call = execWacli.mock.calls.find(([args]) => args.join(' ').startsWith('contacts alias'))!;
@@ -124,7 +121,6 @@ describe('Contact metadata and aliases', () => {
 
     const res = await request(app)
       .post('/api/contacts/alias')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', alias: 'Alice W' });
 
     expect(res.status).toBe(403);
@@ -157,7 +153,6 @@ describe('Local chat tags', () => {
     for (const tag of ['work', 'family', 'follow-up']) {
       await request(app)
         .post('/api/tags')
-        .set('X-Mission-Control-Request', '1')
         .send({ jid: 'alice@s.whatsapp.net', tag, add: false });
     }
   });
@@ -165,7 +160,6 @@ describe('Local chat tags', () => {
   it('adds a tag and reads it back', async () => {
     const added = await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', tag: 'Work', add: true });
 
     expect(added.status).toBe(200);
@@ -179,7 +173,6 @@ describe('Local chat tags', () => {
   it('surfaces the tag on the contact record', async () => {
     await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', tag: 'work', add: true });
 
     const res = await request(app).get('/api/contacts/show?jid=alice@s.whatsapp.net');
@@ -189,12 +182,10 @@ describe('Local chat tags', () => {
   it('removes a tag', async () => {
     await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', tag: 'work', add: true });
 
     const removed = await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', tag: 'work', add: false });
 
     expect(removed.body.data.tags).toEqual([]);
@@ -203,7 +194,6 @@ describe('Local chat tags', () => {
   it('requires both a jid and a tag', async () => {
     const res = await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net' });
 
     expect(res.status).toBe(400);
@@ -214,7 +204,6 @@ describe('Local chat tags', () => {
 
     const res = await request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid: 'alice@s.whatsapp.net', tag: 'work', add: true });
 
     expect(res.status).toBe(200);
@@ -230,7 +219,6 @@ describe('Managing the tag vocabulary', () => {
   const tag = (jid: string, name: string) =>
     request(app)
       .post('/api/tags')
-      .set('X-Mission-Control-Request', '1')
       .send({ jid, tag: name, add: true });
 
   beforeEach(() => {
@@ -246,7 +234,6 @@ describe('Managing the tag vocabulary', () => {
     for (const name of body.data.tags as string[]) {
       await request(app)
         .post('/api/tags/delete')
-        .set('X-Mission-Control-Request', '1')
         .send({ tag: name });
     }
   });
@@ -257,7 +244,6 @@ describe('Managing the tag vocabulary', () => {
 
     const res = await request(app)
       .post('/api/tags/rename')
-      .set('X-Mission-Control-Request', '1')
       .send({ from: 'work', to: 'Clients' });
 
     expect(res.status).toBe(200);
@@ -274,7 +260,6 @@ describe('Managing the tag vocabulary', () => {
 
     const res = await request(app)
       .post('/api/tags/rename')
-      .set('X-Mission-Control-Request', '1')
       .send({ from: 'work', to: 'clients' });
 
     expect(res.body.data).toMatchObject({ renamed: 1, merged: true });
@@ -284,7 +269,6 @@ describe('Managing the tag vocabulary', () => {
   it('requires both ends of the rename', async () => {
     const res = await request(app)
       .post('/api/tags/rename')
-      .set('X-Mission-Control-Request', '1')
       .send({ from: 'work' });
 
     expect(res.status).toBe(400);
@@ -295,7 +279,6 @@ describe('Managing the tag vocabulary', () => {
 
     const res = await request(app)
       .post('/api/tags/rename')
-      .set('X-Mission-Control-Request', '1')
       .send({ from: 'work', to: '   ' });
 
     expect(res.status).toBe(400);
@@ -309,7 +292,6 @@ describe('Managing the tag vocabulary', () => {
 
     const res = await request(app)
       .post('/api/tags/delete')
-      .set('X-Mission-Control-Request', '1')
       .send({ tag: 'Work' });
 
     expect(res.status).toBe(200);
@@ -323,7 +305,6 @@ describe('Managing the tag vocabulary', () => {
   it('requires a tag to delete', async () => {
     const res = await request(app)
       .post('/api/tags/delete')
-      .set('X-Mission-Control-Request', '1')
       .send({});
 
     expect(res.status).toBe(400);
@@ -335,13 +316,11 @@ describe('Managing the tag vocabulary', () => {
 
     const renamed = await request(app)
       .post('/api/tags/rename')
-      .set('X-Mission-Control-Request', '1')
       .send({ from: 'work', to: 'clients' });
     expect(renamed.status).toBe(200);
 
     const deleted = await request(app)
       .post('/api/tags/delete')
-      .set('X-Mission-Control-Request', '1')
       .send({ tag: 'clients' });
     expect(deleted.status).toBe(200);
 

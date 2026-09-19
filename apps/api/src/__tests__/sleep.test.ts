@@ -20,7 +20,6 @@ import { SleepController } from '../wacli/sleep.js';
 import type { EventBridge } from '../ws/event-bridge.js';
 import type { MissionControlEvent } from '../types.js';
 
-const UI = { 'X-Mission-Control-Request': '1' };
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 /** A running manager whose daemon spawn is a spy, so no wacli ever starts. */
@@ -167,7 +166,7 @@ describe('/api/sleep', () => {
     const { bridge, events } = makeBridge();
     const app = createApp(pm, bridge);
 
-    const res = await request(app).post('/api/sleep').set(UI).send({ sleeping: true, reason: 'moon' });
+    const res = await request(app).post('/api/sleep').send({ sleeping: true, reason: 'moon' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.sleeping).toBe(true);
@@ -179,8 +178,8 @@ describe('/api/sleep', () => {
   it('answers a repeated request with the original state', async () => {
     const app = createApp(makeDaemon().pm);
 
-    const first = await request(app).post('/api/sleep').set(UI).send({ sleeping: true });
-    const second = await request(app).post('/api/sleep').set(UI).send({ sleeping: true });
+    const first = await request(app).post('/api/sleep').send({ sleeping: true });
+    const second = await request(app).post('/api/sleep').send({ sleeping: true });
 
     expect(second.status).toBe(200);
     expect(second.body.data).toEqual(first.body.data);
@@ -190,8 +189,8 @@ describe('/api/sleep', () => {
     const { pm, spawn } = makeDaemon();
     const app = createApp(pm);
 
-    await request(app).post('/api/sleep').set(UI).send({ sleeping: true });
-    const res = await request(app).post('/api/sleep').set(UI).send({ sleeping: false });
+    await request(app).post('/api/sleep').send({ sleeping: true });
+    const res = await request(app).post('/api/sleep').send({ sleeping: false });
     await tick();
 
     expect(res.body.data).toEqual({ sleeping: false, since: null });
@@ -201,24 +200,23 @@ describe('/api/sleep', () => {
   it('rejects anything but a boolean', async () => {
     const res = await request(createApp(makeDaemon().pm))
       .post('/api/sleep')
-      .set(UI)
+      
       .send({ sleeping: 'yes' });
 
     expect(res.status).toBe(400);
     expect(modeManager.isSleeping()).toBe(false);
   });
 
-  it('refuses a request without the UI header outside tests', async () => {
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      const res = await request(createApp(makeDaemon().pm)).post('/api/sleep').send({ sleeping: true });
+  it('will not be put to sleep by another page', async () => {
+    // Sleep stops the daemon, and a simple cross-origin POST runs even when the
+    // browser hides its answer.
+    const res = await request(createApp(makeDaemon().pm))
+      .post('/api/sleep')
+      .set('Origin', 'https://evil.example')
+      .send({ sleeping: true });
 
-      expect(res.status).toBe(400);
-      expect(modeManager.isSleeping()).toBe(false);
-    } finally {
-      process.env.NODE_ENV = previous;
-    }
+    expect(res.status).toBe(403);
+    expect(modeManager.isSleeping()).toBe(false);
   });
 });
 
@@ -278,7 +276,7 @@ describe('a scheduled message that comes due while asleep', () => {
         expect.arrayContaining(['send', 'text']),
         expect.anything()
       );
-      expect(scheduler.getList().find((i) => i.id === item.id)?.status).toBe('sent');
+      expect(scheduler.getPage().history.find((i) => i.id === item.id)?.status).toBe('sent');
       expect(spawn).not.toHaveBeenCalled();
       expect(pm.getState()).toBe('stopped');
       expect(modeManager.isSleeping()).toBe(true);

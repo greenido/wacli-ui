@@ -11,7 +11,6 @@ const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-test-'));
 
 process.env.WACLI_DB_FILE = path.join(sandbox, 'mission-control.db');
 process.env.WACLI_STORE_DIR = path.join(sandbox, 'store');
-process.env.WACLI_LOG_DIR = path.join(sandbox, 'logs');
 
 fs.mkdirSync(path.join(sandbox, 'store', 'media'), { recursive: true });
 

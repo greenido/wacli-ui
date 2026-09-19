@@ -58,7 +58,6 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "multer": "^1.4.5-lts.1",
     "ws": "^8.18.0"

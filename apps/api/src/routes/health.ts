@@ -206,39 +206,5 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
     }
   });
 
-  router.post('/daemon/start', (_req, res) => {
-    try {
-      processManager.start();
-      res.json({
-        success: true,
-        data: {
-          state: processManager.getState(),
-          pid: processManager.getPid(),
-        },
-        error: null,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ success: false, data: null, error: msg });
-    }
-  });
-
-  router.post('/daemon/stop', async (_req, res) => {
-    try {
-      await processManager.stop();
-      res.json({
-        success: true,
-        data: {
-          state: processManager.getState(),
-          pid: processManager.getPid(),
-        },
-        error: null,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ success: false, data: null, error: msg });
-    }
-  });
-
   return router;
 }

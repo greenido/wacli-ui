@@ -187,11 +187,6 @@ export class WacliProcessManager {
     return this.daemonConnected && this.child !== null;
   }
 
-  /** Exposed for the health route's "is a command holding the daemon down" check. */
-  public hasPendingExclusiveWork(): boolean {
-    return this.exclusiveWaiters > 0;
-  }
-
   /**
    * Whether this manager has ever spawned `pid`. Answers "is that lock holder
    * one of ours?" for a PID our current child no longer has — while the daemon
