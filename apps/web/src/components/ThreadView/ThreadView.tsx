@@ -585,7 +585,7 @@ export const ThreadView: React.FC = () => {
                 <Terminal size={12} /> Install command:
               </div>
               <code className="text-mc-live text-xs block select-all">
-                brew install stevemcquaid/wacli/wacli
+                brew install openclaw/tap/wacli
               </code>
             </div>
           </div>
