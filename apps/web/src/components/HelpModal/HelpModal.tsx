@@ -180,7 +180,7 @@ const GuideTab: React.FC = () => (
       <p>
         If no chats ever load, the console will say which of the two causes it
         is: <Term>wacli</Term> is not installed (
-        <Term>brew install stevemcquaid/wacli/wacli</Term>), or the account is
+        <Term>brew install openclaw/tap/wacli</Term>), or the account is
         not paired yet (<Term>wacli auth</Term>, then scan the QR code).
       </p>
     </Topic>

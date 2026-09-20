@@ -17,6 +17,17 @@ import { useHealth } from '../../hooks/useHealth.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useAppStore } from '../../store/appStore.ts';
 
+/**
+ * The install commands the setup guide hands out, in one place so the string a
+ * copy button writes to the clipboard cannot drift from the one shown under it.
+ * Both are what https://wacli.sh/install.html documents; the Go build needs cgo
+ * and the sqlite_fts5 tag, or `messages search` falls back off the FTS5 index.
+ */
+const BREW_INSTALL_CMD = 'brew install openclaw/tap/wacli';
+const GO_INSTALL_CMD =
+  'CGO_ENABLED=1 CGO_CFLAGS="-Wno-error=missing-braces" go install -tags sqlite_fts5 github.com/openclaw/wacli/cmd/wacli@latest';
+const INSTALL_GUIDE_URL = 'https://wacli.sh/install.html';
+
 export const WacliStatusBanner: React.FC = () => {
   const queryClient = useQueryClient();
   const setActiveModal = useAppStore((s) => s.setActiveModal);
@@ -182,12 +193,12 @@ export const WacliStatusBanner: React.FC = () => {
                 {/* Homebrew */}
                 <div className="p-2.5 bg-mc-surface rounded border border-mc-border space-y-1">
                   <div className="text-[11px] text-mc-textMuted font-semibold flex items-center justify-between">
-                    <span>macOS (Homebrew)</span>
+                    <span>macOS / Linux (Homebrew)</span>
                     <button
-                      onClick={() => handleCopy('brew install stevemcquaid/wacli/wacli')}
+                      onClick={() => handleCopy(BREW_INSTALL_CMD)}
                       className="text-mc-live hover:underline flex items-center gap-1 text-[10px]"
                     >
-                      {copiedCmd === 'brew install stevemcquaid/wacli/wacli' ? (
+                      {copiedCmd === BREW_INSTALL_CMD ? (
                         <>
                           <Check size={10} /> Copied
                         </>
@@ -198,20 +209,20 @@ export const WacliStatusBanner: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  <code className="text-mc-live text-[11px] block select-all">
-                    brew install stevemcquaid/wacli/wacli
+                  <code className="text-mc-live text-[11px] block select-all break-words">
+                    {BREW_INSTALL_CMD}
                   </code>
                 </div>
 
                 {/* Go install */}
                 <div className="p-2.5 bg-mc-surface rounded border border-mc-border space-y-1">
                   <div className="text-[11px] text-mc-textMuted font-semibold flex items-center justify-between">
-                    <span>Go (Universal)</span>
+                    <span>Go (from source)</span>
                     <button
-                      onClick={() => handleCopy('go install github.com/stevemcquaid/wacli@latest')}
+                      onClick={() => handleCopy(GO_INSTALL_CMD)}
                       className="text-mc-live hover:underline flex items-center gap-1 text-[10px]"
                     >
-                      {copiedCmd === 'go install github.com/stevemcquaid/wacli@latest' ? (
+                      {copiedCmd === GO_INSTALL_CMD ? (
                         <>
                           <Check size={10} /> Copied
                         </>
@@ -222,14 +233,30 @@ export const WacliStatusBanner: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  <code className="text-mc-live text-[11px] block select-all">
-                    go install github.com/stevemcquaid/wacli@latest
+                  <code className="text-mc-live text-[11px] block select-all break-words">
+                    {GO_INSTALL_CMD}
                   </code>
+                  <div className="text-[10px] text-mc-textMuted">
+                    Needs Go 1.27+ and a C toolchain.
+                  </div>
                 </div>
               </div>
 
-              <div className="text-[11px] text-mc-textMuted font-mono pt-1">
-                Once installed, click <span className="text-mc-live font-semibold">RE-CHECK</span> above to connect Mission Control.
+              <div className="text-[11px] text-mc-textMuted font-mono pt-1 space-y-1">
+                <div>
+                  Prebuilt archives and per-platform notes:{' '}
+                  <a
+                    href={INSTALL_GUIDE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-mc-live hover:underline"
+                  >
+                    {INSTALL_GUIDE_URL}
+                  </a>
+                </div>
+                <div>
+                  Once installed, click <span className="text-mc-live font-semibold">RE-CHECK</span> above to connect Mission Control.
+                </div>
               </div>
             </div>
           ) : isNotAuth ? (
