@@ -121,6 +121,33 @@ describe('which pages may call the API', () => {
   });
 });
 
+/**
+ * Refusing the call is not refusing the frame. Another page that frames the
+ * console reads nothing through it — but the operator's clicks land inside,
+ * and safe mode's unlock button is one of them, so a framed console routes
+ * around the origin check by using the operator's own trusted page.
+ */
+describe('framing the console', () => {
+  it('refuses to be framed, on the page and on the API', async () => {
+    const app = appWith();
+
+    for (const path of ['/', '/api/mode']) {
+      const res = await request(app).get(path).set('Origin', `http://localhost:${PORT}`);
+
+      expect(res.headers['x-frame-options'], path).toBe('DENY');
+      expect(res.headers['content-security-policy'], path).toContain("frame-ancestors 'none'");
+    }
+  });
+
+  it('carries them on a refusal too, which renders in a frame like anything else', async () => {
+    const res = await request(appWith()).get('/api/mode').set('Origin', 'https://evil.example');
+
+    expect(res.status).toBe(403);
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+  });
+});
+
 describe('the Host header', () => {
   it('refuses a name this machine does not answer to', async () => {
     // What DNS rebinding looks like on arrival: a loopback socket, but a Host
