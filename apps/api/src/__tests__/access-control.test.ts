@@ -131,6 +131,9 @@ describe('framing the console', () => {
   it('refuses to be framed, on the page and on the API', async () => {
     const app = appWith();
 
+    // `/` is the console when the web UI is built and a 404 when it is not,
+    // which is how CI meets it: tests run before the build. Both are
+    // responses this server writes, and both carry the headers.
     for (const path of ['/', '/api/mode']) {
       const res = await request(app).get(path).set('Origin', `http://localhost:${PORT}`);
 
