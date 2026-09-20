@@ -247,6 +247,20 @@ export function createApp(
     });
   }
 
+  // Unmatched routes end here rather than at Express's own fallback, which
+  // writes its 404 page with a Content-Security-Policy of its own —
+  // "default-src 'none'" — replacing the one set at the top. CSP does not fall
+  // back from default-src to frame-ancestors, so that page would be left with
+  // only the header older browsers read.
+  app.use((_req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      data: null,
+      error: 'No such route.',
+      code: 'NOT_FOUND',
+    });
+  });
+
   // Global Error Handler
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     // The route that failed is the first thing you want to know, and the only
