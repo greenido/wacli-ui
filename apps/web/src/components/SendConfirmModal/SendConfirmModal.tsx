@@ -60,7 +60,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const { isReadOnly, setSafeMode } = useSafeMode();
 
   const sendTextMutation = useMutation({
-    mutationFn: (data: { to: string; message: string; replyTo?: string }) =>
+    mutationFn: (data: { to: string; chatName: string; message: string; replyTo?: string }) =>
       api.sendText({ ...data, confirm: true }),
   });
 
@@ -144,10 +144,13 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
 
         let sentResult: { sent: boolean; messageId?: string } | undefined;
 
+        // The server writes the ACTIVITY row, and names it from `chatName`.
+        // Without it, every send made from here was listed under its JID.
         if (sendConfirmData.fileAttachment) {
           const fd = new FormData();
           fd.append('file', sendConfirmData.fileAttachment);
           fd.append('to', sendConfirmData.toJid);
+          fd.append('chatName', sendConfirmData.recipientName);
           if (sendConfirmData.messageText) {
             fd.append('caption', sendConfirmData.messageText);
           }
@@ -160,6 +163,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
         } else {
           sentResult = await sendTextMutation.mutateAsync({
             to: sendConfirmData.toJid,
+            chatName: sendConfirmData.recipientName,
             message: sendConfirmData.messageText,
             replyTo: sendConfirmData.replyToId,
           });
