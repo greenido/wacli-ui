@@ -1,6 +1,7 @@
 import React from 'react';
 import { Reply, Smile, Check, CheckCheck, Copy, Star, Bookmark } from 'lucide-react';
 import { detectTextDirection } from '../../lib/textDirection.ts';
+import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import type { UnifiedMessage } from '../../types.ts';
@@ -121,9 +122,11 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             </span>
           )}
           {msg.edited && <span className="italic">edited</span>}
-          <span>
+          {/* The time alone, with the date a hover away: the day dividers say
+              which day a run of bubbles belongs to. */}
+          <time dateTime={msg.ts} title={fullTimestamp(msg.ts)}>
             {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
+          </time>
           {isMe && (
             <span title={msg.deliveryStatus ?? 'sent'}>
               {msg.deliveryStatus === 'read' || msg.deliveryStatus === 'played' ? (

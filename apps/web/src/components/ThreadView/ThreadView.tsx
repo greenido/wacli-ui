@@ -27,6 +27,7 @@ import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { distanceFromBottom, shouldFollowNewest } from '../../lib/threadScroll.ts';
+import { localDayKey } from '../../lib/messageDates.ts';
 import {
   flattenMessagePages,
   olderCursor,
@@ -36,6 +37,7 @@ import {
   type MessagePages,
 } from '../../lib/messagePages.ts';
 import { ExportMenu } from './ExportMenu.tsx';
+import { DayDivider } from './DayDivider.tsx';
 import { MessageRow, type ThreadReaction } from './MessageRow.tsx';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -366,6 +368,18 @@ export const ThreadView: React.FC = () => {
     visibleMsgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
     return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
   }, [loadedMessages, pendingReactions]);
+
+  // The first message of each local day, which is where a divider goes.
+  const dayStarts = useMemo(() => {
+    const starts = new Set<string>();
+    let previous: string | null = null;
+    for (const msg of messages) {
+      const day = localDayKey(msg.ts);
+      if (day !== previous) starts.add(msg.msgId);
+      previous = day;
+    }
+    return starts;
+  }, [messages]);
 
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
@@ -867,22 +881,27 @@ export const ThreadView: React.FC = () => {
           </div>
         ) : (
           messages.map((msg) => (
-            <MessageRow
-              key={msg.msgId}
-              msg={msg}
-              reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
-              isGroup={selectedChat.kind === 'group'}
-              mediaChatJid={msg.chatJid || selectedChat.jid}
-              isFocused={focusedMessageId === msg.msgId}
-              isCopied={copiedMsgId === msg.msgId}
-              isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
-              onReply={onReply}
-              onCopy={handleCopyText}
-              onToggleBookmark={handleToggleBookmark}
-              onToggleReactionDrawer={toggleReactionDrawer}
-              onCloseReactionDrawer={closeReactionDrawer}
-              onReact={onReact}
-            />
+            // The divider's slot is there, empty, for every message, so a row
+            // keeps its place (and its memoised render) when older history
+            // lands and the day's first message changes.
+            <React.Fragment key={msg.msgId}>
+              {dayStarts.has(msg.msgId) && <DayDivider ts={msg.ts} />}
+              <MessageRow
+                msg={msg}
+                reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
+                isGroup={selectedChat.kind === 'group'}
+                mediaChatJid={msg.chatJid || selectedChat.jid}
+                isFocused={focusedMessageId === msg.msgId}
+                isCopied={copiedMsgId === msg.msgId}
+                isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
+                onReply={onReply}
+                onCopy={handleCopyText}
+                onToggleBookmark={handleToggleBookmark}
+                onToggleReactionDrawer={toggleReactionDrawer}
+                onCloseReactionDrawer={closeReactionDrawer}
+                onReact={onReact}
+              />
+            </React.Fragment>
           ))
         )}
       </div>

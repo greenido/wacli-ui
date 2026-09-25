@@ -1094,3 +1094,59 @@ describe('ThreadView scheduled banner', () => {
     expect(screen.queryByRole('button', { name: 'CANCEL' })).not.toBeInTheDocument();
   });
 });
+
+describe('ThreadView dates', () => {
+  /** Message `i`, at a local time on day `day` of September 2026. */
+  const on = (i: number, day: number, hour: number): UnifiedMessage => ({
+    ...message(i),
+    ts: new Date(2026, 8, day, hour, i).toISOString(),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+    // Only the clock stands still. Timers stay real, for the queries.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 8, 3, 9, 30));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('marks where each day starts', async () => {
+    getMessages.mockResolvedValue({
+      // Newest first, as wacli answers. Two of them share yesterday.
+      messages: [on(4, 3, 8), on(3, 2, 22), on(2, 2, 9), on(1, 1, 18)],
+      hasMore: false,
+    });
+    renderThread();
+    await screen.findByText('message body 4');
+
+    const labels = screen.getAllByRole('separator').map((d) => d.getAttribute('aria-label'));
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).not.toMatch(/Today|Yesterday/);
+    expect(labels.slice(1)).toEqual(['Yesterday', 'Today']);
+
+    // Each divider sits right above its day's first message.
+    const [, yesterday, today] = screen.getAllByRole('separator');
+    expect(yesterday.nextElementSibling).toHaveTextContent('message body 2');
+    expect(today.nextElementSibling).toHaveTextContent('message body 4');
+  });
+
+  it('keeps the full date of every message a hover away', async () => {
+    getMessages.mockResolvedValue({ messages: [on(1, 1, 18)], hasMore: false });
+    renderThread();
+    await screen.findByText('message body 1');
+
+    const time = document.getElementById('msg-MSG-1')!.querySelector('time')!;
+    expect(time).toHaveAttribute('dateTime', on(1, 1, 18).ts);
+    // The bubble shows the time alone, so the date lives here.
+    expect(time.getAttribute('title')).toContain('2026');
+  });
+});
