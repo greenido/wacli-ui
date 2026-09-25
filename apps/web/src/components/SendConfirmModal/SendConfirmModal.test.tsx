@@ -95,11 +95,32 @@ describe('SendConfirmModal keyboard flow', () => {
     await waitFor(() =>
       expect(sendText).toHaveBeenCalledWith({
         to: CHAT.jid,
+        // What names the server's ACTIVITY row. Left off, the row read as a
+        // raw JID for every send made from this dialog.
+        chatName: 'Alice',
         message: 'ping',
         replyTo: undefined,
         confirm: true,
       })
     );
+  });
+
+  it('names the chat on a file send too, for the ACTIVITY row', async () => {
+    const user = userEvent.setup();
+    sendFile.mockResolvedValue({ sent: true, messageId: 'wamid.2' });
+    useAppStore.setState({
+      composerFiles: { [CHAT.jid]: new File(['%PDF'], 'plan.pdf', { type: 'application/pdf' }) },
+    });
+    renderConsole();
+
+    await user.click(await composerBox());
+    await user.keyboard('{Enter}');
+    await user.click(await confirmButtonWhenOpen());
+
+    await waitFor(() => expect(sendFile).toHaveBeenCalledTimes(1));
+    const sent = sendFile.mock.calls[0][0] as FormData;
+    expect(sent.get('to')).toBe(CHAT.jid);
+    expect(sent.get('chatName')).toBe('Alice');
   });
 
   it('does not dispatch on the auto-repeat of the Enter that opened it', async () => {

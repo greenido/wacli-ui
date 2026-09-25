@@ -4,6 +4,7 @@ import { exec } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { supportsNode } from './node-version.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -106,6 +107,15 @@ for (let i = 0; i < args.length; i++) {
 }
 
 // Locate and import compiled API entrypoint
+// After the flags, so --help and --version still answer on any Node.
+if (!supportsNode(process.versions.node)) {
+  console.error(
+    `wacli-mission-control needs Node.js 22.13 or newer (23.4 or newer on the 23 line), ` +
+      `where node:sqlite loads without a flag. This is ${process.version}.`
+  );
+  process.exit(1);
+}
+
 const possibleEntrypoints = [
   path.resolve(__dirname, '../apps/api/dist/index.js'),
   path.resolve(__dirname, './apps/api/dist/index.js'),

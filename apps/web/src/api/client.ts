@@ -244,7 +244,14 @@ export const api = {
   }) =>
     request<{ query: string; fts: boolean; results: UnifiedMessage[] }>('/api/search', {}, params),
 
-  sendText: (data: { to: string; message: string; replyTo?: string; confirm: boolean }) =>
+  /** `chatName` only labels the server's ACTIVITY row; wacli never sees it. */
+  sendText: (data: {
+    to: string;
+    chatName?: string;
+    message: string;
+    replyTo?: string;
+    confirm: boolean;
+  }) =>
     request<{ sent: boolean; messageId?: string }>('/api/send/text', {
       method: 'POST',
       headers: {

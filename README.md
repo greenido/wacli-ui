@@ -9,7 +9,7 @@ Read, search, schedule and (carefully) send WhatsApp messages from a big screen 
 
 [![npm](https://img.shields.io/npm/v/wacli-mission-control?logo=npm&color=25D366)](https://www.npmjs.com/package/wacli-mission-control)
 [![CI](https://github.com/greenido/wacli-ui/actions/workflows/build.yml/badge.svg)](https://github.com/greenido/wacli-ui/actions/workflows/build.yml)
-[![node](https://img.shields.io/badge/node-%E2%89%A5%2022.5-339933?logo=node.js&logoColor=white)](#quick-start)
+[![node](https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=node.js&logoColor=white)](#quick-start)
 [![safe mode](https://img.shields.io/badge/safe%20mode-on%20by%20default-E8B96A)](#-safety-rails-aka-are-you-sure-sure)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -56,7 +56,7 @@ Your phone has a six-inch screen and a keyboard made of glass. Your desk has a b
 
 **You'll need:**
 
-1. **Node.js 22.5 or newer.** That's where `node:sqlite` landed, and Mission Control keeps its own state in it. No native modules to compile, no tears.
+1. **Node.js 22.13 or newer** (23.4 or newer if you're on the 23 line). That's where `node:sqlite` came out from behind its experimental flag, and Mission Control keeps its own state in it. No native modules to compile, no tears.
 2. **wacli, installed and paired** with your WhatsApp account:
 
    ```bash
@@ -257,7 +257,7 @@ flowchart TB
 5. **Its own memory.** Safe mode, the scheduled queue, the activity log, bookmarks, tags and sleep state live in `~/.wacli-mission-control/mission-control.db`, built on Node's own `node:sqlite` and created with mode `0600`.
 
 **Stack**
-- `apps/api`: Node.js 22.5+, Express 5, `ws`, `multer`, `node:sqlite`, TypeScript.
+- `apps/api`: Node.js 22.13+, Express 5, `ws`, `multer`, `node:sqlite`, TypeScript.
 - `apps/web`: React 19, TypeScript, Vite 7, Tailwind CSS 3, TanStack Query 5, Zustand 5, Lucide icons.
 - Tests: Vitest, Testing Library and Supertest.
 

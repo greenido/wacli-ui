@@ -135,6 +135,23 @@ describe('useKeyboardShortcuts', () => {
     expect(useAppStore.getState().chatFilter).toBe('all');
   });
 
+  it('stands down for a dialog that is not in the store, such as the image lightbox', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Harness />
+        <div role="dialog" aria-modal="true" aria-label="Image: sketch.png" />
+      </>
+    );
+
+    // `j` used to switch chats underneath an open image.
+    await user.keyboard('j1{Control>}k{/Control}');
+
+    expect(command()).toBeUndefined();
+    expect(useAppStore.getState().chatFilter).toBe('all');
+    expect(onToggleSearch).not.toHaveBeenCalled();
+  });
+
   it('leaves the search palette alone except for the chord that closes it', async () => {
     const user = userEvent.setup();
     renderHarness(true);

@@ -20,3 +20,18 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # The oldest Node that `engines` accepts: node:sqlite loads without a flag
+  # from 22.13, and this keeps anything that needs more from creeping in. Only
+  # the API suite runs here. The API is what runs on the operator's Node; the
+  # web suite's jsdom asks for a newer one than the console itself does.
+  min-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.13.0'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test -w @wacli/api

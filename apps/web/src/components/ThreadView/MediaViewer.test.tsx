@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MediaViewer } from './MediaViewer.tsx';
+import { api } from '../../api/client.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 const CHAT_JID = '15551234567@s.whatsapp.net';
@@ -75,5 +77,108 @@ describe('MediaViewer stickers', () => {
 
     expect(screen.getByText('document_attachment')).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+});
+
+describe('MediaViewer image lightbox', () => {
+  const photo = () =>
+    makeMessage({ msgId: 'wamid.IMG1', mediaType: 'image', mimeType: 'image/png', filename: 'sketch.png' });
+
+  it('opens as a dialog of its own, outside the message it came from', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    await user.click(screen.getByRole('img', { name: 'sketch.png' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Image: sketch.png' });
+    // Rendered inside the bubble, it shared the message row's stacking context,
+    // and every later message painted over the open image.
+    expect(container.contains(dialog)).toBe(false);
+    expect(screen.getByRole('button', { name: 'Close image viewer' })).toHaveFocus();
+  });
+
+  it('closes on Escape', async () => {
+    const user = userEvent.setup();
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    await user.click(screen.getByRole('img', { name: 'sketch.png' }));
+    const dialog = screen.getByRole('dialog', { name: 'Image: sketch.png' });
+    await user.keyboard('{Escape}');
+
+    expect(dialog).not.toBeInTheDocument();
+  });
+});
+
+describe('MediaViewer image thumbnails', () => {
+  const photo = () =>
+    makeMessage({ msgId: 'wamid.IMG1', mediaType: 'image', mimeType: 'image/png', filename: 'sketch.png' });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('is fetched only when scrolled near, in a box held open until it loads', () => {
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    const img = screen.getByRole('img', { name: 'sketch.png' });
+    expect(img).toHaveAttribute('loading', 'lazy');
+    // Collapsed to nothing before it loads, a lazy image counts as in view
+    // wherever it is, and shoves the thread around when it arrives.
+    expect(img.parentElement!.className).toContain('aspect-[4/3]');
+
+    fireEvent.load(img);
+    expect(img.parentElement!.className).not.toContain('aspect-[4/3]');
+  });
+
+  it('offers a retry in place of a broken image', () => {
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    fireEvent.error(screen.getByRole('img', { name: 'sketch.png' }));
+
+    expect(screen.queryByRole('img', { name: 'sketch.png' })).not.toBeInTheDocument();
+    expect(screen.getByText('Image unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeEnabled();
+  });
+
+  it('downloads it again on retry, and shows it once it is on disk', async () => {
+    const user = userEvent.setup();
+    const download = vi
+      .spyOn(api, 'downloadMedia')
+      .mockResolvedValue({ downloaded: true, localPath: '/store/media/IMG1.png' });
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+    fireEvent.error(screen.getByRole('img', { name: 'sketch.png' }));
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    // The explicit download, which skips the server's memory of the failure.
+    // Asking for the same URL again would only have replayed it.
+    expect(download).toHaveBeenCalledWith({ chat: CHAT_JID, id: 'wamid.IMG1' });
+    const img = await screen.findByRole('img', { name: 'sketch.png' });
+    expect(new URL(img.getAttribute('src')!, 'http://mc.test').searchParams.get('path')).toBe(
+      '/store/media/IMG1.png'
+    );
+  });
+
+  it('says why when the retry fails too, and can be tried again', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'downloadMedia').mockRejectedValue(
+      new Error('failed to download media: unexpected status code 403 Forbidden')
+    );
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+    fireEvent.error(screen.getByRole('img', { name: 'sketch.png' }));
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(await screen.findByText(/403 Forbidden/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeEnabled();
+  });
+
+  it('does the same for a sticker', () => {
+    render(<MediaViewer msg={makeMessage()} chatJid={CHAT_JID} />);
+
+    fireEvent.error(screen.getByRole('img', { name: 'Sticker' }));
+
+    expect(screen.getByText('Sticker unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 });
