@@ -2,6 +2,9 @@ import React, { useCallback, useMemo, useRef, useEffect, useLayoutEffect, useSta
 import {
   Reply,
   ChevronUp,
+  ChevronDown,
+  ArrowDownToLine,
+  History,
   Clock,
   CloudDownload,
   Info,
@@ -27,15 +30,22 @@ import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { distanceFromBottom, shouldFollowNewest } from '../../lib/threadScroll.ts';
+import { localDayKey } from '../../lib/messageDates.ts';
 import {
   flattenMessagePages,
+  hasMessage,
+  newerCursor,
+  newerPage,
   olderCursor,
   patchMessages,
   shouldPollThread,
+  windowPage,
   type MessagePage,
   type MessagePages,
+  type WindowPageParam,
 } from '../../lib/messagePages.ts';
 import { ExportMenu } from './ExportMenu.tsx';
+import { DayDivider } from './DayDivider.tsx';
 import { MessageRow, type ThreadReaction } from './MessageRow.tsx';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -65,6 +75,34 @@ const NO_PENDING_REACTIONS: Record<string, PendingReaction> = {};
 
 /** How many messages the thread opens with, and each "load older" step adds. */
 const MESSAGE_PAGE_SIZE = 200;
+
+/** How many messages a history window opens with on either side of its moment. */
+const WINDOW_SIDE = 100;
+
+/** A second on. wacli's `--before` is strict and counts whole seconds. */
+function secondAfter(ts: string): string {
+  return new Date(new Date(ts).getTime() + 1000).toISOString();
+}
+
+/** One page of a history window: around its moment, or on back or forward. */
+async function fetchWindowPage(chat: string, param: WindowPageParam): Promise<MessagePage> {
+  if ('before' in param) {
+    return api.getMessages({ chat, limit: MESSAGE_PAGE_SIZE, before: param.before });
+  }
+  if ('after' in param) {
+    // Oldest first. Newest first, the page would be the newest messages in
+    // the chat rather than the ones that follow the window.
+    return newerPage(
+      await api.getMessages({ chat, limit: MESSAGE_PAGE_SIZE, after: param.after, asc: true })
+    );
+  }
+  const [older, newer] = await Promise.all([
+    // Up to and including the moment itself.
+    api.getMessages({ chat, limit: WINDOW_SIDE, before: secondAfter(param.around) }),
+    api.getMessages({ chat, limit: WINDOW_SIDE, after: param.around, asc: true }),
+  ]);
+  return windowPage(older, newer);
+}
 
 const HIGHLIGHT_TTL_MS = 5000;
 
@@ -97,12 +135,23 @@ export const ThreadView: React.FC = () => {
   );
   const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
   const highlightedMessageHint = useAppStore((s) => s.highlightedMessageHint);
+  const highlightedMessageAt = useAppStore((s) => s.highlightedMessageAt);
   const setHighlightedMessageId = useAppStore((s) => s.setHighlightedMessageId);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  /**
+   * History around a message older than the live pages reach, opened for a
+   * jump to it, in the chat it was opened for.
+   */
+  const [historyWindow, setHistoryWindow] = useState<{
+    jid: string;
+    msgId: string;
+    at: string;
+  } | null>(null);
 
   // Reactions sent from here, held on screen until the archive catches up, and
   // keyed by the message reacted to — all one reaction of ours can be. Sending
@@ -146,15 +195,7 @@ export const ThreadView: React.FC = () => {
   // one ever-widening `limit`. Re-reading the whole thread to reach 200 more
   // messages is what made the sixth step cost a 1200-message subprocess — and
   // then cost it again on every poll.
-  const {
-    data: messagePages,
-    isLoading,
-    isFetching,
-    isPlaceholderData,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useInfiniteQuery<MessagePage, ApiClientError, MessagePages, unknown[], string | undefined>({
+  const liveThread = useInfiniteQuery<MessagePage, ApiClientError, MessagePages, unknown[], string | undefined>({
     queryKey: ['messages', selectedChat?.jid],
     queryFn: ({ pageParam }) =>
       selectedChat
@@ -173,6 +214,67 @@ export const ThreadView: React.FC = () => {
     placeholderData: keepPreviousData,
     ...readQueryOpts,
   });
+
+  // The window this chat is reading, if any. One left open in another chat
+  // is closed below, before anything reads it.
+  const windowAt = historyWindow?.jid === selectedChat?.jid ? (historyWindow?.at ?? null) : null;
+
+  // History around one moment, and from there back or forward on demand. Not
+  // polled: it is settled history, and the live thread goes on following the
+  // newest message underneath it.
+  const windowThread = useInfiniteQuery<MessagePage, ApiClientError, MessagePages, unknown[], WindowPageParam>({
+    queryKey: ['messages', selectedChat?.jid, 'around', windowAt],
+    queryFn: ({ pageParam }) => fetchWindowPage(selectedChat!.jid, pageParam),
+    initialPageParam: { around: windowAt ?? '' },
+    getNextPageParam: (lastPage) => {
+      const before = lastPage.hasMore ? olderCursor(lastPage) : undefined;
+      return before ? { before } : undefined;
+    },
+    getPreviousPageParam: (firstPage) => {
+      const after = firstPage.hasNewer ? newerCursor(firstPage) : undefined;
+      return after ? { after } : undefined;
+    },
+    ...wacliReadQueryOptions(readsReady && Boolean(selectedChat?.jid && windowAt)),
+  });
+
+  // Opened in one chat, a window has nothing to say about the next: a chat
+  // always opens on its newest messages.
+  if (historyWindow && historyWindow.jid !== selectedChat?.jid) {
+    setHistoryWindow(null);
+  }
+
+  // A jump to a message the live pages do not hold opens a window around it,
+  // however far back it is: two reads of the archive, where paging back to it
+  // could take dozens. Judged once the live pages have settled, so a switch to
+  // the hit's chat is not measured against the previous chat's messages.
+  const liveData = liveThread.data;
+  if (
+    selectedChat &&
+    highlightedMessageId &&
+    highlightedMessageAt &&
+    liveData &&
+    !liveThread.isFetching &&
+    !liveThread.isPlaceholderData
+  ) {
+    const inLive = hasMessage(liveData, highlightedMessageId);
+    const openFor = windowAt ? historyWindow?.msgId : null;
+    if (!inLive && openFor !== highlightedMessageId) {
+      setHistoryWindow({ jid: selectedChat.jid, msgId: highlightedMessageId, at: highlightedMessageAt });
+    } else if (inLive && windowAt) {
+      setHistoryWindow(null);
+    }
+  }
+
+  // Whichever the thread is showing. Everything below reads this one.
+  const {
+    data: messagePages,
+    isLoading,
+    isFetching,
+    isPlaceholderData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = windowAt ? windowThread : liveThread;
 
   const canLoadOlder = Boolean(hasNextPage);
 
@@ -214,6 +316,27 @@ export const ThreadView: React.FC = () => {
     // Paging bypasses `enabled`, so it wakes a sleeping app itself rather than
     // asking a server that would refuse it.
     void ensureAwake(queryClient, 'load older').then(() => fetchNextPage());
+  };
+
+  // Forward from a window, at the bottom of the thread. Nothing to hold in
+  // place: what lands goes below the reading position, not above it.
+  const loadNewerMessages = () => {
+    if (!windowThread.hasPreviousPage || windowThread.isFetchingPreviousPage) return;
+    void ensureAwake(queryClient, 'load newer').then(() => windowThread.fetchPreviousPage());
+  };
+
+  /** Leaves any history window for the live thread, at its newest message. */
+  const backToLatest = () => {
+    setHistoryWindow(null);
+    // Still set, the jump would open the window straight back up.
+    setHighlightedMessageId(null);
+    // An ask to go to the newest message is also an ask to follow it again,
+    // not to stay where the jump put us.
+    jumpedToRef.current = null;
+    distanceFromBottomRef.current = 0;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   };
 
   useLayoutEffect(() => {
@@ -367,6 +490,18 @@ export const ThreadView: React.FC = () => {
     return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
   }, [loadedMessages, pendingReactions]);
 
+  // The first message of each local day, which is where a divider goes.
+  const dayStarts = useMemo(() => {
+    const starts = new Set<string>();
+    let previous: string | null = null;
+    for (const msg of messages) {
+      const day = localDayKey(msg.ts);
+      if (day !== previous) starts.add(msg.msgId);
+      previous = day;
+    }
+    return starts;
+  }, [messages]);
+
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
   // Which message the jump actually lands on. An id is honoured when the thread
@@ -417,6 +552,12 @@ export const ThreadView: React.FC = () => {
         distanceFromBottomRef.current = 0;
       }
 
+      // A window onto older history is read at the operator's own pace, not
+      // followed: loading newer messages into it must not throw them to its end.
+      if (windowAt) {
+        return;
+      }
+
       // Following the live edge, or reading back through history? Judged on
       // where the operator was before this message was laid out — see
       // lib/threadScroll.
@@ -435,7 +576,10 @@ export const ThreadView: React.FC = () => {
     if (el) {
       jumpedToRef.current = focusedMessageId;
       const raf = requestAnimationFrame(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Straight there in a window. It replaced the thread outright, so
+        // there is no reading position to glide from, and gliding across
+        // thousands of pixels spent the highlight before it arrived.
+        el.scrollIntoView({ behavior: windowAt ? 'auto' : 'smooth', block: 'center' });
       });
       const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_TTL_MS);
       return () => {
@@ -455,7 +599,7 @@ export const ThreadView: React.FC = () => {
     // only the found path ever reset it.
     const timer = setTimeout(() => setHighlightedMessageId(null), HIGHLIGHT_MISS_TTL_MS);
     return () => clearTimeout(timer);
-  }, [selectedChat?.jid, messages, jumpRequested, focusedMessageId, setHighlightedMessageId]);
+  }, [selectedChat?.jid, messages, jumpRequested, focusedMessageId, setHighlightedMessageId, windowAt]);
 
   const reactMutation = useMutation({
     mutationFn: ({ msg, emoji }: { msg: UnifiedMessage; emoji: string }) =>
@@ -572,15 +716,7 @@ export const ThreadView: React.FC = () => {
     loadOlderMessages();
   });
 
-  useUiCommand('thread:jump-newest', () => {
-    setHighlightedMessageId(null);
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      // An explicit ask to go to the newest message is also an ask to start
-      // following it again, so the next arrival is not left behind.
-      distanceFromBottomRef.current = 0;
-    }
-  });
+  useUiCommand('thread:jump-newest', () => backToLatest());
 
   if (!selectedChat) {
     if (health?.wacliInstalled === false) {
@@ -747,6 +883,25 @@ export const ThreadView: React.FC = () => {
         </div>
       )}
 
+      {/* Outside the list, so it stays in view however far the window is
+          scrolled: the thread below is not the live one. */}
+      {windowAt && (
+        <div className="px-4 py-1.5 border-b border-mc-border bg-mc-surface flex items-center justify-between gap-3 text-[11px] font-mono text-mc-textMuted shrink-0">
+          <span className="flex items-center gap-1.5 min-w-0">
+            <History size={12} className="shrink-0 text-mc-live" />
+            <span className="truncate">Reading history from {archiveDate(windowAt) ?? 'an earlier date'}</span>
+          </span>
+          <button
+            onClick={backToLatest}
+            className="shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded border border-mc-border hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+            title="Back to the newest messages in this chat"
+          >
+            <ArrowDownToLine size={12} />
+            <span>BACK TO LATEST</span>
+          </button>
+        </div>
+      )}
+
       {/* Message List */}
       <div
         ref={scrollRef}
@@ -867,23 +1022,64 @@ export const ThreadView: React.FC = () => {
           </div>
         ) : (
           messages.map((msg) => (
-            <MessageRow
-              key={msg.msgId}
-              msg={msg}
-              reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
-              isGroup={selectedChat.kind === 'group'}
-              mediaChatJid={msg.chatJid || selectedChat.jid}
-              isFocused={focusedMessageId === msg.msgId}
-              isCopied={copiedMsgId === msg.msgId}
-              isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
-              onReply={onReply}
-              onCopy={handleCopyText}
-              onToggleBookmark={handleToggleBookmark}
-              onToggleReactionDrawer={toggleReactionDrawer}
-              onCloseReactionDrawer={closeReactionDrawer}
-              onReact={onReact}
-            />
+            // The divider's slot is there, empty, for every message, so a row
+            // keeps its place (and its memoised render) when older history
+            // lands and the day's first message changes.
+            <React.Fragment key={msg.msgId}>
+              {dayStarts.has(msg.msgId) && <DayDivider ts={msg.ts} />}
+              <MessageRow
+                msg={msg}
+                reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
+                isGroup={selectedChat.kind === 'group'}
+                mediaChatJid={msg.chatJid || selectedChat.jid}
+                isFocused={focusedMessageId === msg.msgId}
+                isCopied={copiedMsgId === msg.msgId}
+                isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
+                onReply={onReply}
+                onCopy={handleCopyText}
+                onToggleBookmark={handleToggleBookmark}
+                onToggleReactionDrawer={toggleReactionDrawer}
+                onCloseReactionDrawer={closeReactionDrawer}
+                onReact={onReact}
+              />
+            </React.Fragment>
           ))
+        )}
+
+        {/* A window's own end: more of it, or, once it reaches the newest
+            message, the live thread. */}
+        {windowAt && messages.length > 0 && (
+          <div className="flex justify-center pt-1">
+            {windowThread.hasPreviousPage ? (
+              <button
+                onClick={loadNewerMessages}
+                disabled={windowThread.isFetchingPreviousPage}
+                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
+                title="Load the next 200 messages from the local archive"
+              >
+                {windowThread.isFetchingPreviousPage ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    <span>LOADING...</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={12} />
+                    <span>LOAD NEWER MESSAGES</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={backToLatest}
+                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+                title="Back to the live thread"
+              >
+                <ArrowDownToLine size={12} />
+                <span>BACK TO LATEST</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
     </section>

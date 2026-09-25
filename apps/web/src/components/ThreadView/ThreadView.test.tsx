@@ -1094,3 +1094,168 @@ describe('ThreadView scheduled banner', () => {
     expect(screen.queryByRole('button', { name: 'CANCEL' })).not.toBeInTheDocument();
   });
 });
+
+describe('ThreadView dates', () => {
+  /** Message `i`, at a local time on day `day` of September 2026. */
+  const on = (i: number, day: number, hour: number): UnifiedMessage => ({
+    ...message(i),
+    ts: new Date(2026, 8, day, hour, i).toISOString(),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+    // Only the clock stands still. Timers stay real, for the queries.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 8, 3, 9, 30));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('marks where each day starts', async () => {
+    getMessages.mockResolvedValue({
+      // Newest first, as wacli answers. Two of them share yesterday.
+      messages: [on(4, 3, 8), on(3, 2, 22), on(2, 2, 9), on(1, 1, 18)],
+      hasMore: false,
+    });
+    renderThread();
+    await screen.findByText('message body 4');
+
+    const labels = screen.getAllByRole('separator').map((d) => d.getAttribute('aria-label'));
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).not.toMatch(/Today|Yesterday/);
+    expect(labels.slice(1)).toEqual(['Yesterday', 'Today']);
+
+    // Each divider sits right above its day's first message.
+    const [, yesterday, today] = screen.getAllByRole('separator');
+    expect(yesterday.nextElementSibling).toHaveTextContent('message body 2');
+    expect(today.nextElementSibling).toHaveTextContent('message body 4');
+  });
+
+  it('keeps the full date of every message a hover away', async () => {
+    getMessages.mockResolvedValue({ messages: [on(1, 1, 18)], hasMore: false });
+    renderThread();
+    await screen.findByText('message body 1');
+
+    const time = document.getElementById('msg-MSG-1')!.querySelector('time')!;
+    expect(time).toHaveAttribute('dateTime', on(1, 1, 18).ts);
+    // The bubble shows the time alone, so the date lives here.
+    expect(time.getAttribute('title')).toContain('2026');
+  });
+});
+
+describe('ThreadView jump to a message older than the loaded thread', () => {
+  /** The hit: message 50, far behind the 200 newest that the thread opens on. */
+  const HIT = message(50);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    getMessages.mockImplementation(async (p: { before?: string; after?: string }) => {
+      // Forward from the hit, then on from there to the end of the archive.
+      if (p.after === HIT.ts) return { messages: [message(51), message(52)], hasMore: true };
+      if (p.after) return { messages: [message(53), message(54)], hasMore: false };
+      // Back from the hit, the hit included.
+      if (p.before) return { messages: [HIT, message(49), message(48)], hasMore: true };
+      // The live thread: the 200 newest, 100 to 299.
+      return { messages: Array.from({ length: 200 }, (_, k) => message(299 - k)), hasMore: true };
+    });
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null, highlightedMessageAt: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null, highlightedMessageAt: null });
+  });
+
+  async function jumpToHit() {
+    renderThread();
+    await screen.findByText('message body 299');
+    act(() => useAppStore.getState().setHighlightedMessageId(HIT.msgId, null, HIT.ts));
+    await screen.findByText('message body 50');
+  }
+
+  it('opens the history around the hit and lands on it', async () => {
+    await jumpToHit();
+
+    // Two reads either side of the hit, instead of paging back through
+    // everything between it and the newest message.
+    expect(getMessages).toHaveBeenCalledWith({
+      chat: CHAT.jid,
+      limit: 100,
+      before: '2026-09-01T10:50:01.000Z',
+    });
+    expect(getMessages).toHaveBeenCalledWith({ chat: CHAT.jid, limit: 100, after: HIT.ts, asc: true });
+
+    // In place of the live thread, and saying so.
+    expect(screen.queryByText('message body 299')).not.toBeInTheDocument();
+    expect(screen.getByText(/Reading history from/)).toBeInTheDocument();
+
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts.at(-1)).toHaveAttribute(
+      'id',
+      'msg-MSG-50'
+    );
+    // Straight there: a smooth scroll from wherever the replaced thread was
+    // spent the highlight on the way.
+    expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({
+      behavior: 'auto',
+      block: 'center',
+    });
+  });
+
+  it('reads on forward from the window, then hands back to the live thread', async () => {
+    const user = userEvent.setup();
+    await jumpToHit();
+
+    await user.click(screen.getByRole('button', { name: /LOAD NEWER MESSAGES/ }));
+
+    // From the window's newest message and oldest first, not from the chat's newest.
+    expect(getMessages).toHaveBeenCalledWith({
+      chat: CHAT.jid,
+      limit: 200,
+      after: message(52).ts,
+      asc: true,
+    });
+    expect(await screen.findByText('message body 54')).toBeInTheDocument();
+
+    // The archive has nothing newer, so the way on is the live thread.
+    expect(screen.queryByRole('button', { name: /LOAD NEWER MESSAGES/ })).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole('button', { name: /BACK TO LATEST/ }).at(-1)!);
+
+    expect(await screen.findByText('message body 299')).toBeInTheDocument();
+    expect(screen.queryByText(/Reading history from/)).not.toBeInTheDocument();
+    expect(screen.queryByText('message body 50')).not.toBeInTheDocument();
+  });
+
+  it('jumps in place when the live thread already holds the hit', async () => {
+    const recent = message(250);
+    renderThread();
+    await screen.findByText('message body 299');
+
+    act(() => useAppStore.getState().setHighlightedMessageId(recent.msgId, null, recent.ts));
+
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(screen.queryByText(/Reading history from/)).not.toBeInTheDocument();
+    expect(getMessages).not.toHaveBeenCalledWith(expect.objectContaining({ asc: true }));
+  });
+
+  it('closes the window when another chat is opened', async () => {
+    await jumpToHit();
+
+    act(() => useAppStore.getState().setSelectedChat({ ...CHAT, jid: 'bob@s.whatsapp.net', name: 'Bob' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Reading history from/)).not.toBeInTheDocument()
+    );
+  });
+});
