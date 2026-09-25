@@ -4,7 +4,19 @@ import type { UnifiedMessage } from '../types.ts';
 export interface MessagePage {
   messages: UnifiedMessage[];
   hasMore: boolean;
+  /**
+   * Pages of a history window only: whether there is newer history than the
+   * page holds. The live thread starts at the newest message, so it has none.
+   */
+  hasNewer?: boolean;
 }
+
+/**
+ * Where a page of a history window comes from: the history around a moment,
+ * then the next stretch back or forward from what the window holds. The live
+ * thread's own pages are plain `before` cursors.
+ */
+export type WindowPageParam = { around: string } | { before: string } | { after: string };
 
 /**
  * The thread cache as React Query holds it for an infinite query.
@@ -61,6 +73,40 @@ export function olderCursor(page: MessagePage | undefined): string | undefined {
   return page.messages[page.messages.length - 1]?.ts;
 }
 
+/** Where the next page forward starts: the newest message of the page, its first. */
+export function newerCursor(page: MessagePage | undefined): string | undefined {
+  return page?.messages[0]?.ts;
+}
+
+/**
+ * True for a window onto older history rather than the live thread. The two
+ * share a cache key prefix, so that a bookmark or a receipt reaches both, and
+ * are told apart by their page params: objects for a window, plain cursors for
+ * the live thread.
+ */
+export function isHistoryWindow(data: MessagePages): boolean {
+  return data.pageParams.some((param) => typeof param === 'object' && param !== null);
+}
+
+/**
+ * The opening page of a history window, from the two reads either side of its
+ * moment: `older` newest first, up to and including the moment, and `newer`
+ * oldest first, as `--asc` returns it, from just after.
+ */
+export function windowPage(older: MessagePage, newer: MessagePage): MessagePage {
+  return {
+    messages: [...[...newer.messages].reverse(), ...older.messages],
+    hasMore: older.hasMore,
+    hasNewer: newer.hasMore,
+  };
+}
+
+/** A page forward from a window, from a read made oldest first. */
+export function newerPage(newer: MessagePage): MessagePage {
+  // Older history than this page is the rest of the window.
+  return { messages: [...newer.messages].reverse(), hasMore: true, hasNewer: newer.hasMore };
+}
+
 /** True when this message is already somewhere in the loaded history. */
 export function hasMessage(data: MessagePages, msgId: string): boolean {
   return data.pages.some((page) => page.messages.some((m) => m.msgId === msgId));
@@ -77,6 +123,9 @@ export function prependMessage(
 ): MessagePages | undefined {
   // Nothing loaded yet: the fetch already in flight will carry it.
   if (!data || data.pages.length === 0) return data;
+  // A window onto older history does not reach the present. On its front, a
+  // live message would read as the next thing said after wherever it ends.
+  if (isHistoryWindow(data)) return data;
   if (hasMessage(data, msg.msgId)) return data;
 
   const [newest, ...rest] = data.pages;

@@ -23,6 +23,11 @@ const SEARCH_DEBOUNCE_MS = 250;
 export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const selectedChat = useAppStore((s) => s.selectedChat);
+  // Every chat by default. Scoped, the search is the open chat's alone, which
+  // wacli does itself rather than this list filtering a mixed top 50.
+  const [thisChatOnly, setThisChatOnly] = useState(false);
+  const scopeChat = thisChatOnly ? selectedChat : null;
   // SearchBar is only mounted while open, so it is always open here.
   const dialogRef = useModalDialog<HTMLDivElement>(true, onClose);
   const setSelectedChat = useAppStore((s) => s.setSelectedChat);
@@ -46,8 +51,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   );
 
   const { data: searchResults, isFetching } = useQuery({
-    queryKey: ['search', settledQuery],
-    queryFn: () => (settledQuery ? api.searchMessages({ q: settledQuery, limit: 50 }) : null),
+    queryKey: ['search', settledQuery, scopeChat?.jid ?? null],
+    queryFn: () =>
+      settledQuery
+        ? api.searchMessages({ q: settledQuery, limit: 50, chat: scopeChat?.jid })
+        : null,
     ...readQueryOpts,
   });
 
@@ -63,7 +71,9 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
     const chat = chatWithUnreadCleared(chatFromMessage(msg));
     setSelectedChat(chat);
     void markChatAsRead(queryClient, msg.chatJid);
-    setHighlightedMessageId(msg.msgId);
+    // With its time, so a hit older than the loaded thread still lands: the
+    // thread opens the history around it.
+    setHighlightedMessageId(msg.msgId, null, msg.ts);
     try {
       localStorage.setItem('wacli_selected_chat', msg.chatJid);
     } catch {
@@ -131,10 +141,32 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             aria-label="Search query"
             value={query}
             onChange={handleQueryChange}
-            placeholder="Full-text search across all messages (FTS5)..."
-            className="flex-1 bg-transparent text-sm text-mc-text placeholder-mc-textMuted/60 focus:outline-none font-sans"
+            placeholder={
+              scopeChat
+                ? `Full-text search in ${scopeChat.name}...`
+                : 'Full-text search across all messages (FTS5)...'
+            }
+            className="flex-1 min-w-0 bg-transparent text-sm text-mc-text placeholder-mc-textMuted/60 focus:outline-none font-sans"
           />
           {isSearching && <span className="text-xs font-mono text-mc-live animate-pulse">searching...</span>}
+          {selectedChat && (
+            <button
+              type="button"
+              aria-pressed={thisChatOnly}
+              onClick={() => {
+                setThisChatOnly((only) => !only);
+                setSelectedIndex(0);
+              }}
+              className={`shrink-0 text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                thisChatOnly
+                  ? 'border-mc-live/60 text-mc-live bg-mc-live/10'
+                  : 'border-mc-border text-mc-textMuted hover:text-mc-text'
+              }`}
+              title={`Search only ${selectedChat.name}`}
+            >
+              THIS CHAT
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1 text-mc-textMuted hover:text-mc-text"
@@ -151,7 +183,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             </div>
           ) : results.length === 0 && !isSearching ? (
             <div className="p-8 text-center text-xs font-mono text-mc-textMuted">
-              No matching messages found for "{settledQuery}".
+              No matching messages found for "{settledQuery}"
+              {scopeChat ? ` in ${scopeChat.name}` : ''}.
             </div>
           ) : (
             results.map((msg, idx) => {

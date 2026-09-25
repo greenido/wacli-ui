@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   flattenMessagePages,
   hasMessage,
+  isHistoryWindow,
+  newerCursor,
+  newerPage,
   olderCursor,
   patchMessages,
   prependMessage,
   shouldPollThread,
+  windowPage,
   type MessagePage,
   type MessagePages,
 } from './messagePages.ts';
@@ -137,5 +141,69 @@ describe('shouldPollThread', () => {
     expect(shouldPollThread(1)).toBe(true);
     expect(shouldPollThread(2)).toBe(false);
     expect(shouldPollThread(6)).toBe(false);
+  });
+});
+
+describe('history windows', () => {
+  const a = message('a', '2026-07-01T10:00:00Z');
+  const b = message('b', '2026-07-01T10:01:00Z');
+  const hit = message('hit', '2026-07-01T10:02:00Z');
+  const c = message('c', '2026-07-01T10:03:00Z');
+  const d = message('d', '2026-07-01T10:04:00Z');
+
+  it('opens on the hit and what surrounds it, newest first like every page', () => {
+    const page = windowPage(
+      // Up to and including the hit, newest first.
+      { messages: [hit, b, a], hasMore: true },
+      // After it, oldest first, as `--asc` answers.
+      { messages: [c, d], hasMore: false }
+    );
+
+    expect(page.messages.map((m) => m.msgId)).toEqual(['d', 'c', 'hit', 'b', 'a']);
+    expect(page.hasMore).toBe(true);
+    expect(page.hasNewer).toBe(false);
+  });
+
+  it('turns a page read forward around, and says whether more lies past it', () => {
+    const page = newerPage({ messages: [c, d], hasMore: true });
+
+    expect(page.messages.map((m) => m.msgId)).toEqual(['d', 'c']);
+    expect(page.hasNewer).toBe(true);
+    expect(newerCursor(page)).toBe(d.ts);
+  });
+
+  it('is told apart from the live thread by its page params', () => {
+    const live = pages([b], [a]);
+    const window: MessagePages = {
+      pages: [{ messages: [c, hit, b], hasMore: true, hasNewer: true }],
+      pageParams: [{ around: hit.ts }],
+    };
+
+    expect(isHistoryWindow(live)).toBe(false);
+    expect(isHistoryWindow(window)).toBe(true);
+  });
+
+  it('takes no live messages, which would read as coming right after it', () => {
+    const window: MessagePages = {
+      pages: [{ messages: [c, hit, b], hasMore: true, hasNewer: true }],
+      pageParams: [{ around: hit.ts }],
+    };
+
+    expect(prependMessage(window, message('live', '2026-09-24T10:00:00Z'))).toBe(window);
+  });
+
+  it('still takes a bookmark or a receipt, like the live thread', () => {
+    const window: MessagePages = {
+      pages: [{ messages: [c, hit, b], hasMore: true, hasNewer: true }],
+      pageParams: [{ around: hit.ts }],
+    };
+
+    const next = patchMessages(
+      window,
+      (m) => m.msgId === 'hit',
+      (m) => ({ ...m, bookmarked: true })
+    );
+
+    expect(flattenMessagePages(next).find((m) => m.msgId === 'hit')?.bookmarked).toBe(true);
   });
 });

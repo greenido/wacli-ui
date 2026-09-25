@@ -82,6 +82,12 @@ interface AppState {
   highlightedMessageId: string | null;
   /** Used only when the id is absent or turns out not to be in the thread. */
   highlightedMessageHint: MessageJumpHint | null;
+  /**
+   * When the target was sent, where that is known exactly (a search hit knows).
+   * It is what lets the thread open the history around a message older than
+   * anything it has loaded.
+   */
+  highlightedMessageAt: string | null;
   activeModal: ActiveModal | null;
   chatFocusIntent: ChatFocusIntent;
   /**
@@ -116,7 +122,11 @@ interface AppState {
   addSendLog: (entry: Omit<SendLogEntry, 'id' | 'timestamp'>) => string;
   /** Drops an in-flight row once the server's own record supersedes it. */
   clearSendLog: (id: string) => void;
-  setHighlightedMessageId: (id: string | null, hint?: MessageJumpHint | null) => void;
+  setHighlightedMessageId: (
+    id: string | null,
+    hint?: MessageJumpHint | null,
+    at?: string | null
+  ) => void;
   setActiveModal: (modal: ActiveModal | null) => void;
   runCommand: (name: UiCommand) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
@@ -143,6 +153,7 @@ export const useAppStore = create<AppState>((set) => ({
   sendLogs: [],
   highlightedMessageId: null,
   highlightedMessageHint: null,
+  highlightedMessageAt: null,
   activeModal: null,
   chatFocusIntent: 'composer',
   uiCommand: null,
@@ -164,6 +175,7 @@ export const useAppStore = create<AppState>((set) => ({
             chatFocusIntent: focusIntent,
             highlightedMessageId: null,
             highlightedMessageHint: null,
+            highlightedMessageAt: null,
           }
     ),
   setSearchQuery: (query) => set({ searchQuery: query }),
@@ -223,10 +235,10 @@ export const useAppStore = create<AppState>((set) => ({
   },
   clearSendLog: (id) =>
     set((s) => ({ sendLogs: s.sendLogs.filter((item) => item.id !== id) })),
-  // The hint travels with the id and is replaced with it, so a jump can never
-  // be answered with the leftovers of the one before it.
-  setHighlightedMessageId: (id, hint = null) =>
-    set({ highlightedMessageId: id, highlightedMessageHint: hint }),
+  // The hint and the time travel with the id and are replaced with it, so a
+  // jump can never be answered with the leftovers of the one before it.
+  setHighlightedMessageId: (id, hint = null, at = null) =>
+    set({ highlightedMessageId: id, highlightedMessageHint: hint, highlightedMessageAt: at }),
   setActiveModal: (modal) => set({ activeModal: modal }),
   runCommand: (name) =>
     set((s) => ({ uiCommand: { name, seq: (s.uiCommand?.seq ?? 0) + 1 } })),
