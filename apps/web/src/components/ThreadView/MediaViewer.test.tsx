@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MediaViewer } from './MediaViewer.tsx';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -75,5 +76,34 @@ describe('MediaViewer stickers', () => {
 
     expect(screen.getByText('document_attachment')).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+});
+
+describe('MediaViewer image lightbox', () => {
+  const photo = () =>
+    makeMessage({ msgId: 'wamid.IMG1', mediaType: 'image', mimeType: 'image/png', filename: 'sketch.png' });
+
+  it('opens as a dialog of its own, outside the message it came from', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    await user.click(screen.getByRole('img', { name: 'sketch.png' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Image: sketch.png' });
+    // Rendered inside the bubble, it shared the message row's stacking context,
+    // and every later message painted over the open image.
+    expect(container.contains(dialog)).toBe(false);
+    expect(screen.getByRole('button', { name: 'Close image viewer' })).toHaveFocus();
+  });
+
+  it('closes on Escape', async () => {
+    const user = userEvent.setup();
+    render(<MediaViewer msg={photo()} chatJid={CHAT_JID} />);
+
+    await user.click(screen.getByRole('img', { name: 'sketch.png' }));
+    const dialog = screen.getByRole('dialog', { name: 'Image: sketch.png' });
+    await user.keyboard('{Escape}');
+
+    expect(dialog).not.toBeInTheDocument();
   });
 });

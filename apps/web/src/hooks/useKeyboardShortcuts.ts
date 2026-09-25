@@ -79,6 +79,11 @@ export function useKeyboardShortcuts({ isSearchOpen, onToggleSearch }: KeyboardS
         return;
       }
 
+      // A dialog outside `activeModal` owns the keyboard the same way. The image
+      // lightbox is local to its message, so it is found in the page instead:
+      // without this, `j` switched chats underneath an open image.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+
       // ---- Tier one: carries a modifier, so it fires even while typing ----
       if (mod) {
         if (e.altKey) return;

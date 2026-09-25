@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FileText,
   Download,
@@ -9,6 +10,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { api } from '../../api/client.ts';
+import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -22,6 +24,10 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [localPath, setLocalPath] = useState<string | null>(msg.localPath || null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const closeLightbox = () => setIsLightboxOpen(false);
+  // The lightbox is a dialog like the rest: Esc closes it, Tab stays inside,
+  // and focus goes back to the thumbnail's neighbourhood afterwards.
+  const lightboxRef = useModalDialog<HTMLDivElement>(isLightboxOpen, closeLightbox);
 
   // Audio Player State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -130,13 +136,19 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
           </div>
         </div>
 
-        {/* Lightbox Modal */}
-        {isLightboxOpen && (
+        {/* Lightbox. Portalled to <body>: rendered in place it sat inside its
+            message row's stacking context (`relative z-0`), so every later
+            message, and the rail splitters, painted over the open image. */}
+        {isLightboxOpen && createPortal(
           <div
             className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none"
-            onClick={() => setIsLightboxOpen(false)}
+            onClick={closeLightbox}
           >
             <div
+              ref={lightboxRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Image: ${filename}`}
               className="relative max-w-4xl max-h-[90vh] flex flex-col items-center space-y-3"
               onClick={(e) => e.stopPropagation()}
             >
@@ -152,7 +164,9 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
                     <span>DOWNLOAD</span>
                   </a>
                   <button
-                    onClick={() => setIsLightboxOpen(false)}
+                    data-autofocus
+                    onClick={closeLightbox}
+                    aria-label="Close image viewer"
                     className="p-1.5 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-text hover:text-mc-danger transition-colors"
                   >
                     <X size={16} />
@@ -175,7 +189,8 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
                 </div>
               )}
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     );
