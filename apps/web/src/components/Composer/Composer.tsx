@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
@@ -34,8 +34,25 @@ export const Composer: React.FC = () => {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
 
   const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
+
+  // The box grows with the draft, up to its max-h-32, and scrolls from there.
+  // Held at one row, a multi-line draft sat in a one-line box that showed a
+  // single line of it at a time.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // Not laid out (hidden, or a test's DOM): leave it to its one row.
+    if (!el.scrollHeight) {
+      el.style.height = '';
+      return;
+    }
+    // scrollHeight leaves out the border, which the box's height includes.
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [composerDraft, chatJid, isReadOnly]);
 
   // Opening a chat by clicking it means you intend to write, so the caret
   // follows. Stepping through the rail on the keyboard does not: a composer
@@ -141,8 +158,63 @@ export const Composer: React.FC = () => {
 
   const hasContent = Boolean(composerDraft.trim() || composerFile);
 
+  /** One attachment per message, as the paperclip has it: a new one replaces it. */
+  const attach = (file: File | undefined) => {
+    if (!file) return;
+    setComposerFile(chatJid, file);
+    textareaRef.current?.focus();
+  };
+
+  // A screenshot on the clipboard, or a file from the desktop: the same
+  // attachment the paperclip makes, without the file picker.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = e.clipboardData.files[0];
+    // Text wins when there is any. Cells copied from a spreadsheet come with a
+    // picture of themselves, and attaching that is not what the paste meant.
+    if (!file || e.clipboardData.getData('text/plain')) return;
+    e.preventDefault();
+    attach(file);
+  };
+
+  /** Files being dragged in, as opposed to text being dragged about the page. */
+  const carriesFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
+
+  const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
+    if (!carriesFiles(e)) return;
+    // Without this the browser refuses the drop, or opens the file itself.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDraggingFile(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
+    // Crossing into one of the composer's own children is not leaving it.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLElement>) => {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    setIsDraggingFile(false);
+    attach(e.dataTransfer.files[0]);
+  };
+
   return (
-    <div className="border-t border-mc-border bg-mc-surface p-3 shrink-0">
+    <section
+      aria-label="Message composer"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative border-t border-mc-border bg-mc-surface p-3 shrink-0 ${
+        isDraggingFile ? 'ring-2 ring-inset ring-mc-live' : ''
+      }`}
+    >
+      {isDraggingFile && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-mc-surface/90 text-xs font-mono font-bold text-mc-live pointer-events-none">
+          DROP TO ATTACH
+        </div>
+      )}
       {/* Reply-to Bar */}
       {replyingTo && (
         <div className="mb-2 p-2 rounded bg-mc-bg border-l-2 border-mc-live flex items-center justify-between text-xs font-mono">
@@ -207,6 +279,7 @@ export const Composer: React.FC = () => {
             value={composerDraft}
             onChange={(e) => setComposerDraft(chatJid, e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             rows={1}
             dir={detectTextDirection(composerDraft)}
             placeholder={`Message ${selectedChat.name}... (Press Enter to send)`}
@@ -248,6 +321,6 @@ export const Composer: React.FC = () => {
           <span className="font-bold hidden md:inline">SEND</span>
         </button>
       </form>
-    </div>
+    </section>
   );
 };
