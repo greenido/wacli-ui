@@ -8,6 +8,8 @@ import {
   Maximize2,
   X,
   Loader2,
+  ImageOff,
+  RotateCw,
 } from 'lucide-react';
 import { api } from '../../api/client.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
@@ -23,6 +25,8 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [localPath, setLocalPath] = useState<string | null>(msg.localPath || null);
+  // Whether an image or sticker has drawn yet, or never will without a retry.
+  const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const closeLightbox = () => setIsLightboxOpen(false);
   // The lightbox is a dialog like the rest: Esc closes it, Tab stays inside,
@@ -65,6 +69,8 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
       if (res.localPath) {
         setLocalPath(res.localPath);
       }
+      // An image that failed gets drawn again, now that there is a file.
+      setImageStatus('loading');
     } catch (err: unknown) {
       const errorText = err instanceof Error ? err.message : String(err);
       setDownloadError(errorText);
@@ -103,38 +109,93 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
+  /**
+   * Stands in for an image that did not load: expired on WhatsApp's servers,
+   * a download that failed, the app asleep. The browser's broken-image icon
+   * said none of that, and offered no way to try again.
+   */
+  const renderUnavailable = (what: string, detail?: string) => (
+    <div className="p-2.5 rounded-md bg-mc-bg/70 border border-mc-border font-mono text-[11px] max-w-sm space-y-1.5">
+      <div className="flex items-center gap-2.5">
+        <ImageOff size={16} className="text-mc-textMuted shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-mc-text">{what} unavailable</div>
+          {detail && (
+            <div dir={detectTextDirection(detail)} className="text-mc-textMuted truncate" title={detail}>
+              {detail}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={handleManualDownload}
+          disabled={isDownloading}
+          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-live font-bold transition-colors disabled:opacity-60 shrink-0"
+          title="Download it from WhatsApp again"
+        >
+          {isDownloading ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />}
+          <span>RETRY</span>
+        </button>
+      </div>
+      {downloadError && (
+        // The full width of the card, not a column beside the button: the
+        // reason comes last ("... 403 Forbidden"), and a narrow bubble cut it off.
+        <div className="text-mc-danger line-clamp-3 break-words" title={downloadError}>
+          {downloadError}
+        </div>
+      )}
+    </div>
+  );
+
   // 1. IMAGE PREVIEW (Photos)
   if (mediaType === 'image') {
+    const isLoaded = imageStatus === 'loaded';
     return (
       <div className="mb-2 space-y-1.5">
-        <div className="relative group/media overflow-hidden rounded-md border border-mc-border bg-black/40 max-w-sm">
-          <img
-            src={mediaSrc}
-            alt={msg.mediaCaption || filename}
-            className="w-full max-h-72 object-cover cursor-pointer hover:scale-[1.02] transition-transform duration-200"
-            onClick={() => setIsLightboxOpen(true)}
-            onError={() => {
-              // Image not downloaded yet or failed load
-            }}
-          />
-          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity bg-black/70 backdrop-blur-sm rounded px-1.5 py-1">
-            <button
+        {imageStatus === 'failed' ? (
+          renderUnavailable('Image', msg.mediaCaption || filename)
+        ) : (
+          // Until it loads, the image has no size of its own, so the box is held
+          // open for it. Collapsed to nothing, lazy images would all sit inside
+          // the viewport at once and load anyway, and each would shove the
+          // messages around it as it arrived.
+          <div
+            className={`relative group/media overflow-hidden rounded-md border border-mc-border bg-black/40 ${
+              isLoaded ? 'max-w-sm' : 'w-64 max-w-full aspect-[4/3]'
+            }`}
+          >
+            <img
+              src={mediaSrc}
+              alt={msg.mediaCaption || filename}
+              // Only what scrolls near is fetched: an image not yet on disk
+              // costs a wacli download, and a thread opens at its newest end.
+              loading="lazy"
+              decoding="async"
+              className={`w-full ${
+                isLoaded ? 'max-h-72' : 'h-full'
+              } object-cover cursor-pointer hover:scale-[1.02] transition-transform duration-200`}
               onClick={() => setIsLightboxOpen(true)}
-              className="p-1 hover:text-mc-live text-mc-text transition-colors"
-              title="View full size"
-            >
-              <Maximize2 size={13} />
-            </button>
-            <a
-              href={downloadSrc}
-              download={filename}
-              className="p-1 hover:text-mc-live text-mc-text transition-colors"
-              title="Download image"
-            >
-              <Download size={13} />
-            </a>
+              onLoad={() => setImageStatus('loaded')}
+              onError={() => setImageStatus('failed')}
+            />
+            <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity bg-black/70 backdrop-blur-sm rounded px-1.5 py-1">
+              <button
+                onClick={() => setIsLightboxOpen(true)}
+                className="p-1 hover:text-mc-live text-mc-text transition-colors"
+                title="View full size"
+              >
+                <Maximize2 size={13} />
+              </button>
+              <a
+                href={downloadSrc}
+                download={filename}
+                className="p-1 hover:text-mc-live text-mc-text transition-colors"
+                title="Download image"
+              >
+                <Download size={13} />
+              </a>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Lightbox. Portalled to <body>: rendered in place it sat inside its
             message row's stacking context (`relative z-0`), so every later
@@ -201,6 +262,9 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   // with a transparent background (often animated), so a card background would
   // show through the transparency and `object-cover` would crop the art.
   if (mediaType === 'sticker') {
+    if (imageStatus === 'failed') {
+      return <div className="mb-2">{renderUnavailable('Sticker')}</div>;
+    }
     return (
       <div className="mb-2 relative inline-block group/sticker">
         <img
@@ -208,6 +272,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
           alt={msg.mediaCaption || 'Sticker'}
           className="w-32 h-32 object-contain"
           loading="lazy"
+          onError={() => setImageStatus('failed')}
         />
         <a
           href={downloadSrc}
