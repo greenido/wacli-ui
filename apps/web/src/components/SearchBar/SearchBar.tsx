@@ -72,16 +72,33 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
     onClose();
   };
 
+  /**
+   * Moves the highlight and brings it into view. It is not focus, which stays
+   * in the query box, so the browser will not scroll to it: arrowing past the
+   * last visible row used to leave the highlight off-screen. Scrolled from here
+   * rather than on every change of index, so hovering a half-visible row with
+   * the mouse does not shift the list under the pointer.
+   */
+  const moveSelection = (delta: number) => {
+    if (results.length === 0) return;
+    const next = (selectedIndex + delta + results.length) % results.length;
+    setSelectedIndex(next);
+    resultsContainerRef.current
+      ?.querySelector<HTMLElement>(`[data-result-index="${next}"]`)
+      // Optional call: jsdom has no scrollIntoView.
+      ?.scrollIntoView?.({ block: 'nearest' });
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex((prev) => (results.length > 0 ? (prev + 1) % results.length : 0));
+      moveSelection(1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setSelectedIndex((prev) => (results.length > 0 ? (prev - 1 + results.length) % results.length : 0));
+      moveSelection(-1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (results.length > 0 && results[selectedIndex]) {
@@ -142,6 +159,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
               return (
                 <button
                   key={msg.msgId}
+                  data-result-index={idx}
                   onClick={() => handleSelectResult(msg)}
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`w-full text-left p-3 rounded transition-colors flex flex-col gap-1 ${
