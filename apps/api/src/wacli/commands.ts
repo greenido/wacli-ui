@@ -226,7 +226,15 @@ async function execWacliOnce<T>(
   options: ExecWacliOptions = {}
 ): Promise<T> {
   const bin = process.env.WACLI_BIN ?? 'wacli';
-  const fullArgs = [...args];
+
+  // Everything after a `--` is an operand however it is spelled, which is how a
+  // search for "-x" or "--help" reaches wacli as text rather than as an option.
+  // The flags below go in front of it: appended after, they would be read as
+  // part of the operand. And "already provided" is judged on the options side
+  // only, so a search for the word `--store` cannot stand in for the store.
+  const endOfOptions = args.indexOf('--');
+  const fullArgs = endOfOptions === -1 ? [...args] : args.slice(0, endOfOptions);
+  const operands = endOfOptions === -1 ? [] : args.slice(endOfOptions);
 
   // Append store / account if configured and not already provided
   const settings = modeManager.getSettings();
@@ -269,6 +277,8 @@ async function execWacliOnce<T>(
   if (!fullArgs.includes('--timeout')) {
     fullArgs.push('--timeout', `${Math.max(1, Math.round((timeout * 0.8) / 1000))}s`);
   }
+
+  fullArgs.push(...operands);
 
   const cmd = redactCommand(args).join(' ');
   const commandLabel = `${bin} ${cmd}`;

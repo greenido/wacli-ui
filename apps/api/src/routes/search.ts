@@ -20,7 +20,7 @@ export function createSearchRouter(): Router {
         return;
       }
 
-      const args = ['messages', 'search', q.trim()];
+      const args = ['messages', 'search'];
 
       const chat = req.query.chat as string | undefined;
       const limit = req.query.limit as string | undefined;
@@ -33,6 +33,11 @@ export function createSearchRouter(): Router {
       if (before) args.push('--before', before);
       if (after) args.push('--after', after);
       if (type) args.push('--type', type);
+
+      // Last, behind `--`, because a query is text however it starts. As a bare
+      // operand, "-x" reached wacli as an unknown option and "--help" as a
+      // request for its usage, so the search failed instead of running.
+      args.push('--', q.trim());
 
       const [raw, groupNames] = await Promise.all([
         execWacli<RawSearchResponse | RawMessage[]>(args),

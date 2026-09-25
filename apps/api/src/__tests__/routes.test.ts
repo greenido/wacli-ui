@@ -107,6 +107,24 @@ describe('API Read Endpoints', () => {
     expect(res.body.data.results[0].msgId).toBe('MSG-SEARCH-1');
   });
 
+  // A query is text however it starts. Passed as a bare operand, "-x" reached
+  // wacli as an unknown option and "--help" as a request for its usage, so
+  // either search answered 500 instead of running.
+  it('GET /api/search hands wacli the query behind "--", after every option', async () => {
+    const { execWacli } = await import('../wacli/commands.js');
+    const mocked = vi.mocked(execWacli);
+    mocked.mockClear();
+
+    const res = await request(app).get('/api/search?q=--help&limit=5');
+
+    expect(res.status).toBe(200);
+    const searchArgs = mocked.mock.calls
+      .map(([args]) => args)
+      .find((args) => args[0] === 'messages' && args[1] === 'search');
+    expect(searchArgs?.slice(-2)).toEqual(['--', '--help']);
+    expect(searchArgs?.indexOf('--limit')).toBeLessThan(searchArgs!.indexOf('--'));
+  });
+
   it('GET /api/messages returns messages payload', async () => {
     const res = await request(app).get('/api/messages?limit=5');
     expect(res.status).toBe(200);
