@@ -74,8 +74,9 @@ describe('markChatAsRead', () => {
     }
     vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
 
-    // Each receipt costs a sync-daemon teardown and respawn, so ten of them for
-    // ten messages in one chat was ten cold reconnects to WhatsApp.
+    // Each receipt costs the sync daemon seconds, and sends queue behind it, so
+    // ten of them for ten messages in one chat would keep a reply waiting
+    // behind all ten.
     expect(markChatRead).toHaveBeenCalledTimes(1);
   });
 

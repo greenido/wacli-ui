@@ -6,11 +6,12 @@ import type { UnifiedChat } from '../types.ts';
  * How long to hold a read receipt open, coalescing anything that arrives in the
  * meantime into the same call.
  *
- * `POST /chats/mark-read` is not a cheap write: it runs as an exclusive command,
- * which kills the sync daemon, shells out to a wacli that must now dial WhatsApp
- * from cold, and respawns the daemon afterwards. Sitting in a busy chat fired
- * one of those per incoming message — a console that spent much of its time
- * tearing down and rebuilding the very connection delivering those messages.
+ * `POST /chats/mark-read` is not a cheap write. It is handed to the running sync
+ * daemon, and wacli replays WhatsApp's chat state in full before each receipt,
+ * which takes seconds. The daemon carries out what it is handed one at a time,
+ * sends included, so a send made meanwhile waits for the receipt to finish.
+ * Without this, sitting in a busy chat would fire one per incoming message, and
+ * a reply typed there would queue behind all of them.
  *
  * The receipt is idempotent and means "read up to now", so a burst only ever
  * needed one. Trailing edge, because the last message in a burst is the one the

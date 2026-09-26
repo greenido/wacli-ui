@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SearchBar } from './SearchBar.tsx';
 import { useAppStore } from '../../store/appStore.ts';
+import { flushPendingReads } from '../../lib/chatRead.ts';
 import type { UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const api = vi.hoisted(() => ({
@@ -45,11 +46,14 @@ function hit(i: number): UnifiedMessage {
 
 function renderSearch() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <SearchBar onClose={vi.fn()} />
-    </QueryClientProvider>
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <SearchBar onClose={vi.fn()} />
+      </QueryClientProvider>
+    ),
+  };
 }
 
 describe('SearchBar keyboard navigation', () => {
@@ -129,6 +133,9 @@ describe('SearchBar scope and landing', () => {
   });
 
   afterEach(() => {
+    // Drain any receipt still waiting out its debounce, so it cannot turn up in
+    // the next test's calls.
+    flushPendingReads();
     useAppStore.setState({ selectedChat: null, highlightedMessageId: null, highlightedMessageAt: null });
   });
 
@@ -172,5 +179,44 @@ describe('SearchBar scope and landing', () => {
     // The time is what lets the thread open the history around an old hit.
     expect(useAppStore.getState().highlightedMessageId).toBe('HIT-3');
     expect(useAppStore.getState().highlightedMessageAt).toBe(hit(3).ts);
+  });
+
+  it('sends no read receipt for a chat the rail already has as read', async () => {
+    const user = userEvent.setup();
+    const { client } = renderSearch();
+    client.setQueryData(['chats', '', 'all'], [OPEN_CHAT]);
+
+    await user.type(screen.getByLabelText('Search query'), 'engine');
+    await user.click(await screen.findByText('engine note 3'));
+    flushPendingReads();
+
+    // It would tell WhatsApp nothing new, and cost the sync daemon seconds that
+    // a send made meanwhile would spend queued behind it.
+    expect(api.markChatRead).not.toHaveBeenCalled();
+  });
+
+  it('sends a read receipt for a chat the rail has as unread', async () => {
+    const user = userEvent.setup();
+    const { client } = renderSearch();
+    client.setQueryData(['chats', '', 'all'], [{ ...OPEN_CHAT, unread: true, unreadCount: 2 }]);
+
+    await user.type(screen.getByLabelText('Search query'), 'engine');
+    await user.click(await screen.findByText('engine note 3'));
+    flushPendingReads();
+
+    expect(api.markChatRead).toHaveBeenCalledExactlyOnceWith('alice@s.whatsapp.net');
+  });
+
+  it('sends a read receipt for a chat the rail does not hold', async () => {
+    const user = userEvent.setup();
+    const { client } = renderSearch();
+    client.setQueryData(['chats', '', 'all'], [{ ...OPEN_CHAT, jid: 'bob@s.whatsapp.net', name: 'Bob' }]);
+
+    await user.type(screen.getByLabelText('Search query'), 'engine');
+    await user.click(await screen.findByText('engine note 3'));
+    flushPendingReads();
+
+    // Archived, say, or past the rail's first hundred: nothing says it is read.
+    expect(api.markChatRead).toHaveBeenCalledExactlyOnceWith('alice@s.whatsapp.net');
   });
 });
