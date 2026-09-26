@@ -127,6 +127,8 @@ export interface MissionControlStatus {
   statusMessage: string | null;
   storeLockHeld: boolean;
   storeLockHolderPid: number | null;
+  /** Set when a newer wacli release exists than the installed one; see update-check.ts. */
+  wacliUpdate: { latestVersion: string; releaseUrl: string; upgradeCommand: string | null } | null;
 }
 
 export interface ScheduledMessage {

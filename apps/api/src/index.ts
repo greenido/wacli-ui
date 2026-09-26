@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
 import { accessPolicy, isAllowedHost, isAllowedOrigin, type AccessPolicy } from './net/loopback.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
+import { startWacliUpdateChecks } from './wacli/update-check.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
 import { createHealthRouter } from './routes/health.js';
 import { createSettingsRouter } from './routes/settings.js';
@@ -486,6 +487,7 @@ export function startServer(port = PORT, host = HOST): ServerInstance {
       logLevel: logger.getLevel(),
     });
     startSyncAtBoot(pm);
+    startWacliUpdateChecks();
   });
 
   const gracefulShutdown = (signal: string) =>

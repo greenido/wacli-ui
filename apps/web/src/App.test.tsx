@@ -53,6 +53,7 @@ const client = vi.hoisted(() => {
       statusMessage: null,
       storeLockHeld: false,
       storeLockHolderPid: null,
+      wacliUpdate: null,
     },
     getMode: { readOnly: false },
     getSettings: { readOnly: false },
