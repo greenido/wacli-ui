@@ -6,6 +6,17 @@
 # it is held is handed to the daemon when $FAKE_DELEGATES is set, as wacli does
 # over its socket, and refused on the lock otherwise, as a wacli from before
 # delegation does.
+#
+# `sync --help` is the supervisor asking which flags `sync` takes, not a launch,
+# so it is answered before the log. It names --send-spacing only when
+# $FAKE_SEND_SPACING is set, the way a wacli older than 0.15.1 does not.
+if [ "$*" = 'sync --help' ]; then
+  echo 'Usage: wacli sync [flags]'
+  if [ -n "$FAKE_SEND_SPACING" ]; then
+    echo '      --send-spacing string   pace delegated sends in follow mode'
+  fi
+  exit 0
+fi
 printf '%s\n' "$*" >> "${FAKE_LOG:?}"
 case "$1" in
   sync)
