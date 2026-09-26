@@ -7,7 +7,15 @@ import { execWacli } from '../wacli/commands.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 
 const FAKE_WACLI = fileURLToPath(new URL('./fixtures/fake-wacli.sh', import.meta.url));
-const FAKE_ENV = ['WACLI_BIN', 'FAKE_LOG', 'FAKE_LOCK', 'FAKE_PIDS', 'FAKE_DELEGATES'] as const;
+const FAKE_ENV = [
+  'WACLI_BIN',
+  'WACLI_SEND_SPACING',
+  'FAKE_LOG',
+  'FAKE_LOCK',
+  'FAKE_PIDS',
+  'FAKE_DELEGATES',
+  'FAKE_SEND_SPACING',
+] as const;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -47,6 +55,14 @@ function launches(command: string): number {
 
 const syncLaunches = () => launches('sync');
 
+/** The command line each `wacli sync` was launched with, in launch order. */
+function syncLines(): string[] {
+  return fs
+    .readFileSync(process.env.FAKE_LOG!, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('sync '));
+}
+
 /** A text send through the supervisor, the way the send routes make one. */
 function sendText(pm: WacliProcessManager) {
   return pm.runDelegated((lock) =>
@@ -76,6 +92,8 @@ describe('Sync daemon supervision with real processes', () => {
     process.env.FAKE_LOG = path.join(dir, 'invocations.log');
     process.env.FAKE_LOCK = path.join(dir, 'store.lock');
     process.env.FAKE_PIDS = path.join(dir, 'sync.pids');
+    delete process.env.WACLI_SEND_SPACING;
+    delete process.env.FAKE_SEND_SPACING;
     pm = new WacliProcessManager({ apiPort: 1, respawnDebounceMs: 50 });
   });
 
@@ -187,5 +205,42 @@ describe('Sync daemon supervision with real processes', () => {
     await sleep(100);
 
     expect(pm.getReconnectAttempts()).toBe(1);
+  });
+
+  it('runs the daemon holding handed-over commands to their deadlines', async () => {
+    process.env.FAKE_SEND_SPACING = '1';
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect');
+
+    // Without it, a send queued behind slow read receipts outlived its deadline
+    // and went out anyway, after the console had reported it failed.
+    expect(syncLines()[0]).toContain('--send-spacing 1ms');
+
+    // Every command that cannot be handed over brings back a new daemon, and
+    // that one must be the same kind.
+    await pm.executeExclusive(async () => {});
+    await waitFor(() => pm.isDaemonConnected() && syncLines().length === 2, 'the daemon to come back');
+    expect(syncLines()[1]).toContain('--send-spacing 1ms');
+  });
+
+  it('starts a wacli that has no --send-spacing without it, rather than not at all', async () => {
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect');
+
+    expect(syncLines()[0]).not.toContain('--send-spacing');
+  });
+
+  it('takes the spacing from WACLI_SEND_SPACING, and an empty one as off', async () => {
+    process.env.FAKE_SEND_SPACING = '1';
+    process.env.WACLI_SEND_SPACING = '2s-5s';
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect');
+    expect(syncLines()[0]).toContain('--send-spacing 2s-5s');
+
+    await pm.stop();
+    process.env.WACLI_SEND_SPACING = '';
+    pm.start();
+    await waitFor(() => pm.isDaemonConnected(), 'the daemon to connect again');
+    expect(syncLines()[1]).not.toContain('--send-spacing');
   });
 });

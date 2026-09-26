@@ -5,7 +5,12 @@ import { execWacli } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 
-vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
+  spawn: vi.fn(),
+  // The daemon spawn asks `sync --help` for its flags first: a wacli without --send-spacing.
+  spawnSync: vi.fn(() => ({ stdout: '', stderr: '' })),
+}));
 
 const execFileMock = vi.mocked(execFile);
 const spawnMock = vi.mocked(spawn);

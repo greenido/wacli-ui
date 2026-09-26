@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,6 +30,38 @@ export interface ProcessManagerOptions {
 }
 
 export const DEFAULT_RESPAWN_DEBOUNCE_MS = 750;
+
+/**
+ * The gap `sync --send-spacing` keeps between commands handed to the daemon.
+ * The gap is not the point - at 1ms it costs nothing. The mode it switches on
+ * is.
+ *
+ * The daemon carries out handed-over commands one at a time. Without the flag a
+ * queued command waits its turn however long that takes, then runs with its
+ * whole budget still ahead of it - including one whose caller already gave up.
+ * Read receipts are slow, because each replays WhatsApp's chat state first, so
+ * a few chats opened in a row could hold a send behind them past its deadline:
+ * the console reported it failed, and then it went out anyway. In this mode the
+ * daemon holds every command to the deadline its caller set: one not started by
+ * then is refused, never run late.
+ *
+ * `WACLI_SEND_SPACING` overrides it: a range such as `2s-5s` paces sends for
+ * real, and an empty value leaves the flag off.
+ */
+export const DEFAULT_SEND_SPACING = '1ms';
+
+/**
+ * Whether this wacli's `sync` takes `--send-spacing` (0.15.1 and later). An
+ * older one refuses to start on a flag it does not know, so the flag is only
+ * passed once `sync --help` has named it. Help is printed before anything opens
+ * the store, so asking works while a daemon holds the lock.
+ *
+ * Synchronous because spawning is; the manager asks once per binary.
+ */
+export function syncSupportsSendSpacing(bin: string): boolean {
+  const probe = spawnSync(bin, ['sync', '--help'], { encoding: 'utf8', timeout: 5_000 });
+  return `${probe.stdout ?? ''}${probe.stderr ?? ''}`.includes('--send-spacing');
+}
 
 /**
  * How many of our own daemon PIDs to remember.
@@ -122,6 +154,8 @@ export class WacliProcessManager {
   private daemonConnected = false;
   /** PIDs we have spawned, so a lock held by one is never read as external. */
   private spawnedPids: number[] = [];
+  /** What syncSupportsSendSpacing() said, and about which binary. */
+  private sendSpacingProbe: { bin: string; supported: boolean } | null = null;
   private onStateChange?: (state: ProcessState, reason?: string) => void;
   private onLifecycleEvent?: (event: Record<string, unknown>) => void;
   /** SIGINTs the daemon if this process goes down; held so dispose() can drop it. */
@@ -349,6 +383,11 @@ export class WacliProcessManager {
       args.push('--account', account);
     }
 
+    const sendSpacing = process.env.WACLI_SEND_SPACING ?? DEFAULT_SEND_SPACING;
+    if (sendSpacing && this.supportsSendSpacing(bin)) {
+      args.push('--send-spacing', sendSpacing);
+    }
+
     this.setState('starting');
     logger.info('process', 'Spawning sync daemon', { bin, args: redactArgs(args) });
 
@@ -410,6 +449,14 @@ export class WacliProcessManager {
       this.lastError = msg;
       this.setState('failed', msg);
     }
+  }
+
+  /** Asked on the first spawn, not on each respawn after an exclusive command. */
+  private supportsSendSpacing(bin: string): boolean {
+    if (this.sendSpacingProbe?.bin !== bin) {
+      this.sendSpacingProbe = { bin, supported: syncSupportsSendSpacing(bin) };
+    }
+    return this.sendSpacingProbe.supported;
   }
 
   public async restart(): Promise<void> {
