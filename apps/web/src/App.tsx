@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { ReadOnlyBanner } from './components/ReadOnlyBanner/ReadOnlyBanner.tsx';
 import { SleepBanner } from './components/SleepBanner/SleepBanner.tsx';
 import { WacliStatusBanner } from './components/WacliStatusBanner/WacliStatusBanner.tsx';
+import { WacliUpdateNotice } from './components/WacliUpdateNotice/WacliUpdateNotice.tsx';
 import { ChatList } from './components/ChatList/ChatList.tsx';
 import { ThreadView } from './components/ThreadView/ThreadView.tsx';
 import { Composer } from './components/Composer/Composer.tsx';
@@ -108,6 +109,9 @@ export const App: React.FC = () => {
 
       {/* System Warning / First-Load wacli Diagnostic Banner */}
       <WacliStatusBanner />
+
+      {/* A newer wacli is out: the command to take it, never taken for you */}
+      <WacliUpdateNotice />
 
       {/* Main 3-Pane Console */}
       <div className="flex-1 flex min-h-0">

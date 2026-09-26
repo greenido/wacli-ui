@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { execWacli, checkWacliInstalled } from '../wacli/commands.js';
 import { normalizeDoctor } from '../wacli/normalize.js';
+import { wacliUpdateFor } from '../wacli/update-check.js';
 import { modeManager } from '../wacli/mode.js';
 import { isStoreLockMessage, parseLockHolderPid } from '../wacli/store-lock.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
@@ -184,6 +185,9 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
       statusMessage,
       storeLockHeld: doctor?.lockHeld ?? false,
       storeLockHolderPid,
+      wacliUpdate: installStatus.installed
+        ? wacliUpdateFor(installStatus.version, installStatus.binPath)
+        : null,
     };
 
     res.json({ success: true, data: status, error: null });

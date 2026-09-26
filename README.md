@@ -294,6 +294,7 @@ Mission Control reads a `.env` file from the directory you start it in (`apps/ap
 | `WACLI_DISABLE_SYNC` | `0` | `1` runs the API without spawning `wacli sync --follow` (same as `--no-sync`) |
 | `WACLI_POST_SEND_WAIT` | `500ms` | Passed to wacli's `--post-send-wait` on every send |
 | `WACLI_SEND_SPACING` | `1ms` | Passed to `wacli sync --send-spacing` (wacli 0.15.1+). The daemon then drops a queued send or read receipt the console has stopped waiting for, instead of running it late. A range such as `2s-5s` also paces sends; empty leaves the flag off |
+| `WACLI_UPDATE_CHECK` | `1` | Twice a day, asks GitHub for the latest wacli release and, if yours is older, says so in the log and in a dismissible notice with the upgrade command. It never upgrades anything. `0` skips the request |
 | `WACLI_DB_FILE` | `~/.wacli-mission-control/mission-control.db` | Where safe mode, the scheduled queue, the activity log, bookmarks, tags and sleep state live |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | `1` logs full inbound webhook payloads. Off by default, so message bodies and contact details stay out of log files |
 | `LOG` | `0` | `1` also writes `apps/api/logs/run-<timestamp>.log`. Events always go to the terminal |
