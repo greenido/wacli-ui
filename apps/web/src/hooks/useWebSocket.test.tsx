@@ -191,7 +191,8 @@ describe('useWebSocket chat rail reconciliation', () => {
     expect(rail[0].unread).toBe(false);
     expect(rail[0].lastMessage).toBe('the newest line');
 
-    // The receipt waits, because sending it kills and respawns the sync daemon.
+    // The receipt waits, because each one costs the sync daemon seconds that
+    // any send made meanwhile spends queued behind it.
     expect(markChatRead).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -221,8 +222,8 @@ describe('useWebSocket chat rail reconciliation', () => {
       vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
     });
 
-    // Six receipts meant six daemon teardown/respawn cycles, each one shelling
-    // out to a wacli that then had to dial WhatsApp from cold.
+    // Six receipts would be six replays of WhatsApp's chat state in the sync
+    // daemon's queue, and a reply sent meanwhile would wait behind all of them.
     await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
 
     unmount();

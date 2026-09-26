@@ -25,12 +25,13 @@ import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
 const PREVIEW_SCAN_LIMIT = 3000;
 
 /**
- * How long a read receipt may hold the sync daemon down.
+ * How long a read receipt may tie up the sync daemon.
  *
- * `mark-read` is a network operation — it pushes receipts to WhatsApp — but it
- * runs exclusive, so the daemon holding the live connection is killed first and
- * wacli has to dial WhatsApp from cold. When that connect is slow, every second
- * spent waiting is a second the console is not receiving anything.
+ * `mark-read` is a network operation — it pushes receipts to WhatsApp — and it
+ * is handed to the running daemon. It is slow there: wacli 0.18.2 replays
+ * WhatsApp's chat state in full before every receipt, which takes seconds. The
+ * daemon carries out what it is handed one at a time, sends included, so every
+ * second a receipt runs is a second a send made meanwhile spends waiting.
  */
 const MARK_READ_TIMEOUT_MS = 10_000;
 
@@ -206,13 +207,12 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
-      // Handed to the running daemon, which stays up. When it cannot take it,
-      // `mark-read` runs exclusive: the daemon is killed before it starts and
-      // respawned after. That makes the timeout a downtime budget, not just a
-      // patience setting: the default 30s is 30s of a console that receives
-      // nothing, spent on a read receipt. Ten is already generous for an
-      // operation whose only job is to tell WhatsApp what the operator has
-      // already seen.
+      // Handed to the running daemon, which stays up. Under the default 30s, one
+      // slow receipt could keep a send queued for most of half a minute; ten is
+      // already generous for an operation whose only job is to tell WhatsApp
+      // what the operator has already seen. When the daemon cannot take it,
+      // `mark-read` runs exclusive instead: the daemon is killed before it
+      // starts and respawned after, so there the budget is downtime.
       try {
         await processManager.runDelegated(async (lock) => {
           await execWacli(['chats', 'mark-read', '--chat', chat], {

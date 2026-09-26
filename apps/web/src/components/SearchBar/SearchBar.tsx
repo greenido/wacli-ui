@@ -12,7 +12,7 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
-import type { UnifiedMessage } from '../../types.ts';
+import type { UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 interface SearchBarProps {
   onClose: () => void;
@@ -70,7 +70,17 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
   const handleSelectResult = (msg: UnifiedMessage) => {
     const chat = chatWithUnreadCleared(chatFromMessage(msg));
     setSelectedChat(chat);
-    void markChatAsRead(queryClient, msg.chatJid);
+    // A hit carries no unread state, so the rail's cached lists decide. A
+    // receipt costs the sync daemon seconds, and a send made meanwhile waits
+    // behind it, so a chat they all have as read gets none. One they do not
+    // hold may be unread, and still gets one.
+    const railCopies = queryClient
+      .getQueriesData<UnifiedChat[]>({ queryKey: ['chats'] })
+      .flatMap(([, chats]) => chats ?? [])
+      .filter((c) => c.jid === msg.chatJid);
+    if (railCopies.length === 0 || railCopies.some((c) => c.unread || c.unreadCount > 0)) {
+      void markChatAsRead(queryClient, msg.chatJid);
+    }
     // With its time, so a hit older than the loaded thread still lands: the
     // thread opens the history around it.
     setHighlightedMessageId(msg.msgId, null, msg.ts);
