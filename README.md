@@ -4,7 +4,7 @@
 
 **WhatsApp, but make it a control room.**
 
-<img src="docs/readme-img.png" alt="Illustration of a green-lit control room: WhatsApp messages, telemetry and a Send Later button on a curved monitor, with a Mission Control mug on the desk" width="100%">
+<img src="docs/readme-img.jpg" alt="Illustration of a green-lit control room: WhatsApp messages, telemetry and a Send Later button on a curved monitor, with a Mission Control mug on the desk" width="100%">
 
 A local-first, keyboard-driven, safe-by-default browser console for [wacli](https://wacli.sh).<br>
 Read, search, schedule and (carefully) send WhatsApp messages from a big screen and a real keyboard.
