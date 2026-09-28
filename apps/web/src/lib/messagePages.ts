@@ -135,6 +135,21 @@ export function prependMessage(
   };
 }
 
+/** Takes a message out of the loaded history, wherever it sits. */
+export function removeMessage(
+  data: MessagePages | undefined,
+  msgId: string
+): MessagePages | undefined {
+  if (!data || !hasMessage(data, msgId)) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      messages: page.messages.filter((m) => m.msgId !== msgId),
+    })),
+  };
+}
+
 /**
  * Rewrite matching messages wherever they sit in the loaded history. A receipt
  * or a bookmark can land on a message the operator has scrolled back to, not

@@ -39,7 +39,8 @@ export interface UnifiedMessage {
   edited: boolean;
   revoked: boolean;
   snippet?: string | null;
-  deliveryStatus?: 'sent' | 'delivered' | 'read' | 'played';
+  /** `pending` is local only: a send confirmed here that wacli has not answered yet. */
+  deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'played';
 }
 
 /**

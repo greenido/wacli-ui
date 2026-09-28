@@ -69,6 +69,23 @@ const SLOW_COMMAND_MS = 1_000;
  */
 export const POST_SEND_WAIT = process.env.WACLI_POST_SEND_WAIT ?? '500ms';
 
+/**
+ * The `--post-send-wait` for one attempt at a send.
+ *
+ * Handed to the daemon, the wait is pure delay: the daemon sits it out before
+ * answering, stays connected to serve retry receipts regardless, and runs
+ * nothing else it was handed meanwhile — so every send in a burst paid it
+ * again. Only a send the CLI makes on its own connection needs it. That is the
+ * fallback run with the daemon paused, and, on the handed-over attempt, a
+ * daemon that died between being judged connected and the CLI taking the lock.
+ * That window is milliseconds wide, and the cost inside it is one retry
+ * receipt that may go unanswered, so it is not worth half a second on every
+ * other send.
+ */
+export function postSendWaitArgs(handedOver: boolean): string[] {
+  return ['--post-send-wait', handedOver ? '0s' : POST_SEND_WAIT];
+}
+
 /** wacli's own duration spelling — `500ms`, `2s`, `1m` — in milliseconds. */
 function parseDurationMs(value: string): number {
   const match = /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(value.trim());

@@ -28,12 +28,48 @@ const PREVIEW_SCAN_LIMIT = 3000;
  * How long a read receipt may tie up the sync daemon.
  *
  * `mark-read` is a network operation — it pushes receipts to WhatsApp — and it
- * is handed to the running daemon. It is slow there: wacli 0.18.2 replays
- * WhatsApp's chat state in full before every receipt, which takes seconds. The
- * daemon carries out what it is handed one at a time, sends included, so every
- * second a receipt runs is a second a send made meanwhile spends waiting.
+ * is handed to the running daemon. The daemon carries out what it is handed one
+ * at a time, sends included, so every second a receipt runs is a second a send
+ * made meanwhile spends waiting. See MARK_READ_RECEIPTS for why that is now
+ * short, and this budget only matters on a wacli that cannot do it that way.
  */
 const MARK_READ_TIMEOUT_MS = 10_000;
+
+/**
+ * Marks a chat read by sending read receipts for its unread messages, rather
+ * than through WhatsApp's chat state.
+ *
+ * The chat-state way replays that state in full before every write, which takes
+ * seconds, and a reply typed straight after opening a chat queued behind it.
+ * `--receipts` (wacli 0.19.0) skips the replay. The price is that the receipts
+ * are real ones: the sender sees blue ticks, unless the account's read-receipt
+ * privacy setting is off.
+ */
+const MARK_READ_RECEIPTS = '--receipts';
+
+/**
+ * Set once this wacli has refused `--receipts` as an unknown flag, so an older
+ * binary costs one failed spawn per run, not one per chat opened.
+ */
+let receiptsFlagUnknown = false;
+
+/** Forgets that verdict. For tests, which each want a wacli that has the flag. */
+export function resetMarkReadReceipts(): void {
+  receiptsFlagUnknown = false;
+}
+
+/**
+ * Whether a mark-read failed only because `--receipts` could not be used: the
+ * CLI is older than the flag, or it handed the receipt to a daemon started by
+ * an older wacli, which refuses it and leaves the chat unread. Neither sent
+ * anything, so running it the chat-state way is safe.
+ */
+function receiptsRefused(err: unknown): 'flag' | 'daemon' | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes(`unknown flag: ${MARK_READ_RECEIPTS}`)) return 'flag';
+  if (message.includes(`does not support ${MARK_READ_RECEIPTS}`)) return 'daemon';
+  return null;
+}
 
 /**
  * That scan returns roughly 300 KB of JSON to keep one line per chat, and
@@ -213,14 +249,30 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
       // what the operator has already seen. When the daemon cannot take it,
       // `mark-read` runs exclusive instead: the daemon is killed before it
       // starts and respawned after, so there the budget is downtime.
-      try {
-        await processManager.runDelegated(async (lock) => {
-          await execWacli(['chats', 'mark-read', '--chat', chat], {
+      const markRead = (receipts: boolean) =>
+        processManager.runDelegated(async (lock) => {
+          const args = ['chats', 'mark-read', '--chat', chat];
+          if (receipts) args.push(MARK_READ_RECEIPTS);
+          await execWacli(args, {
             allowMutation: true,
             timeoutMs: MARK_READ_TIMEOUT_MS,
             ...lock,
           });
         });
+
+      try {
+        try {
+          await markRead(!receiptsFlagUnknown);
+        } catch (receiptsErr) {
+          const refused = receiptsFlagUnknown ? null : receiptsRefused(receiptsErr);
+          if (!refused) throw receiptsErr;
+          if (refused === 'flag') receiptsFlagUnknown = true;
+          logger.warn('api', 'wacli cannot mark read with receipts; using chat state instead', {
+            chat,
+            refused,
+          });
+          await markRead(false);
+        }
       } catch (markErr) {
         // A receipt that did not land is not a server fault, and nothing is
         // waiting on it — the UI clears the badge optimistically and never reads

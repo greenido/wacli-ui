@@ -7,8 +7,7 @@ import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 import { getPresetTime, getTomorrowMorning } from '../../lib/scheduleTime.ts';
-import { prependMessage, type MessagePages } from '../../lib/messagePages.ts';
-import type { UnifiedMessage, UnifiedChat } from '../../types.ts';
+import { dropPendingSend, paintPendingSend, settlePendingSend } from '../../lib/pendingSend.ts';
 
 type SendConfirmRequest = NonNullable<ReturnType<typeof useAppStore.getState>['sendConfirmData']>;
 
@@ -37,11 +36,12 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
   const queryClient = useQueryClient();
 
   const [isCommitted, setIsCommitted] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Opened again by a send that failed after the dialog closed: say why.
+  const [errorMessage, setErrorMessage] = useState<string | null>(sendConfirmData.error ?? null);
 
   const dialogRef = useModalDialog<HTMLDivElement>(true, () => setActiveModal(null));
 
-  // The "sent" tick is held on screen for a moment before the dialog closes
+  // The "scheduled" tick is held on screen for a moment before the dialog closes
   // itself. That timer writes shared app state, so it has to die with the
   // dialog that armed it: an uncancelled one fires into whatever is on screen
   // 400ms later and closes a confirmation this send knows nothing about.
@@ -59,15 +59,6 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
 
   const { isReadOnly, setSafeMode } = useSafeMode();
 
-  const sendTextMutation = useMutation({
-    mutationFn: (data: { to: string; chatName: string; message: string; replyTo?: string }) =>
-      api.sendText({ ...data, confirm: true }),
-  });
-
-  const sendFileMutation = useMutation({
-    mutationFn: (formData: FormData) => api.sendFile(formData),
-  });
-
   const scheduleTextMutation = useMutation({
     mutationFn: (data: {
       to: string;
@@ -83,174 +74,182 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
     mutationFn: (formData: FormData) => api.scheduleFile(formData),
   });
 
+  /**
+   * Sends now, and gets out of the way while it does.
+   *
+   * The dialog closes as soon as the send is under way and the message shows
+   * in its thread as pending, because the answer can take seconds: the daemon
+   * carries out one command at a time, and a send can queue behind a read
+   * receipt. If it fails, the draft goes back in the composer and the dialog
+   * comes back with the reason, unless something else is on screen by then;
+   * the server's ACTIVITY row records it either way.
+   *
+   * Everything after the dialog closes runs with the dialog unmounted, so it
+   * works through the store and the query client, never through this
+   * component's state.
+   */
+  const dispatchNow = async () => {
+    const data = sendConfirmData;
+    const jid = data.toJid;
+
+    // Confirming an immediate send is taken as the decision to go live, so the
+    // lock comes off here. Routed through the shared hook so the mode is only
+    // recorded once the server has agreed to it — and so a refusal throws
+    // before anything is dispatched, rather than leaving the console claiming
+    // live sends while the server still refuses them.
+    if (isReadOnly) {
+      try {
+        await setSafeMode(false);
+      } catch (err: unknown) {
+        setIsCommitted(false);
+        setErrorMessage(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+
+    const logId = addSendLog({
+      to: jid,
+      chatName: data.recipientName,
+      message: data.messageText || data.fileAttachment?.name || 'File Attachment',
+      status: 'pending',
+    });
+    const pendingId = `pending-${logId}`;
+    const replyingTo = useAppStore.getState().replyingToByChat[jid] ?? null;
+
+    // Painting is a nicety on top of the send. A throw in here must not stop
+    // the message going out.
+    try {
+      paintPendingSend(queryClient, pendingId, {
+        chatJid: jid,
+        chatName: data.recipientName,
+        text: data.messageText,
+        file: data.fileAttachment,
+      });
+    } catch (err: unknown) {
+      console.error('wacli-ui: could not paint a pending send into the caches', err);
+    }
+    clearComposer(jid);
+    setSendConfirmData(null);
+    setActiveModal(null);
+
+    let sentResult: { sent: boolean; messageId?: string };
+    try {
+      // The server writes the ACTIVITY row, and names it from `chatName`.
+      // Without it, every send made from here was listed under its JID.
+      if (data.fileAttachment) {
+        const fd = new FormData();
+        fd.append('file', data.fileAttachment);
+        fd.append('to', jid);
+        fd.append('chatName', data.recipientName);
+        if (data.messageText) {
+          fd.append('caption', data.messageText);
+        }
+        if (data.replyToId) {
+          fd.append('replyTo', data.replyToId);
+        }
+        fd.append('confirm', 'true');
+
+        sentResult = await api.sendFile(fd);
+      } else {
+        sentResult = await api.sendText({
+          to: jid,
+          chatName: data.recipientName,
+          message: data.messageText,
+          replyTo: data.replyToId,
+          confirm: true,
+        });
+      }
+    } catch (err: unknown) {
+      try {
+        dropPendingSend(queryClient, jid, pendingId);
+      } catch (paintErr: unknown) {
+        console.error('wacli-ui: could not take a failed send out of the caches', paintErr);
+      }
+      // A send that reached the server is already logged there as failed.
+      clearSendLog(logId);
+      queryClient.invalidateQueries({ queryKey: ['activity'] });
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+
+      // Back where it was typed, unless something new has been typed there since.
+      const store = useAppStore.getState();
+      if (!store.composerDrafts[jid] && !store.composerFiles[jid]) {
+        if (data.messageText) store.setComposerDraft(jid, data.messageText);
+        if (data.fileAttachment) store.setComposerFile(jid, data.fileAttachment);
+        if (replyingTo) store.setReplyingTo(jid, replyingTo);
+      }
+      if (store.activeModal === null) {
+        store.setSendConfirmData({
+          ...data,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        store.setActiveModal('send-confirm');
+      }
+      return;
+    }
+
+    // The server recorded this send itself; its row is the record now.
+    clearSendLog(logId);
+    queryClient.invalidateQueries({ queryKey: ['activity'] });
+    try {
+      settlePendingSend(queryClient, jid, pendingId, sentResult?.messageId);
+    } catch (err: unknown) {
+      console.error('wacli-ui: could not settle a sent message in the caches', err);
+    }
+    queryClient.invalidateQueries({ queryKey: ['messages', jid] });
+    queryClient.invalidateQueries({ queryKey: ['chats'] });
+  };
+
   const handleConfirmSend = async () => {
     setErrorMessage(null);
     setIsCommitted(true);
 
-    const isScheduling = isScheduled && scheduleTime;
-    const isoScheduledAt = isScheduling ? new Date(scheduleTime).toISOString() : undefined;
+    const isoScheduledAt =
+      isScheduled && scheduleTime ? new Date(scheduleTime).toISOString() : undefined;
+    if (!isoScheduledAt) {
+      await dispatchNow();
+      return;
+    }
 
     const logId = addSendLog({
       to: sendConfirmData.toJid,
       chatName: sendConfirmData.recipientName,
-      message: `${isScheduling ? '[Scheduled] ' : ''}${sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || 'File Attachment'}`,
+      message: `[Scheduled] ${sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || 'File Attachment'}`,
       status: 'pending',
     });
 
     try {
-      if (isScheduling && isoScheduledAt) {
-        // Send Later flow
-        if (sendConfirmData.fileAttachment) {
-          const fd = new FormData();
-          fd.append('file', sendConfirmData.fileAttachment);
-          fd.append('to', sendConfirmData.toJid);
-          fd.append('recipientName', sendConfirmData.recipientName);
-          if (sendConfirmData.messageText) {
-            fd.append('caption', sendConfirmData.messageText);
-          }
-          if (sendConfirmData.replyToId) {
-            fd.append('replyTo', sendConfirmData.replyToId);
-          }
-          fd.append('scheduledAt', isoScheduledAt);
-          fd.append('confirm', 'true');
-
-          await scheduleFileMutation.mutateAsync(fd);
-        } else {
-          await scheduleTextMutation.mutateAsync({
-            to: sendConfirmData.toJid,
-            recipientName: sendConfirmData.recipientName,
-            message: sendConfirmData.messageText,
-            replyTo: sendConfirmData.replyToId,
-            scheduledAt: isoScheduledAt,
-            confirm: true,
-          });
+      // Send Later flow
+      if (sendConfirmData.fileAttachment) {
+        const fd = new FormData();
+        fd.append('file', sendConfirmData.fileAttachment);
+        fd.append('to', sendConfirmData.toJid);
+        fd.append('recipientName', sendConfirmData.recipientName);
+        if (sendConfirmData.messageText) {
+          fd.append('caption', sendConfirmData.messageText);
         }
+        if (sendConfirmData.replyToId) {
+          fd.append('replyTo', sendConfirmData.replyToId);
+        }
+        fd.append('scheduledAt', isoScheduledAt);
+        fd.append('confirm', 'true');
 
-        // Queuing is not sending. The row belongs in LATER, and the activity
-        // log gets its entry when the message actually goes out — which is
-        // also the only way a dispatch fired with no console open is recorded.
-        clearSendLog(logId);
-        queryClient.invalidateQueries({ queryKey: ['scheduled'] });
+        await scheduleFileMutation.mutateAsync(fd);
       } else {
-        // Immediate Send flow
-        // Confirming an immediate send is taken as the decision to go live, so
-        // the lock comes off here. Routed through the shared hook so the mode is
-        // only recorded once the server has agreed to it — and so a refusal
-        // throws before anything is dispatched, rather than leaving the console
-        // claiming live sends while the server still refuses them.
-        if (isReadOnly) {
-          await setSafeMode(false);
-        }
-
-        let sentResult: { sent: boolean; messageId?: string } | undefined;
-
-        // The server writes the ACTIVITY row, and names it from `chatName`.
-        // Without it, every send made from here was listed under its JID.
-        if (sendConfirmData.fileAttachment) {
-          const fd = new FormData();
-          fd.append('file', sendConfirmData.fileAttachment);
-          fd.append('to', sendConfirmData.toJid);
-          fd.append('chatName', sendConfirmData.recipientName);
-          if (sendConfirmData.messageText) {
-            fd.append('caption', sendConfirmData.messageText);
-          }
-          if (sendConfirmData.replyToId) {
-            fd.append('replyTo', sendConfirmData.replyToId);
-          }
-          fd.append('confirm', 'true');
-
-          sentResult = await sendFileMutation.mutateAsync(fd);
-        } else {
-          sentResult = await sendTextMutation.mutateAsync({
-            to: sendConfirmData.toJid,
-            chatName: sendConfirmData.recipientName,
-            message: sendConfirmData.messageText,
-            replyTo: sendConfirmData.replyToId,
-          });
-        }
-
-        // The id travels with the log entry so the ACTIVITY rail can focus this
-        // message later, not just reopen the conversation.
-        // The server recorded this send itself; its row is the record now.
-        clearSendLog(logId);
-        queryClient.invalidateQueries({ queryKey: ['activity'] });
-
-        // Painting the send into the caches is a nicety on top of a message
-        // that has already left. A throw in here is not a failed dispatch, so
-        // it must not reach the catch below and report a delivered message as
-        // undelivered — the invalidations after it fetch the truth regardless.
-        try {
-          const optimisticMsg: UnifiedMessage = {
-            chatJid: sendConfirmData.toJid,
-            chatName: sendConfirmData.recipientName,
-            msgId: sentResult?.messageId || `out-${Date.now()}`,
-            senderJid: '',
-            senderName: 'Me',
-            ts: new Date().toISOString(),
-            fromMe: true,
-            text: sendConfirmData.messageText,
-            displayText: sendConfirmData.messageText,
-            isForwarded: false,
-            reactionToId: null,
-            reactionEmoji: null,
-            mediaType: sendConfirmData.fileAttachment ? 'document' : null,
-            mediaCaption: sendConfirmData.messageText || null,
-            filename: sendConfirmData.fileAttachment?.name || null,
-            mimeType: sendConfirmData.fileAttachment?.type || null,
-            localPath: null,
-            starred: false,
-            bookmarked: false,
-            edited: false,
-            revoked: false,
-            deliveryStatus: 'sent',
-          };
-
-          // Prefix match: the thread cache is keyed by chat and window size, and
-          // the chat list by chat, search text and filter. An exact-key write
-          // would land on a key nothing is observing.
-          //
-          // The thread holds its history as pages, newest first, so the send
-          // goes on the front of the newest one — the same insert the socket
-          // makes when this message comes back, which is why it dedupes on id.
-          queryClient.setQueriesData<MessagePages>(
-            { queryKey: ['messages', sendConfirmData.toJid] },
-            (old) => prependMessage(old, optimisticMsg)
-          );
-
-          queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
-            const chats = old ? [...old] : [];
-            const existingIdx = chats.findIndex((c) => c.jid === sendConfirmData.toJid);
-            const updatedChat: UnifiedChat = existingIdx >= 0
-              ? {
-                  ...chats[existingIdx],
-                  lastMessageTs: new Date().toISOString(),
-                  lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
-                  lastMessageFromMe: true,
-                }
-              : {
-                  jid: sendConfirmData.toJid,
-                  name: sendConfirmData.recipientName,
-                  kind: sendConfirmData.toJid.endsWith('@g.us') ? 'group' : 'dm',
-                  lastMessageTs: new Date().toISOString(),
-                  lastMessage: sendConfirmData.messageText || sendConfirmData.fileAttachment?.name || null,
-                  lastMessageFromMe: true,
-                  archived: false,
-                  pinned: false,
-                  mutedUntil: 0,
-                  unread: false,
-                  unreadCount: 0,
-                };
-
-            const filtered = chats.filter((c) => c.jid !== sendConfirmData.toJid);
-            return [updatedChat, ...filtered];
-          });
-        } catch (err: unknown) {
-          console.error('wacli-ui: could not paint a sent message into the caches', err);
-        }
-
-        queryClient.invalidateQueries({ queryKey: ['messages', sendConfirmData.toJid] });
-        queryClient.invalidateQueries({ queryKey: ['chats'] });
+        await scheduleTextMutation.mutateAsync({
+          to: sendConfirmData.toJid,
+          recipientName: sendConfirmData.recipientName,
+          message: sendConfirmData.messageText,
+          replyTo: sendConfirmData.replyToId,
+          scheduledAt: isoScheduledAt,
+          confirm: true,
+        });
       }
+
+      // Queuing is not sending. The row belongs in LATER, and the activity
+      // log gets its entry when the message actually goes out — which is
+      // also the only way a dispatch fired with no console open is recorded.
+      clearSendLog(logId);
+      queryClient.invalidateQueries({ queryKey: ['scheduled'] });
 
       clearComposer(sendConfirmData.toJid);
 
@@ -264,9 +263,8 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
       setIsCommitted(false);
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMessage(msg);
-      // A send that reached the server is already logged there as failed, with
-      // the reason. One that never reached it has this dialog, which stays open
-      // showing the error rather than closing over a silent failure.
+      // Nothing was queued, so the dialog stays open showing the error rather
+      // than closing over a silent failure.
       clearSendLog(logId);
       queryClient.invalidateQueries({ queryKey: ['activity'] });
     }

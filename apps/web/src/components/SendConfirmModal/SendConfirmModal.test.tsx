@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Composer } from '../Composer/Composer.tsx';
 import { SendConfirmModal } from './SendConfirmModal.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import { flattenMessagePages, type MessagePages } from '../../lib/messagePages.ts';
+import { flattenMessagePages, prependMessage, type MessagePages } from '../../lib/messagePages.ts';
 import type { UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const getMode = vi.hoisted(() => vi.fn());
@@ -359,9 +359,80 @@ describe('SendConfirmModal thread reconciliation', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     // The activity log is the server's now, so what this asserts is that the
     // in-flight row was retired rather than left on screen as a failure. A
-    // dialog that closed on the sent tick and no lingering error row is the
-    // whole of "the operator was told it went out".
+    // dialog that closed and no lingering error row is the whole of "the
+    // operator was told it went out".
+    await waitFor(() => expect(useAppStore.getState().sendLogs).toHaveLength(0));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  /** A send wacli has not answered yet, and the means to answer it. */
+  function holdSend(): { resolve: (v: unknown) => void; reject: (e: Error) => void } {
+    const held = { resolve: (_v: unknown) => {}, reject: (_e: Error) => {} };
+    sendText.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          held.resolve = resolve;
+          held.reject = reject;
+        })
+    );
+    return held;
+  }
+
+  it('shows the message as pending, with the dialog closed, before wacli answers', async () => {
+    seedThread();
+    const held = holdSend();
+    renderConsole(client);
+
+    await dispatch();
+
+    // The daemon can hold a send behind a read receipt for seconds. The thread
+    // shows it at once, and the dialog is out of the way meanwhile.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const [pending] = flattenMessagePages(thread());
+    expect(pending.msgId).toMatch(/^pending-/);
+    expect(pending.deliveryStatus).toBe('pending');
+    expect(pending.text).toBe('shalom');
+    expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBeUndefined();
+
+    held.resolve({ sent: true, messageId: 'wamid.1' });
+
+    await waitFor(() =>
+      expect(flattenMessagePages(thread()).map((m) => m.msgId)).toEqual(['wamid.1', 'MSG-OLD'])
+    );
+    expect(flattenMessagePages(thread())[0].deliveryStatus).toBe('sent');
+  });
+
+  it('takes a failed send out of the thread, puts the draft back, and says why', async () => {
+    seedThread();
+    const held = holdSend();
+    renderConsole(client);
+
+    await dispatch();
+    held.reject(new Error('Command timed out after 60000ms'));
+
+    // Nothing went out, so nothing stays in the thread, and the operator has
+    // the reason and the words back rather than a bubble that quietly vanished.
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Command timed out after 60000ms')).toBeInTheDocument();
+    expect(flattenMessagePages(thread()).map((m) => m.msgId)).toEqual(['MSG-OLD']);
+    expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe('shalom');
     expect(useAppStore.getState().sendLogs).toHaveLength(0);
+  });
+
+  it('does not show a send twice when the socket brought it in first', async () => {
+    seedThread();
+    const held = holdSend();
+    renderConsole(client);
+
+    await dispatch();
+    client.setQueryData<MessagePages>(['messages', CHAT.jid], (old) =>
+      prependMessage(old, { ...HISTORY, msgId: 'wamid.1', fromMe: true, text: 'shalom' })
+    );
+    held.resolve({ sent: true, messageId: 'wamid.1' });
+
+    await waitFor(() =>
+      expect(flattenMessagePages(thread()).map((m) => m.msgId)).toEqual(['wamid.1', 'MSG-OLD'])
+    );
   });
 
   it('still closes the dialog when the caches cannot be painted', async () => {

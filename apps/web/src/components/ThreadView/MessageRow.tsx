@@ -1,5 +1,5 @@
 import React from 'react';
-import { Reply, Smile, Check, CheckCheck, Copy, Star, Bookmark } from 'lucide-react';
+import { Reply, Smile, Check, CheckCheck, Clock, Copy, Star, Bookmark } from 'lucide-react';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
@@ -53,6 +53,9 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
   onReact,
 }) {
   const isMe = msg.fromMe;
+  // Still on its way out, under a local id WhatsApp has never seen: a reply,
+  // reaction or bookmark aimed at it would point at nothing.
+  const isPending = msg.deliveryStatus === 'pending';
 
   return (
     <div
@@ -128,8 +131,10 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </time>
           {isMe && (
-            <span title={msg.deliveryStatus ?? 'sent'}>
-              {msg.deliveryStatus === 'read' || msg.deliveryStatus === 'played' ? (
+            <span title={isPending ? 'sending' : (msg.deliveryStatus ?? 'sent')}>
+              {isPending ? (
+                <Clock size={12} className="text-mc-textMuted" />
+              ) : msg.deliveryStatus === 'read' || msg.deliveryStatus === 'played' ? (
                 <CheckCheck size={12} className="text-mc-live" />
               ) : msg.deliveryStatus === 'delivered' ? (
                 <CheckCheck size={12} className="text-mc-textMuted" />
@@ -152,56 +157,58 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
         )}
 
         {/* Hover Quick Actions Menu (FR-SR-7) */}
-        <div className="absolute -top-3.5 right-2 hidden group-hover:flex items-center gap-0.5 bg-mc-surface/95 backdrop-blur-sm border border-mc-border rounded px-1 py-0.5 shadow-md z-20">
-          {/* Reply */}
-          <button
-            onClick={() => onReply(msg)}
-            className="p-1 hover:text-mc-live text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
-            title="Reply"
-          >
-            <Reply size={12} />
-          </button>
+        {!isPending && (
+          <div className="absolute -top-3.5 right-2 hidden group-hover:flex items-center gap-0.5 bg-mc-surface/95 backdrop-blur-sm border border-mc-border rounded px-1 py-0.5 shadow-md z-20">
+            {/* Reply */}
+            <button
+              onClick={() => onReply(msg)}
+              className="p-1 hover:text-mc-live text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
+              title="Reply"
+            >
+              <Reply size={12} />
+            </button>
 
-          {/* Copy Text to Clipboard */}
-          <button
-            onClick={() => onCopy(msg)}
-            className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-              isCopied ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
-            }`}
-            title={isCopied ? 'Copied to clipboard!' : 'Copy message text'}
-          >
-            {isCopied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
+            {/* Copy Text to Clipboard */}
+            <button
+              onClick={() => onCopy(msg)}
+              className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                isCopied ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
+              }`}
+              title={isCopied ? 'Copied to clipboard!' : 'Copy message text'}
+            >
+              {isCopied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
 
-          {/* Local bookmark. Named for what it is: wacli cannot write
-              WhatsApp's star, so this never leaves this machine. */}
-          <button
-            onClick={() => onToggleBookmark(msg)}
-            className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-              msg.bookmarked ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-live'
-            }`}
-            title={
-              msg.bookmarked
-                ? 'Remove local bookmark'
-                : 'Bookmark locally (not synced to WhatsApp)'
-            }
-          >
-            <Bookmark size={12} className={msg.bookmarked ? 'fill-mc-live' : ''} />
-          </button>
+            {/* Local bookmark. Named for what it is: wacli cannot write
+                WhatsApp's star, so this never leaves this machine. */}
+            <button
+              onClick={() => onToggleBookmark(msg)}
+              className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                msg.bookmarked ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-live'
+              }`}
+              title={
+                msg.bookmarked
+                  ? 'Remove local bookmark'
+                  : 'Bookmark locally (not synced to WhatsApp)'
+              }
+            >
+              <Bookmark size={12} className={msg.bookmarked ? 'fill-mc-live' : ''} />
+            </button>
 
-          {/* Expanded Emoji Reaction Drawer */}
-          <button
-            onClick={() => onToggleReactionDrawer(msg.msgId)}
-            className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-              isReactionDrawerOpen
-                ? 'text-mc-live'
-                : 'text-mc-textMuted hover:text-mc-live'
-            }`}
-            title="React with emoji"
-          >
-            <Smile size={12} />
-          </button>
-        </div>
+            {/* Expanded Emoji Reaction Drawer */}
+            <button
+              onClick={() => onToggleReactionDrawer(msg.msgId)}
+              className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
+                isReactionDrawerOpen
+                  ? 'text-mc-live'
+                  : 'text-mc-textMuted hover:text-mc-live'
+              }`}
+              title="React with emoji"
+            >
+              <Smile size={12} />
+            </button>
+          </div>
+        )}
 
         {/* Expanded Emoji Drawer Popover */}
         {isReactionDrawerOpen && (

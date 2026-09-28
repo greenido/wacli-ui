@@ -627,10 +627,14 @@ export class WacliProcessManager {
    * `action` gets the options to pass to execWacli. Handed over, that is one
    * lock attempt: a retry would lose the same race again. Nor `--lock-wait`,
    * which makes wacli sit out the whole wait before it tries the socket.
+   * `handedOver` says which run this is, for flags that only matter when the
+   * CLI keeps its own connection (see postSendWaitArgs).
    */
-  public async runDelegated<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T> {
+  public async runDelegated<T>(
+    action: (lock: DelegationOptions, handedOver: boolean) => Promise<T>
+  ): Promise<T> {
     if (this.canDelegate()) {
-      const handedOver = action({ lockRetryAttempts: 1 });
+      const handedOver = action({ lockRetryAttempts: 1 }, true);
       this.delegated.add(handedOver);
       try {
         return await handedOver;
@@ -641,7 +645,7 @@ export class WacliProcessManager {
         this.delegated.delete(handedOver);
       }
     }
-    return this.executeExclusive(() => action({}));
+    return this.executeExclusive(() => action({}, false));
   }
 
   /**
