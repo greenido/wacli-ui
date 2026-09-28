@@ -648,7 +648,7 @@ describe('WacliProcessManager handing commands to the daemon', () => {
     await expect(pm.runDelegated(action)).resolves.toBe('sent');
 
     // One lock attempt: wacli only tries the socket once the lock refuses it.
-    expect(action).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 });
+    expect(action).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 }, true);
     expect(child.kill).not.toHaveBeenCalled();
     expect(pm.getState()).toBe('running');
     expect(spawn).not.toHaveBeenCalled();
@@ -666,8 +666,8 @@ describe('WacliProcessManager handing commands to the daemon', () => {
 
     // wacli reports the lock only when it could not hand the command over, so
     // nothing went out the first time.
-    expect(action).toHaveBeenNthCalledWith(1, { lockRetryAttempts: 1 });
-    expect(action).toHaveBeenNthCalledWith(2, {});
+    expect(action).toHaveBeenNthCalledWith(1, { lockRetryAttempts: 1 }, true);
+    expect(action).toHaveBeenNthCalledWith(2, {}, false);
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(spawn).toHaveBeenCalledTimes(1);
   });
@@ -692,7 +692,7 @@ describe('WacliProcessManager handing commands to the daemon', () => {
 
     await pm.runDelegated(action);
 
-    expect(action).toHaveBeenCalledExactlyOnceWith({});
+    expect(action).toHaveBeenCalledExactlyOnceWith({}, false);
     expect(child.kill).toHaveBeenCalledTimes(1);
   });
 
@@ -708,7 +708,7 @@ describe('WacliProcessManager handing commands to the daemon', () => {
 
     alias.release();
     await Promise.all([exclusive, sending]);
-    expect(action).toHaveBeenCalledExactlyOnceWith({});
+    expect(action).toHaveBeenCalledExactlyOnceWith({}, false);
   });
 
   it('lets a command the daemon is carrying finish before an exclusive one takes it down', async () => {
@@ -754,7 +754,7 @@ describe('WacliProcessManager handing commands to the daemon', () => {
     send.release();
     await Promise.all([sending, stopping, second]);
 
-    expect(later).toHaveBeenCalledExactlyOnceWith({});
+    expect(later).toHaveBeenCalledExactlyOnceWith({}, false);
   });
 
   it('keeps the daemon when it is started again while a stop waits', async () => {
@@ -771,7 +771,7 @@ describe('WacliProcessManager handing commands to the daemon', () => {
     expect(child.kill).not.toHaveBeenCalled();
     const next = vi.fn(async () => 'sent');
     await pm.runDelegated(next);
-    expect(next).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 });
+    expect(next).toHaveBeenCalledExactlyOnceWith({ lockRetryAttempts: 1 }, true);
   });
 });
 

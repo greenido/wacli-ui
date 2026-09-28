@@ -110,6 +110,11 @@ interface AppState {
     fileAttachment?: File;
     scheduleMode?: boolean;
     scheduledAt?: string;
+    /**
+     * Why the last try at this same send failed. The dialog closes once a send
+     * is under way, so a failure opens it again with this on show.
+     */
+    error?: string;
   } | null;
 
   setSelectedChat: (chat: UnifiedChat | null, focusIntent?: ChatFocusIntent) => void;

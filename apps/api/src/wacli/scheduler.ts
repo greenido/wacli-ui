@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { getDb, openDatabaseAt, resolveDbPath } from '../db/index.js';
 import { activityStore } from './activity.js';
-import { execWacli, POST_SEND_WAIT } from './commands.js';
+import { execWacli, postSendWaitArgs } from './commands.js';
 import { modeManager } from './mode.js';
 import type { DelegationOptions } from './process-manager.js';
 import { logger } from '../logger.js';
@@ -150,7 +150,7 @@ const UPSERT_ROW = `INSERT OR REPLACE INTO scheduled
 
 /** The one thing the scheduler needs from the process manager. */
 export interface SendRunner {
-  runDelegated<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T>;
+  runDelegated<T>(action: (lock: DelegationOptions, handedOver: boolean) => Promise<T>): Promise<T>;
 }
 
 export class Scheduler {
@@ -219,8 +219,10 @@ export class Scheduler {
    * what makes it land, the same as for the interactive routes. Left unset the
    * action runs as-is, which is what the scheduler tests want.
    */
-  private async throughDaemon<T>(action: (lock: DelegationOptions) => Promise<T>): Promise<T> {
-    if (!this.sendRunner) return action({});
+  private async throughDaemon<T>(
+    action: (lock: DelegationOptions, handedOver: boolean) => Promise<T>
+  ): Promise<T> {
+    if (!this.sendRunner) return action({}, false);
     return this.sendRunner.runDelegated(action);
   }
 
@@ -239,7 +241,7 @@ export class Scheduler {
     args: string[],
     timeoutMs: number
   ): Promise<Record<string, unknown>> {
-    return this.throughDaemon(async (lock) => {
+    return this.throughDaemon(async (lock, handedOver) => {
       item.status = 'sending';
       try {
         this.writeRow(item);
@@ -250,7 +252,11 @@ export class Scheduler {
         });
       }
       this.broadcastUpdate(item);
-      return execWacli<Record<string, unknown>>(args, { allowMutation: true, timeoutMs, ...lock });
+      return execWacli<Record<string, unknown>>([...args, ...postSendWaitArgs(handedOver)], {
+        allowMutation: true,
+        timeoutMs,
+        ...lock,
+      });
     });
   }
 
@@ -738,7 +744,7 @@ export class Scheduler {
       let result: Record<string, unknown>;
 
       if (item.filePath) {
-        const args = ['send', 'file', '--to', item.to, '--file', item.filePath, '--post-send-wait', POST_SEND_WAIT];
+        const args = ['send', 'file', '--to', item.to, '--file', item.filePath];
         if (item.fileName) {
           args.push('--filename', item.fileName);
         }
@@ -753,7 +759,7 @@ export class Scheduler {
 
         this.removeAttachment(item);
       } else {
-        const args = ['send', 'text', '--to', item.to, '--message', item.message, '--post-send-wait', POST_SEND_WAIT];
+        const args = ['send', 'text', '--to', item.to, '--message', item.message];
         if (item.replyTo) {
           args.push('--reply-to', item.replyTo);
         }

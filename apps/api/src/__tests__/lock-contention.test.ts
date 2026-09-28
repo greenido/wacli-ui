@@ -85,7 +85,7 @@ describe('Store lock contention through the routes', () => {
     // The default 30s is a downtime budget here, not a patience setting: the
     // daemon is dead for the whole of it, so the console receives nothing.
     expect(execWacliMock).toHaveBeenCalledWith(
-      ['chats', 'mark-read', '--chat', '15551234567@s.whatsapp.net'],
+      ['chats', 'mark-read', '--chat', '15551234567@s.whatsapp.net', '--receipts'],
       expect.objectContaining({ allowMutation: true, timeoutMs: 10_000 })
     );
   });

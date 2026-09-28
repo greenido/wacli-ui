@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import multer from 'multer';
 import os from 'node:os';
 import fs from 'node:fs';
-import { execWacli, POST_SEND_WAIT } from '../wacli/commands.js';
+import { execWacli, postSendWaitArgs } from '../wacli/commands.js';
 import { modeManager } from '../wacli/mode.js';
 import { keepScheduledAttachment, scheduler } from '../wacli/scheduler.js';
 import { activityStore } from '../wacli/activity.js';
@@ -90,7 +90,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
-      const args = ['send', 'text', '--to', to, '--message', message, '--post-send-wait', POST_SEND_WAIT];
+      const args = ['send', 'text', '--to', to, '--message', message];
       if (replyTo) {
         args.push('--reply-to', replyTo);
       }
@@ -107,8 +107,8 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
       });
 
       try {
-        const result = await processManager.runDelegated((lock) =>
-          execWacli<Record<string, unknown>>(args, {
+        const result = await processManager.runDelegated((lock, handedOver) =>
+          execWacli<Record<string, unknown>>([...args, ...postSendWaitArgs(handedOver)], {
             allowMutation: true,
             timeoutMs: 60000,
             ...lock,
@@ -197,7 +197,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
       let logId: string | undefined;
 
       try {
-        const args = ['send', 'file', '--to', to, '--file', file.path, '--filename', file.originalname, '--post-send-wait', POST_SEND_WAIT];
+        const args = ['send', 'file', '--to', to, '--file', file.path, '--filename', file.originalname];
         if (caption) {
           args.push('--caption', caption);
         }
@@ -216,8 +216,8 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
           status: 'pending',
         });
 
-        const result = await processManager.runDelegated((lock) =>
-          execWacli<Record<string, unknown>>(args, {
+        const result = await processManager.runDelegated((lock, handedOver) =>
+          execWacli<Record<string, unknown>>([...args, ...postSendWaitArgs(handedOver)], {
             allowMutation: true,
             timeoutMs: 120000,
             ...lock,
@@ -286,15 +286,15 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
         return;
       }
 
-      const args = ['send', 'react', '--to', to, '--id', id, '--reaction', reaction ?? '👍', '--post-send-wait', POST_SEND_WAIT];
+      const args = ['send', 'react', '--to', to, '--id', id, '--reaction', reaction ?? '👍'];
       if (sender) {
         args.push('--sender', sender);
       }
 
       logger.info('send', 'Dispatching reaction', { to, id, reaction: reaction ?? '👍' });
 
-      const result = await processManager.runDelegated((lock) =>
-        execWacli<Record<string, unknown>>(args, {
+      const result = await processManager.runDelegated((lock, handedOver) =>
+        execWacli<Record<string, unknown>>([...args, ...postSendWaitArgs(handedOver)], {
           allowMutation: true,
           timeoutMs: 30000,
           ...lock,
