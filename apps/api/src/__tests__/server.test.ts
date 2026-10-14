@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { createApp } from '../index.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { EventBridge } from '../ws/event-bridge.js';
+import { logger } from '../logger.js';
 import type { MissionControlEvent } from '../types.js';
 
 vi.mock('../wacli/commands.js', async (importOriginal) => {
@@ -202,4 +203,87 @@ describe('Express Server Foundation', () => {
 
     broadcastSpy.mockRestore();
   });
+
+  it('POST /internal/wacli/webhook turns a receipt into read, played or delivered ticks', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const bridge = new EventBridge();
+    const app = createApp(pm, bridge);
+    const receivedEvents: MissionControlEvent[] = [];
+    vi.spyOn(bridge, 'broadcast').mockImplementation((event) => {
+      receivedEvents.push(event);
+    });
+
+    try {
+      for (const [type, status] of [
+        ['read', 'read'],
+        ['played', 'played'],
+        ['delivered', 'delivered'],
+        // wacli has more receipt kinds than the UI has ticks for.
+        ['server-error', 'delivered'],
+      ]) {
+        const res = await postSigned(app, pm, {
+          EventType: 'receipt',
+          Chat: '15551234567@s.whatsapp.net',
+          Sender: '15559876543@s.whatsapp.net',
+          MessageIDs: ['MSG-1', 'MSG-2'],
+          Timestamp: '2026-08-31T12:00:00Z',
+          Type: type,
+          IsFromMe: true,
+        });
+        expect(res.status).toBe(200);
+        expect(receivedEvents.at(-1)).toMatchObject({
+          type: 'message.receipt',
+          data: {
+            chatJid: '15551234567@s.whatsapp.net',
+            messageIds: ['MSG-1', 'MSG-2'],
+            status,
+            isFromMe: true,
+          },
+        });
+      }
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('POST /internal/wacli/webhook keeps an incoming message body out of the log', async () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const app = createApp(pm, new EventBridge());
+    const optIn = process.env.WACLI_LOG_WEBHOOK_PAYLOADS;
+    delete process.env.WACLI_LOG_WEBHOOK_PAYLOADS;
+    const levels = ['debug', 'info', 'warn', 'error'] as const;
+    for (const level of levels) vi.spyOn(logger, level).mockImplementation(() => {});
+
+    try {
+      const res = await postSigned(app, pm, {
+        Chat: '15551234567@s.whatsapp.net',
+        ID: 'TEST-MSG-2',
+        Timestamp: '2026-08-31T12:00:00Z',
+        FromMe: false,
+        SenderName: 'Ada Lovelace',
+        Text: 'PRIVATE BODY: door code 4417',
+      });
+      expect(res.status).toBe(200);
+
+      const logged = JSON.stringify(levels.flatMap((level) => vi.mocked(logger[level]).mock.calls));
+      expect(logged).toContain('Webhook event received');
+      expect(logged).not.toContain('door code 4417');
+      expect(logged).not.toContain('Ada Lovelace');
+    } finally {
+      if (optIn === undefined) delete process.env.WACLI_LOG_WEBHOOK_PAYLOADS;
+      else process.env.WACLI_LOG_WEBHOOK_PAYLOADS = optIn;
+      vi.restoreAllMocks();
+    }
+  });
 });
+
+/** Posts `body` to the webhook signed the way the sync daemon signs it. */
+function postSigned(app: ReturnType<typeof createApp>, pm: WacliProcessManager, body: object) {
+  const payload = JSON.stringify(body);
+  const hmac = crypto.createHmac('sha256', pm.getWebhookSecret()).update(payload).digest('hex');
+  return request(app)
+    .post('/internal/wacli/webhook')
+    .set('Content-Type', 'application/json')
+    .set('X-Wacli-Signature', `sha256=${hmac}`)
+    .send(payload);
+}
