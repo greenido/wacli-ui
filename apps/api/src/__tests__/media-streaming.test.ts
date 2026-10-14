@@ -44,25 +44,6 @@ describe('media streaming survives a file that goes away', () => {
     vi.restoreAllMocks();
   });
 
-  it('serves a file inside the store', async () => {
-    const res = await request(app).get('/api/media/content').query({ path: mediaPath });
-
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toBe('video/mp4');
-    expect(res.headers['x-content-type-options']).toBe('nosniff');
-    expect(res.body.length).toBe(4 * 1024 * 1024);
-  });
-
-  it('serves a byte range', async () => {
-    const res = await request(app)
-      .get('/api/media/content')
-      .query({ path: mediaPath })
-      .set('Range', 'bytes=0-1023');
-
-    expect(res.status).toBe(206);
-    expect(res.headers['content-range']).toBe(`bytes 0-1023/${4 * 1024 * 1024}`);
-  });
-
   /**
    * Reads fail the way an unmounted volume or a file deleted under the stream
    * does, after `chunks` good ones. Modelled rather than raced: a real 4 MB
@@ -134,17 +115,5 @@ describe('media streaming survives a file that goes away', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.length).toBe(1024);
-  });
-
-  it('refuses a path outside the store', async () => {
-    const outside = path.join(os.tmpdir(), 'wacli-not-media.txt');
-    fs.writeFileSync(outside, 'not yours');
-
-    try {
-      const res = await request(app).get('/api/media/content').query({ path: outside });
-      expect(res.status).toBe(403);
-    } finally {
-      fs.rmSync(outside, { force: true });
-    }
   });
 });

@@ -5,6 +5,20 @@ import path from 'node:path';
 
 const execWacliMock = vi.hoisted(() => vi.fn());
 
+/**
+ * Uploads land in os.tmpdir(). Pointing it at a directory of this file's own,
+ * before the send routes are imported, lets a test see what an upload left
+ * behind without racing other files' uploads.
+ */
+const uploadDir = vi.hoisted(() => {
+  const nodeFs = process.getBuiltinModule('node:fs');
+  const nodeOs = process.getBuiltinModule('node:os');
+  const nodePath = process.getBuiltinModule('node:path');
+  const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'wacli-uploads-'));
+  process.env.TMPDIR = dir;
+  return dir;
+});
+
 vi.mock('../wacli/commands.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../wacli/commands.js')>();
   return { ...actual, execWacli: execWacliMock };
@@ -89,6 +103,28 @@ describe('Send Endpoints & Guardrails', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('No file attachment provided');
+  });
+
+  it('deletes the upload of a file send it refuses', async () => {
+    modeManager.setReadOnly(false);
+    const later = new Date(Date.now() + 86_400_000).toISOString();
+    const refusals: Array<[string, Record<string, string>]> = [
+      ['/api/send/file', { to: '15550100001@s.whatsapp.net' }],
+      ['/api/send/file', { confirm: 'true' }],
+      ['/api/send/schedule-file', { to: '15550100001@s.whatsapp.net', scheduledAt: later }],
+      ['/api/send/schedule-file', { to: '15550100001@s.whatsapp.net', confirm: 'true' }],
+    ];
+
+    for (const [route, fields] of refusals) {
+      const before = fs.readdirSync(uploadDir);
+      let req = request(app).post(route);
+      for (const [name, value] of Object.entries(fields)) req = req.field(name, value);
+      const res = await req.attach('file', Buffer.from('%PDF-1.7 private'), 'private.pdf');
+
+      expect(res.status).toBe(400);
+      expect(fs.readdirSync(uploadDir)).toEqual(before);
+    }
+    expect(execWacliMock).not.toHaveBeenCalled();
   });
 
   it('POST /api/send/schedule is blocked while read-only mode is active (403)', async () => {

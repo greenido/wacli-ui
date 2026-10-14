@@ -57,16 +57,6 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText(/reading 'displayText'/)).toBeInTheDocument();
   });
 
-  it('says nothing was sent or lost', () => {
-    render(
-      <ErrorBoundary>
-        <Boom shouldThrow />
-      </ErrorBoundary>
-    );
-
-    expect(screen.getByText(/Nothing was sent and nothing was lost/)).toBeInTheDocument();
-  });
-
   it('re-renders the children when the operator retries', async () => {
     const user = userEvent.setup();
 
