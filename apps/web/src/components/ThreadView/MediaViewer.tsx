@@ -10,11 +10,40 @@ import {
   Loader2,
   ImageOff,
   RotateCw,
+  Smartphone,
 } from 'lucide-react';
-import { api } from '../../api/client.ts';
+import { api, ApiClientError } from '../../api/client.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import type { UnifiedMessage } from '../../types.ts';
+
+/**
+ * Asks the phone for media WhatsApp's servers no longer have (wacli 0.22).
+ *
+ * Its own component so that only a tile that has actually hit an expired file
+ * reads the safe mode, rather than every attachment in the thread polling it.
+ * Asking is a request to WhatsApp, so safe mode leaves the button visible but
+ * shut, saying why.
+ */
+function AskPhoneButton({ onAsk, busy }: { onAsk: () => void; busy: boolean }) {
+  const { isReadOnly } = useSafeMode();
+  return (
+    <button
+      onClick={onAsk}
+      disabled={busy || isReadOnly}
+      className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-live font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+      title={
+        isReadOnly
+          ? 'Unlock live sends to ask your phone for it'
+          : 'Ask your phone to send this file again'
+      }
+    >
+      {busy ? <Loader2 size={12} className="animate-spin" /> : <Smartphone size={12} />}
+      <span>ASK PHONE</span>
+    </button>
+  );
+}
 
 interface MediaViewerProps {
   msg: UnifiedMessage;
@@ -24,6 +53,8 @@ interface MediaViewerProps {
 export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // WhatsApp's servers no longer have the file; the phone may.
+  const [expired, setExpired] = useState(false);
   const [localPath, setLocalPath] = useState<string | null>(msg.localPath || null);
   // Whether an image or sticker has drawn yet, or never will without a retry.
   const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
@@ -61,23 +92,29 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
     filename,
   });
 
-  const handleManualDownload = async () => {
+  const download = async (fromPhone: boolean) => {
     setIsDownloading(true);
     setDownloadError(null);
     try {
-      const res = await api.downloadMedia({ chat: chatJid, id: msg.msgId });
+      const res = await api.downloadMedia({ chat: chatJid, id: msg.msgId, fromPhone });
       if (res.localPath) {
         setLocalPath(res.localPath);
       }
+      setExpired(false);
       // An image that failed gets drawn again, now that there is a file.
       setImageStatus('loading');
     } catch (err: unknown) {
       const errorText = err instanceof Error ? err.message : String(err);
       setDownloadError(errorText);
+      // Asked of the phone, the answer stands on its own; the button stays
+      // for another try, since a phone that was offline may not be now.
+      if (!fromPhone) setExpired(err instanceof ApiClientError && err.code === 'MEDIA_EXPIRED');
     } finally {
       setIsDownloading(false);
     }
   };
+  const handleManualDownload = () => download(false);
+  const handleAskPhone = () => download(true);
 
   const togglePlayAudio = () => {
     if (!audioRef.current) return;
@@ -141,6 +178,11 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
         // reason comes last ("... 403 Forbidden"), and a narrow bubble cut it off.
         <div className="text-mc-danger line-clamp-3 break-words" title={downloadError}>
           {downloadError}
+        </div>
+      )}
+      {expired && (
+        <div className="flex justify-end">
+          <AskPhoneButton onAsk={handleAskPhone} busy={isDownloading} />
         </div>
       )}
     </div>
@@ -373,6 +415,11 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
             <button onClick={handleManualDownload} className="underline hover:text-mc-text">
               Retry
             </button>
+          </div>
+        )}
+        {expired && (
+          <div className="flex justify-end">
+            <AskPhoneButton onAsk={handleAskPhone} busy={isDownloading} />
           </div>
         )}
       </div>

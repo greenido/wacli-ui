@@ -198,7 +198,7 @@ describe('useWebSocket chat rail reconciliation', () => {
     await act(async () => {
       vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
     });
-    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined));
 
     unmount();
   });
@@ -583,7 +583,7 @@ describe('useWebSocket read receipts are a side effect, not a cache update', () 
       vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
     });
 
-    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined));
     unmount();
   });
 
@@ -903,7 +903,7 @@ describe('useWebSocket read receipts wait for the operator', () => {
     await settle();
 
     await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
-    expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net');
+    expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined);
     const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
     expect(rail[0]).toMatchObject({ unread: false, unreadCount: 0 });
 

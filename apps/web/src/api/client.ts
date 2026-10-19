@@ -131,13 +131,20 @@ export const api = {
     unread?: boolean;
   }) => request<UnifiedChat[]>('/api/chats', {}, params),
 
-  markChatRead: (chat: string) =>
-    request<{ chat: string; unread: boolean; unreadCount: number }>('/api/chats/mark-read', {
+  /** `through` stops at that message, leaving anything newer unread (wacli 0.22). */
+  markChatRead: (chat: string, through?: string) =>
+    request<{
+      chat: string;
+      unread: boolean;
+      unreadCount: number;
+      through?: string | null;
+      localOnly?: boolean;
+    }>('/api/chats/mark-read', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ chat }),
+      body: JSON.stringify({ chat, through }),
     }),
 
   getMessages: (params: {
@@ -342,8 +349,17 @@ export const api = {
       body: JSON.stringify({}),
     }),
 
-  downloadMedia: (data: { chat: string; id: string }) =>
-    request<{ downloaded: boolean; localPath?: string; details?: unknown }>('/api/media/download', {
+  /**
+   * `fromPhone` asks the phone for a file WhatsApp's servers no longer have,
+   * which the plain download answers with code `MEDIA_EXPIRED` (wacli 0.22).
+   */
+  downloadMedia: (data: { chat: string; id: string; fromPhone?: boolean }) =>
+    request<{
+      downloaded: boolean;
+      localPath?: string;
+      source?: 'cache' | 'server' | 'phone' | null;
+      details?: unknown;
+    }>('/api/media/download', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

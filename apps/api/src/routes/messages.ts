@@ -8,6 +8,25 @@ import type { RawMessage, UnifiedMessage } from '../types.js';
 interface RawMessagesListResponse {
   fts?: boolean;
   messages: RawMessage[] | null;
+  /** wacli 0.22+. */
+  page?: { has_more?: boolean; next_cursor?: string };
+}
+
+/**
+ * Whether there is more past this page: wacli's own answer when it gives one
+ * (0.22, from one extra row it reads), otherwise the guess that a full page has
+ * a next — which costs an empty fetch at the end of every history.
+ *
+ * `page.next_cursor` is deliberately not used for paging. Any write to the
+ * store invalidates every cursor, and the sync daemon writes each message as
+ * it arrives, so in a live chat a cursor would rarely survive to be used. The
+ * thread keeps paging by timestamp and dedupes by message id instead.
+ */
+function hasMoreFrom(raw: RawMessagesListResponse | RawMessage[] | null, count: number, limit: number): boolean {
+  if (raw && !Array.isArray(raw) && typeof raw.page?.has_more === 'boolean') {
+    return raw.page.has_more;
+  }
+  return count >= limit;
 }
 
 /**
@@ -59,7 +78,7 @@ export function createMessagesRouter(): Router {
         success: true,
         data: {
           messages,
-          hasMore: messages.length >= Number(limit || 50),
+          hasMore: hasMoreFrom(raw, messages.length, Number(limit || 50)),
         },
         error: null,
       });
@@ -153,7 +172,7 @@ export function createMessagesRouter(): Router {
           exportedAt: new Date().toISOString(),
           count: messages.length,
           // Say so rather than letting the operator assume they have it all.
-          truncated: messages.length >= limit,
+          truncated: hasMoreFrom(raw, messages.length, limit),
           messages,
         },
         error: null,

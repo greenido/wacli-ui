@@ -66,7 +66,7 @@ Your phone has a six-inch screen and a keyboard made of glass. Your desk has a b
    wacli auth                        # scan the QR code from WhatsApp > Linked devices
    ```
 
-   A recent wacli (0.18.2 or later) works best: it lets Mission Control hand sends and read receipts to the running sync daemon. Older versions still work; Mission Control just pauses the daemon for each send.
+   The newest wacli (0.22 or later) works best: it lets Mission Control hand sends and read receipts to the running sync daemon, stop a read receipt at the last message you actually saw, and ask your phone for media WhatsApp has thrown away. Anything from 0.18.2 hands sends over too. Older versions still work; Mission Control just pauses the daemon for each send, and skips whatever the binary can't do.
 
 **Then launch:**
 
@@ -110,6 +110,7 @@ There's no `--host` flag, and that's on purpose. See [Security & privacy](#secur
 - The full thread, with group sender names, system notices, edits and deletions.
 - Delivery ticks: sent, delivered, read, played.
 - Inline media: images, stickers, video, voice notes with 1× / 1.5× / 2× playback, and documents to download.
+- **Expired media isn't a dead end.** When WhatsApp's servers no longer have a file, the tile says so and offers **ASK PHONE**, which asks your phone to send it again (wacli 0.22+, live mode only). A phone that doesn't answer is probably just offline, not proof the file is gone.
 - Hover a message to reply, react, copy or bookmark. The emoji drawer has a quick row, four categories, a search box, and the good sense to open where a sidebar won't cover it.
 - A composer that keeps a separate draft, attachment and reply target for every chat.
 
@@ -182,7 +183,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 
 - The **browser tab title** carries the unread count, so a background tab still tells you whether anything needs you.
 - **Desktop notifications** are opt-in (in Settings) and raised by your own browser from the WebSocket. No push service, no third party. Your own messages, reactions, muted chats and the chat already on screen stay quiet. Clicking a notification opens that chat.
-- **Read receipts go out only when you look.** A chat is marked read when you click it, or when a message arrives while the console is the visible, focused window. A background tab keeps the unread badge until you come back, and opening the console reselects your last chat without marking it read.
+- **Read receipts go out only when you look.** A chat is marked read when you click it, or when a message arrives while the console is the visible, focused window. A background tab keeps the unread badge until you come back, and opening the console reselects your last chat without marking it read. With wacli 0.22+, the receipt also stops at the newest message that was actually on your screen, so something that lands in the few seconds before it goes out stays unread until you've seen it.
 
 ### 🩺 When things go sideways
 
@@ -330,7 +331,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `GET` | `/api/sleep` | Whether Mission Control is asleep, and since when (`{ sleeping, since }`) |
 | `POST` | `/api/sleep` | Sleep or wake (`{ sleeping: boolean, reason? }`); the reason is only logged |
 | `GET` | `/api/chats` | Chats with unread counts and previews (`?query=&limit=&unread=&pinned=&muted=&archived=`) |
-| `POST` | `/api/chats/mark-read` | Send a read receipt for a chat (`{ chat }`); refused in safe mode |
+| `POST` | `/api/chats/mark-read` | Send a read receipt for a chat (`{ chat, through? }`), stopping at message `through` on wacli 0.22+; refused in safe mode |
 | `GET` | `/api/messages` | A chat's messages (`?chat=<jid>&limit=100`, plus `before`, `after`, `asc`); raise `limit` to page further back |
 | `POST` | `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
 | `GET` | `/api/messages/export` | Export a conversation (`?chat=<jid>&limit=1000`); answers `truncated` when the cap was hit |
@@ -355,7 +356,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/send/scheduled/:id/discard` | Drop a failed message for good |
 | `GET` | `/api/activity` | The outgoing send log, newest first (`?limit=&before=`) |
 | `GET` | `/api/media/content` | Stream an attachment (`?chat=<jid>&id=<msgId>`), downloading it through wacli if it isn't on disk yet. Serves only files under the store's `media/` directory |
-| `POST` | `/api/media/download` | Download a message's attachment into the store (`{ chat, id }`) |
+| `POST` | `/api/media/download` | Download a message's attachment into the store (`{ chat, id }`). Answers `410` with `"code": "MEDIA_EXPIRED"` when WhatsApp no longer has it; `{ fromPhone: true }` then asks the phone (wacli 0.22+, refused in safe mode) |
 | `POST` | `/internal/wacli/webhook` | Where the daemon posts its HMAC-signed events |
 
 JSON responses share the shape `{ success, data, error }`. The six send and schedule routes refuse to run without `confirm: true`. In safe mode, sends, reactions, scheduling, mark-read, alias and backfill all answer `403`. A command that can't get wacli's store lock answers `503` with `"code": "STORE_LOCKED"`.

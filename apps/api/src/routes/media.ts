@@ -9,6 +9,8 @@ import { logger } from '../logger.js';
 import { mediaDownloads } from '../wacli/media-downloads.js';
 import { isStoreLockMessage } from '../wacli/store-lock.js';
 import { isTransientFailure, parseHttpStatus } from '../wacli/failures.js';
+import { wacliSupports } from '../wacli/capabilities.js';
+import type { WacliProcessManager } from '../wacli/process-manager.js';
 
 /**
  * Why a download failed, in the operator's terms.
@@ -35,6 +37,27 @@ export function describeDownloadFailure(err: unknown): { reason: string; expecte
   if (isTransientFailure(message)) return { reason: 'whatsapp-unreachable', expected: false };
 
   return { reason: 'unknown', expected: false };
+}
+
+/**
+ * Statuses with which WhatsApp's media host says the file is gone from it:
+ * expired, or never kept. The phone that sent or received it may still have
+ * it, and wacli 0.22 can ask (`--retry-on-phone`).
+ */
+const GONE_STATUSES = new Set([403, 404, 410]);
+
+/**
+ * What to tell the operator when asking the phone did not work. wacli reports
+ * the outcome as `media recovery <status> for <chat>/<id>: ...`.
+ */
+function describePhoneRecoveryFailure(message: string): string | null {
+  const status = /media recovery (\w+) for /.exec(message)?.[1];
+  if (status === 'no_response') {
+    // Silence is not deletion: an offline or asleep phone says nothing either.
+    return 'Your phone did not answer in time. Make sure it is online, then ask again.';
+  }
+  if (status === 'not_on_phone') return 'Your phone no longer has this file either.';
+  return null;
 }
 
 interface RawMediaDownloadResponse {
@@ -154,13 +177,13 @@ const FILE_HEADERS = [
   'Last-Modified',
 ];
 
-export function createMediaRouter(): Router {
+export function createMediaRouter(processManager: WacliProcessManager): Router {
   const router = Router();
 
   // POST /api/media/download - trigger wacli media download for a message
   router.post('/media/download', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { chat, id } = req.body as { chat?: string; id?: string };
+      const { chat, id, fromPhone } = req.body as { chat?: string; id?: string; fromPhone?: boolean };
       if (!chat || !id) {
         res.status(400).json({
           success: false,
@@ -170,16 +193,76 @@ export function createMediaRouter(): Router {
         return;
       }
 
-      logger.info('media', 'Downloading media', { chat, id });
       const outputDir = getMediaOutputDir();
       const args = ['media', 'download', '--chat', chat, '--id', id, '--output', outputDir];
-      // An explicit retry from the operator always reaches wacli; replaying a
-      // remembered failure would make the Retry button look broken.
-      const result = await mediaDownloads.run(
-        `${chat}:${id}`,
-        () => execWacli<RawMediaDownloadResponse>(args, { timeoutMs: 60000 }),
-        { ignoreFailureCache: true }
-      );
+      let result: RawMediaDownloadResponse;
+
+      if (fromPhone === true) {
+        // Asking the phone is a request to WhatsApp and a write to the store,
+        // which is exactly what safe mode is for refusing.
+        if (modeManager.isReadOnly()) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: 'Safe read-only mode is active. Asking your phone for media is disabled.',
+          });
+          return;
+        }
+        if (!(await wacliSupports('phoneMediaRecovery'))) {
+          res.status(501).json({
+            success: false,
+            data: null,
+            error: 'Asking your phone for media needs wacli 0.22 or later.',
+          });
+          return;
+        }
+
+        logger.info('media', 'Asking the phone for media WhatsApp no longer serves', { chat, id });
+        try {
+          // The daemon carries it out on its own connection, without pausing
+          // and outside the send queue. With no daemon to take it, wacli makes
+          // its own connection, and the daemon is held down meanwhile like
+          // for any other command that needs the store.
+          result = await processManager.runDelegated((lock) =>
+            execWacli<RawMediaDownloadResponse>([...args, '--retry-on-phone'], {
+              allowMutation: true,
+              timeoutMs: 60000,
+              ...lock,
+            })
+          );
+        } catch (err) {
+          const explained = describePhoneRecoveryFailure(err instanceof Error ? err.message : String(err));
+          if (!explained) throw err;
+          logger.info('media', 'The phone could not supply the media', { chat, id, err });
+          res.status(404).json({ success: false, data: null, error: explained, code: 'PHONE_RECOVERY_FAILED' });
+          return;
+        }
+        // The file is on disk now; forget that this message had failed.
+        mediaDownloads.forget(`${chat}:${id}`);
+      } else {
+        logger.info('media', 'Downloading media', { chat, id });
+        try {
+          // An explicit retry from the operator always reaches wacli; replaying a
+          // remembered failure would make the Retry button look broken.
+          result = await mediaDownloads.run(
+            `${chat}:${id}`,
+            () => execWacli<RawMediaDownloadResponse>(args, { timeoutMs: 60000 }),
+            { ignoreFailureCache: true }
+          );
+        } catch (err) {
+          const status = parseHttpStatus(err instanceof Error ? err.message : String(err));
+          if (status === null || !GONE_STATUSES.has(status)) throw err;
+          // Not a fault, and worth saying plainly: the next step is the phone.
+          logger.debug('media', 'Media gone from WhatsApp', { chat, id, status });
+          res.status(410).json({
+            success: false,
+            data: null,
+            error: 'WhatsApp no longer has this file. Your phone may still have it.',
+            code: 'MEDIA_EXPIRED',
+          });
+          return;
+        }
+      }
 
       const localPath =
         (typeof result === 'object' && result !== null
@@ -191,6 +274,8 @@ export function createMediaRouter(): Router {
         data: {
           downloaded: true,
           localPath,
+          // `cache`, `server` or `phone` on wacli 0.22; absent before.
+          source: typeof result?.source === 'string' ? result.source : null,
           details: result,
         },
         error: null,
