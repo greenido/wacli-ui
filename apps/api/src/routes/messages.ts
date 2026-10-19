@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { execWacli } from '../wacli/commands.js';
+import { execWacli, WacliCommandError } from '../wacli/commands.js';
 import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
 import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
@@ -17,6 +17,9 @@ interface RawMessagesListResponse {
  */
 const EXPORT_DEFAULT_LIMIT = 1000;
 const EXPORT_MAX_LIMIT = 5000;
+
+/** How `messages show` says the store has no such message. */
+const NOT_STORED = /no rows in result set|not found/i;
 
 export function createMessagesRouter(): Router {
   const router = Router();
@@ -60,6 +63,47 @@ export function createMessagesRouter(): Router {
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // GET /api/messages/show - one message by id, wherever it sits in the archive.
+  // A reply names the message it quotes by id alone, and jumping to one that
+  // is not loaded needs its time to open a window around it.
+  router.get('/messages/show', async (req, res, next) => {
+    try {
+      const chat = req.query.chat as string | undefined;
+      const id = req.query.id as string | undefined;
+      if (!chat || !id) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Query parameters "chat" (JID) and "id" are required.',
+        });
+        return;
+      }
+
+      let raw: RawMessage;
+      try {
+        raw = await execWacli<RawMessage>(['messages', 'show', '--chat', chat, '--id', id]);
+      } catch (err) {
+        // A quote often points past what sync ever pulled. That is an answer,
+        // not a fault: the archive does not hold it.
+        if (err instanceof WacliCommandError && NOT_STORED.test(err.message)) {
+          res.status(404).json({
+            success: false,
+            data: null,
+            error: 'That message is not in the local archive.',
+          });
+          return;
+        }
+        throw err;
+      }
+
+      const message = normalizeMessage(raw);
+      message.bookmarked = Boolean(message.msgId) && bookmarkStore.has(message.msgId);
+      res.json({ success: true, data: message, error: null });
     } catch (err) {
       next(err);
     }

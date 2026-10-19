@@ -85,6 +85,95 @@ describe('Normalize utilities', () => {
     expect(msg.starred).toBe(true);
   });
 
+  it('derives ticks for outgoing messages from the receipts wacli stored', () => {
+    const sent = (over: Partial<RawMessage>): RawMessage => ({
+      ChatJID: '15551234567@s.whatsapp.net',
+      MsgID: 'MSG-OUT',
+      Timestamp: '2026-08-31T12:00:00Z',
+      FromMe: true,
+      Text: 'On its way',
+      ...over,
+    });
+
+    expect(normalizeMessage(sent({ DeliveredTo: 1, ReadBy: 1 }))).toMatchObject({
+      deliveryStatus: 'read',
+      deliveredTo: 1,
+      readBy: 1,
+    });
+    expect(normalizeMessage(sent({ DeliveredTo: 4, ReadBy: 0 })).deliveryStatus).toBe('delivered');
+    // Nothing reported is still sent, not undelivered.
+    expect(normalizeMessage(sent({ DeliveredTo: 0, ReadBy: 0 })).deliveryStatus).toBe('sent');
+    // An older wacli keeps no counts, and nothing is claimed.
+    const unknown = normalizeMessage(sent({}));
+    expect(unknown.deliveryStatus).toBeUndefined();
+    expect(unknown).not.toHaveProperty('deliveredTo');
+    // Receipts say nothing about a message somebody else sent.
+    expect(
+      normalizeMessage(sent({ FromMe: false, DeliveredTo: 1, ReadBy: 1 })).deliveryStatus
+    ).toBeUndefined();
+  });
+
+  it('carries the message a reply quotes', () => {
+    const reply = normalizeMessage({
+      ChatJID: '15551234567@s.whatsapp.net',
+      MsgID: 'MSG-REPLY',
+      Timestamp: '2026-08-31T12:00:00Z',
+      Text: 'Agreed',
+      quoted_msg_id: 'MSG-QUOTED',
+      quoted_sender_jid: '15550100001@s.whatsapp.net',
+    });
+    expect(reply.quotedMsgId).toBe('MSG-QUOTED');
+    expect(reply.quotedSenderJid).toBe('15550100001@s.whatsapp.net');
+
+    const plain = normalizeMessage({ MsgID: 'MSG-PLAIN', quoted_msg_id: '' });
+    expect(plain.quotedMsgId).toBeNull();
+    expect(plain.quotedSenderJid).toBeNull();
+  });
+
+  it('takes the quote wacli folds into a reply\'s display text back out', () => {
+    const reply = (over: Partial<RawMessage>): RawMessage => ({
+      ChatJID: '15551234567@s.whatsapp.net',
+      MsgID: 'MSG-REPLY',
+      Timestamp: '2026-08-31T12:00:00Z',
+      quoted_msg_id: 'MSG-QUOTED',
+      ...over,
+    });
+
+    const text = normalizeMessage(
+      reply({ Text: 'Agreed', DisplayText: '> Shall we meet at noon?\nAgreed' })
+    );
+    expect(text.displayText).toBe('Agreed');
+    expect(text.quotedText).toBe('Shall we meet at noon?');
+
+    // The quoted part can run over lines; the body is found from the end.
+    const multiline = normalizeMessage(
+      reply({ Text: 'Both work', DisplayText: '> Tuesday\nor Wednesday?\nBoth work' })
+    );
+    expect(multiline.displayText).toBe('Both work');
+    expect(multiline.quotedText).toBe('Tuesday\nor Wednesday?');
+
+    // Media has no text of its own, and wacli describes it in one line.
+    const media = normalizeMessage(
+      reply({ Text: '', MediaType: 'image', DisplayText: '> Send me a photo\n[Image]' })
+    );
+    expect(media.displayText).toBe('[Image]');
+    expect(media.quotedText).toBe('Send me a photo');
+
+    // "message" is wacli admitting it never saw the quote.
+    expect(
+      normalizeMessage(reply({ Text: 'Yes', DisplayText: '> message\nYes' })).quotedText
+    ).toBeNull();
+
+    // A body that merely starts with "> " is not a reply, and keeps it.
+    const quoting = normalizeMessage({
+      MsgID: 'MSG-PLAIN',
+      Text: '> not a reply',
+      DisplayText: '> not a reply',
+    });
+    expect(quoting.displayText).toBe('> not a reply');
+    expect(quoting.quotedText).toBeNull();
+  });
+
   it('normalizes webhook messages', () => {
     const rawWh = {
       Chat: '15551234567@s.whatsapp.net',

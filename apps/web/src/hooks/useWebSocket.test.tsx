@@ -517,6 +517,31 @@ describe('useWebSocket thread reconciliation', () => {
     expect(patched.deliveryStatus).toBe('read');
     unmount();
   });
+
+  it('keeps a read message read when a late "delivered" receipt arrives', () => {
+    // The thread now opens on the ticks wacli stored, so a straggling receipt
+    // is routinely older news than what is already on screen.
+    seedThread([message({ msgId: 'MSG-1', fromMe: true, deliveryStatus: 'read' })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({
+        type: 'message.receipt',
+        data: {
+          chatJid: 'alice@s.whatsapp.net',
+          messageIds: ['MSG-1'],
+          status: 'delivered',
+          sender: 'alice@s.whatsapp.net',
+          isFromMe: false,
+        },
+        ts: '2026-09-01T11:06:00Z',
+      });
+    });
+
+    const patched = flattenMessagePages(thread()).find((m) => m.msgId === 'MSG-1')!;
+    expect(patched.deliveryStatus).toBe('read');
+    unmount();
+  });
 });
 
 /**

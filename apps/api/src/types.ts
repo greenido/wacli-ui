@@ -40,6 +40,21 @@ export interface UnifiedMessage {
   revoked: boolean;
   snippet?: string | null;
   deliveryStatus?: 'sent' | 'delivered' | 'read' | 'played';
+  /**
+   * Recipients that reported this outgoing message delivered, and how many of
+   * those went on to read it (wacli 0.21+). One for a direct chat, one per
+   * member who reported in a group. Absent from an older wacli.
+   */
+  deliveredTo?: number;
+  readBy?: number;
+  /** The message this one replies to, when it is a reply. */
+  quotedMsgId?: string | null;
+  quotedSenderJid?: string | null;
+  /**
+   * The quoted text as the reply itself carries it, so a quote can be shown
+   * even when the archive never received the message it quotes.
+   */
+  quotedText?: string | null;
 }
 
 /**
@@ -243,6 +258,10 @@ export interface RawMessage {
   Revoked?: boolean;
   DeletedForMe?: boolean;
   Snippet?: string | null;
+  DeliveredTo?: number;
+  ReadBy?: number;
+  quoted_msg_id?: string | null;
+  quoted_sender_jid?: string | null;
 }
 
 export interface RawWebhookMessage {

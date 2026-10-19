@@ -149,6 +149,10 @@ export const api = {
   }) =>
     request<{ messages: UnifiedMessage[]; hasMore: boolean }>('/api/messages', {}, params),
 
+  /** One message by id. A 404 means the local archive does not hold it. */
+  getMessage: (params: { chat: string; id: string }) =>
+    request<UnifiedMessage>('/api/messages/show', {}, params),
+
   /**
    * Everything in one conversation, for keeping or reading elsewhere. Answers
    * with `truncated` rather than quietly handing back a partial history.

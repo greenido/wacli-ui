@@ -490,6 +490,13 @@ export const ThreadView: React.FC = () => {
     return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
   }, [loadedMessages, pendingReactions]);
 
+  // What a reply quotes, when it is loaded. Each entry is the same object as
+  // the message itself, so a row's `quoted` prop only changes with the quote.
+  const messagesById = useMemo(
+    () => new Map(messages.map((msg) => [msg.msgId, msg])),
+    [messages]
+  );
+
   // The first message of each local day, which is where a divider goes.
   const dayStarts = useMemo(() => {
     const starts = new Set<string>();
@@ -665,6 +672,13 @@ export const ThreadView: React.FC = () => {
       if (selectedJid) setReplyingTo(selectedJid, msg);
     },
     [selectedJid, setReplyingTo]
+  );
+
+  // A quoted message is jumped to the way a search hit is: by id, with its time
+  // to open a window around it when the live pages do not reach back that far.
+  const onJumpToMessage = useCallback(
+    (msgId: string, at: string) => setHighlightedMessageId(msgId, null, at),
+    [setHighlightedMessageId]
   );
 
   const handleCopyText = useCallback(async (msg: UnifiedMessage) => {
@@ -1030,6 +1044,7 @@ export const ThreadView: React.FC = () => {
               <MessageRow
                 msg={msg}
                 reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
+                quoted={(msg.quotedMsgId && messagesById.get(msg.quotedMsgId)) || null}
                 isGroup={selectedChat.kind === 'group'}
                 mediaChatJid={msg.chatJid || selectedChat.jid}
                 isFocused={focusedMessageId === msg.msgId}
@@ -1041,6 +1056,7 @@ export const ThreadView: React.FC = () => {
                 onToggleReactionDrawer={toggleReactionDrawer}
                 onCloseReactionDrawer={closeReactionDrawer}
                 onReact={onReact}
+                onJumpToMessage={onJumpToMessage}
               />
             </React.Fragment>
           ))

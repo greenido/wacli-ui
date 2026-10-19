@@ -13,6 +13,7 @@ import {
 } from '../lib/notifications.ts';
 import { sameWhatsAppUser } from '../lib/presence.ts';
 import { patchMessages, prependMessage, type MessagePages } from '../lib/messagePages.ts';
+import { withReceipt } from '../lib/deliveryStatus.ts';
 import type { MissionControlEvent, MissionControlStatus, UnifiedChat } from '../types.ts';
 
 /**
@@ -248,7 +249,7 @@ export function useWebSocket() {
               patchMessages(
                 old,
                 (m) => messageIds.includes(m.msgId),
-                (m) => ({ ...m, deliveryStatus: status })
+                (m) => withReceipt(m, status)
               )
             );
           } else if (payload.type === 'chat.presence') {
