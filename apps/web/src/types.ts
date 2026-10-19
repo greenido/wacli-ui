@@ -41,6 +41,20 @@ export interface UnifiedMessage {
   snippet?: string | null;
   /** `pending` is local only: a send confirmed here that wacli has not answered yet. */
   deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'played';
+  /**
+   * Recipients that reported this outgoing message delivered, and how many of
+   * those read it, as wacli stored them. Mirrors `apps/api/src/types.ts`.
+   */
+  deliveredTo?: number;
+  readBy?: number;
+  /** The message this one replies to, when it is a reply. */
+  quotedMsgId?: string | null;
+  quotedSenderJid?: string | null;
+  /**
+   * The quoted text as the reply itself carries it, so a quote can be shown
+   * even when the archive never received the message it quotes.
+   */
+  quotedText?: string | null;
 }
 
 /**

@@ -232,7 +232,7 @@ export function createApp(
   app.use('/api', createHistoryRouter(processManager));
   app.use('/api', createContactsRouter(processManager));
   app.use('/api', createSendRouter(processManager));
-  app.use('/api', createMediaRouter());
+  app.use('/api', createMediaRouter(processManager));
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
 
   // Serve static UI assets if built

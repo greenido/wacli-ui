@@ -3,6 +3,7 @@ import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThreadView } from './ThreadView.tsx';
+import { ApiClientError } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import type { MissionControlStatus, SleepState, UnifiedChat, UnifiedMessage } from '../../types.ts';
 
@@ -13,6 +14,7 @@ const getSleep = vi.hoisted(() =>
 );
 const setSleep = vi.hoisted(() => vi.fn());
 const getMessages = vi.hoisted(() => vi.fn());
+const getMessage = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
 const cancelScheduled = vi.hoisted(() => vi.fn());
 const bookmarkMessage = vi.hoisted(() => vi.fn());
@@ -30,6 +32,7 @@ vi.mock('../../api/client.ts', () => ({
     getSleep,
     setSleep,
     getMessages,
+    getMessage,
     getScheduled,
     cancelScheduled,
     bookmarkMessage,
@@ -39,7 +42,14 @@ vi.mock('../../api/client.ts', () => ({
     getMediaUrl,
     sendReact,
   },
-  ApiClientError: class extends Error {},
+  ApiClientError: class extends Error {
+    constructor(
+      message: string,
+      public status?: number
+    ) {
+      super(message);
+    }
+  },
 }));
 
 const COVERAGE = {
@@ -176,6 +186,94 @@ describe('ThreadView history window', () => {
     // was already being read leaves the pane.
     expect(await screen.findByText('message body 2')).toBeInTheDocument();
     expect(screen.getByText('message body 1')).toBeInTheDocument();
+  });
+});
+
+describe('ThreadView reply quotes', () => {
+  /** A reply to `quotedMsgId`, newer than every `message(i)` here. */
+  function reply(quotedMsgId: string): UnifiedMessage {
+    return {
+      ...message(30),
+      msgId: 'MSG-REPLY',
+      text: 'replying now',
+      displayText: 'replying now',
+      quotedMsgId,
+      quotedSenderJid: CHAT.jid,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    // The setter, not the id alone: a jump also leaves its time behind, and a
+    // stale time opens a history window in whichever test runs next.
+    useAppStore.getState().setHighlightedMessageId(null);
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  it('previews a loaded quote and jumps to it without asking wacli', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({ messages: [reply('MSG-1'), message(1)], hasMore: false });
+    renderThread();
+
+    const chip = await screen.findByTitle('Jump to the quoted message');
+    expect(chip).toHaveTextContent('Alice');
+    expect(chip).toHaveTextContent('message body 1');
+
+    await user.click(chip);
+    expect(getMessage).not.toHaveBeenCalled();
+    expect(useAppStore.getState().highlightedMessageId).toBe('MSG-1');
+    expect(useAppStore.getState().highlightedMessageAt).toBe(message(1).ts);
+  });
+
+  it('looks an unloaded quote up on click, and opens the thread at its time', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({ messages: [reply('MSG-OLD')], hasMore: true });
+    getMessage.mockResolvedValue({ ...message(0), msgId: 'MSG-OLD', ts: '2026-05-04T08:00:00Z' });
+    renderThread();
+
+    // Nothing is looked up just for drawing the thread.
+    const chip = await screen.findByText('Earlier message');
+    expect(getMessage).not.toHaveBeenCalled();
+
+    await user.click(chip);
+    expect(getMessage).toHaveBeenCalledWith({ chat: CHAT.jid, id: 'MSG-OLD' });
+    await waitFor(() =>
+      expect(useAppStore.getState().highlightedMessageAt).toBe('2026-05-04T08:00:00Z')
+    );
+    expect(useAppStore.getState().highlightedMessageId).toBe('MSG-OLD');
+  });
+
+  it('shows an unloaded quote from the text the reply carries', async () => {
+    getMessages.mockResolvedValue({
+      messages: [{ ...reply('MSG-OLD'), quotedText: 'the plan we agreed on' }],
+      hasMore: true,
+    });
+    renderThread();
+
+    const chip = await screen.findByRole('button', { name: /Earlier message/ });
+    expect(chip).toHaveTextContent('the plan we agreed on');
+    expect(getMessage).not.toHaveBeenCalled();
+  });
+
+  it('says when the quoted message is not in the archive, instead of jumping', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({ messages: [reply('MSG-NEVER-SYNCED')], hasMore: true });
+    getMessage.mockRejectedValue(new ApiClientError('That message is not in the local archive.', 404));
+    renderThread();
+
+    await user.click(await screen.findByText('Earlier message'));
+
+    expect(await screen.findByText('Not in the local archive')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Not in the local archive/ })).toBeDisabled();
+    expect(useAppStore.getState().highlightedMessageId).toBeNull();
   });
 });
 

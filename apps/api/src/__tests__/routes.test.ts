@@ -41,6 +41,20 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
           ],
         };
       }
+      if (cmd.startsWith('messages show')) {
+        if (args.includes('MSG-QUOTED')) {
+          return {
+            ChatJID: '15551234567@s.whatsapp.net',
+            MsgID: 'MSG-QUOTED',
+            Timestamp: '2026-07-01T09:30:00Z',
+            FromMe: true,
+            Text: 'The message being replied to',
+            DeliveredTo: 1,
+            ReadBy: 1,
+          };
+        }
+        throw new actual.WacliCommandError('sql: no rows in result set');
+      }
       if (cmd.startsWith('messages search')) {
         return {
           fts: true,
@@ -133,6 +147,32 @@ describe('API Read Endpoints', () => {
     expect(Array.isArray(res.body.data.messages)).toBe(true);
     expect(res.body.data.messages.length).toBe(1);
     expect(res.body.data.messages[0].msgId).toBe('MSG-001');
+  });
+
+  it('GET /api/messages/show returns one message, normalized', async () => {
+    const res = await request(app).get(
+      '/api/messages/show?chat=15551234567@s.whatsapp.net&id=MSG-QUOTED'
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      msgId: 'MSG-QUOTED',
+      ts: '2026-07-01T09:30:00Z',
+      deliveryStatus: 'read',
+    });
+  });
+
+  it('GET /api/messages/show answers 404 for a message the archive does not hold', async () => {
+    const res = await request(app).get(
+      '/api/messages/show?chat=15551234567@s.whatsapp.net&id=MSG-NEVER-SYNCED'
+    );
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toMatch(/not in the local archive/);
+  });
+
+  it('GET /api/messages/show requires both chat and id', async () => {
+    const res = await request(app).get('/api/messages/show?chat=15551234567@s.whatsapp.net');
+    expect(res.status).toBe(400);
   });
 
   it('POST /api/messages/bookmark records a bookmark the message list reports back', async () => {

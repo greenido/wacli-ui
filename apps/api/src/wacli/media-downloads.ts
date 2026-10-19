@@ -135,6 +135,14 @@ export class MediaDownloadCoordinator {
     return promise;
   }
 
+  /**
+   * Drops a remembered failure that something else has since resolved — the
+   * phone handing over media WhatsApp's servers no longer had. Without it the
+   * next thread to scroll past would replay the old failure for minutes.
+   */
+  public forget(key: string): void {
+    this.failures.delete(key);
+  }
 
   /** 0 means "do not remember this one at all". */
   private failureTtlFor(message: string): number {

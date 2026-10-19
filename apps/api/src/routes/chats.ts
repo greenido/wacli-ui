@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { execWacli } from '../wacli/commands.js';
+import { wacliSupports } from '../wacli/capabilities.js';
 import { modeManager } from '../wacli/mode.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { messagePreviewText, normalizeChat, normalizeMessage } from '../wacli/normalize.js';
@@ -68,6 +69,30 @@ function receiptsRefused(err: unknown): 'flag' | 'daemon' | null {
   const message = err instanceof Error ? err.message : String(err);
   if (message.includes(`unknown flag: ${MARK_READ_RECEIPTS}`)) return 'flag';
   if (message.includes(`does not support ${MARK_READ_RECEIPTS}`)) return 'daemon';
+  return null;
+}
+
+/**
+ * Marks read only through the newest message the operator had on screen
+ * (wacli 0.22). Marking is debounced, so without a boundary a message that
+ * arrived inside that window was acknowledged to its sender without anyone
+ * having seen it.
+ */
+const MARK_READ_THROUGH = '--through-message-id';
+
+/**
+ * Whether a bounded mark-read failed only because of its boundary, before
+ * anything was sent: the anchor is not a stored inbound message wacli will
+ * stop at, or the running daemon predates the flag and left the chat alone.
+ * Either way the unbounded mark-read is what the console did before
+ * boundaries existed, and still safe to run.
+ */
+function boundaryRefused(err: unknown): 'anchor' | 'daemon' | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes('must be a stored inbound message') || message.includes('has no read boundary')) {
+    return 'anchor';
+  }
+  if (message.includes(`does not support ${MARK_READ_THROUGH}`)) return 'daemon';
   return null;
 }
 
@@ -232,7 +257,7 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
 
   router.post('/chats/mark-read', requireMutationPermission, async (req, res, next) => {
     try {
-      const { chat } = req.body as { chat?: string };
+      const { chat, through } = req.body as { chat?: string; through?: unknown };
 
       if (!chat || typeof chat !== 'string') {
         res.status(400).json({
@@ -249,20 +274,48 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
       // what the operator has already seen. When the daemon cannot take it,
       // `mark-read` runs exclusive instead: the daemon is killed before it
       // starts and respawned after, so there the budget is downtime.
-      const markRead = (receipts: boolean) =>
+      const markRead = (receipts: boolean, boundary?: string) =>
         processManager.runDelegated(async (lock) => {
           const args = ['chats', 'mark-read', '--chat', chat];
           if (receipts) args.push(MARK_READ_RECEIPTS);
-          await execWacli(args, {
+          if (boundary) args.push(MARK_READ_THROUGH, boundary);
+          return execWacli<Record<string, unknown> | null>(args, {
             allowMutation: true,
             timeoutMs: MARK_READ_TIMEOUT_MS,
             ...lock,
           });
         });
 
+      // wacli wants the id exactly, and refuses one with surrounding space.
+      const boundary =
+        typeof through === 'string' && through !== '' && through === through.trim() &&
+        (await wacliSupports('readBoundary'))
+          ? through
+          : undefined;
+      let bounded = false;
+
+      const markReadThrough = async (receipts: boolean) => {
+        if (boundary) {
+          try {
+            const result = await markRead(receipts, boundary);
+            bounded = true;
+            return result;
+          } catch (boundaryErr) {
+            const refused = boundaryRefused(boundaryErr);
+            if (!refused) throw boundaryErr;
+            logger.warn('api', 'wacli would not mark read through that message; marking the whole chat', {
+              chat,
+              refused,
+            });
+          }
+        }
+        return markRead(receipts);
+      };
+
+      let result: Record<string, unknown> | null;
       try {
         try {
-          await markRead(!receiptsFlagUnknown);
+          result = await markReadThrough(!receiptsFlagUnknown);
         } catch (receiptsErr) {
           const refused = receiptsFlagUnknown ? null : receiptsRefused(receiptsErr);
           if (!refused) throw receiptsErr;
@@ -271,7 +324,7 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
             chat,
             refused,
           });
-          await markRead(false);
+          result = await markReadThrough(false);
         }
       } catch (markErr) {
         // A receipt that did not land is not a server fault, and nothing is
@@ -292,7 +345,17 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
 
       res.json({
         success: true,
-        data: { chat, unread: false, unreadCount: 0, marked: true },
+        data: {
+          chat,
+          unread: false,
+          unreadCount: 0,
+          marked: true,
+          // How far it marked: through this message, or the whole chat.
+          through: bounded ? boundary : null,
+          // Nothing was stored to acknowledge, so only this machine's unread
+          // state was cleared; no sender heard about it (wacli 0.22).
+          localOnly: result?.local_only === true,
+        },
         error: null,
       });
     } catch (err) {

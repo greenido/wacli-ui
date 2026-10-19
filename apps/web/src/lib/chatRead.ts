@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.ts';
-import type { UnifiedChat } from '../types.ts';
+import { flattenMessagePages, type MessagePages } from './messagePages.ts';
+import type { UnifiedChat, UnifiedMessage } from '../types.ts';
 
 /**
  * How long to hold a read receipt open, coalescing anything that arrives in the
@@ -21,6 +22,37 @@ import type { UnifiedChat } from '../types.ts';
 export const MARK_READ_DEBOUNCE_MS = 3000;
 
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Whether wacli would accept `msg` as where a mark-read stops: a message from
+ * the other side that is still there and says something. Reactions, deletions
+ * and content-free system rows are refused as anchors.
+ */
+function isReadAnchor(msg: UnifiedMessage): boolean {
+  if (msg.fromMe || msg.revoked || msg.reactionToId) return false;
+  if (msg.deliveryStatus === 'pending') return false;
+  return Boolean(msg.text.trim()) || msg.displayText !== '(message)';
+}
+
+/**
+ * The newest message the operator has had in front of them in `jid`, for the
+ * receipt to stop at — or nothing, which marks the whole chat as before.
+ *
+ * The receipt goes out a few seconds after the chat was read, and whatever
+ * arrived in between used to be acknowledged with the rest. Bounded, it stays
+ * unread until it has actually been on screen.
+ *
+ * Read from the live thread at the moment the receipt fires. A thread still
+ * being fetched may be older than what is now on screen, and a boundary short
+ * of what was read would leave the chat unread, so it gets none.
+ */
+export function readBoundary(queryClient: QueryClient, jid: string): string | undefined {
+  const key = ['messages', jid];
+  if (queryClient.getQueryState(key)?.fetchStatus === 'fetching') return undefined;
+  const data = queryClient.getQueryData<MessagePages>(key);
+  // Newest first, the order the pages are held in.
+  return flattenMessagePages(data).find(isReadAnchor)?.msgId;
+}
 
 export function clearChatUnreadInCache(queryClient: QueryClient, jid: string): void {
   queryClient.setQueriesData<UnifiedChat[]>({ queryKey: ['chats'] }, (old) => {
@@ -52,7 +84,7 @@ export function markChatAsRead(queryClient: QueryClient, jid: string): void {
     jid,
     setTimeout(() => {
       pending.delete(jid);
-      void api.markChatRead(jid).catch(() => {
+      void api.markChatRead(jid, readBoundary(queryClient, jid)).catch(() => {
         // Keep the optimistic cache clear; refetching would restore a stale
         // unread count, and the receipt is retried by the next message anyway.
       });

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MediaViewer } from './MediaViewer.tsx';
-import { api } from '../../api/client.ts';
+import { api, ApiClientError } from '../../api/client.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 const CHAT_JID = '15551234567@s.whatsapp.net';
@@ -152,11 +153,73 @@ describe('MediaViewer image thumbnails', () => {
 
     // The explicit download, which skips the server's memory of the failure.
     // Asking for the same URL again would only have replayed it.
-    expect(download).toHaveBeenCalledWith({ chat: CHAT_JID, id: 'wamid.IMG1' });
+    expect(download).toHaveBeenCalledWith({ chat: CHAT_JID, id: 'wamid.IMG1', fromPhone: false });
     const img = await screen.findByRole('img', { name: 'sketch.png' });
     expect(new URL(img.getAttribute('src')!, 'http://mc.test').searchParams.get('path')).toBe(
       '/store/media/IMG1.png'
     );
+  });
+
+  /** The tile as a thread holds it, inside the query client the safe mode reads from. */
+  function renderInThread(readOnly: boolean) {
+    vi.spyOn(api, 'getMode').mockResolvedValue({ readOnly });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MediaViewer msg={photo()} chatJid={CHAT_JID} />
+      </QueryClientProvider>
+    );
+    fireEvent.error(screen.getByRole('img', { name: 'sketch.png' }));
+  }
+
+  const expired = () =>
+    new ApiClientError('WhatsApp no longer has this file. Your phone may still have it.', 410, 'MEDIA_EXPIRED');
+
+  it('offers to ask the phone once WhatsApp no longer has the file, and shows what it sends', async () => {
+    const user = userEvent.setup();
+    const download = vi
+      .spyOn(api, 'downloadMedia')
+      .mockRejectedValueOnce(expired())
+      .mockResolvedValueOnce({ downloaded: true, localPath: '/store/media/IMG1.png', source: 'phone' });
+    renderInThread(false);
+
+    // A plain retry first: the phone is the next step only once that says "gone".
+    expect(screen.queryByRole('button', { name: /ask phone/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    expect(await screen.findByText(/Your phone may still have it/)).toBeInTheDocument();
+
+    const ask = screen.getByRole('button', { name: /ask phone/i });
+    await waitFor(() => expect(ask).toBeEnabled());
+    await user.click(ask);
+
+    expect(download).toHaveBeenLastCalledWith({ chat: CHAT_JID, id: 'wamid.IMG1', fromPhone: true });
+    const img = await screen.findByRole('img', { name: 'sketch.png' });
+    expect(new URL(img.getAttribute('src')!, 'http://mc.test').searchParams.get('path')).toBe(
+      '/store/media/IMG1.png'
+    );
+  });
+
+  it('keeps the phone shut in safe mode, and says why', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'downloadMedia').mockRejectedValue(expired());
+    renderInThread(true);
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    const ask = await screen.findByRole('button', { name: /ask phone/i });
+    expect(ask).toBeDisabled();
+    expect(ask).toHaveAttribute('title', expect.stringMatching(/unlock live sends/i));
+  });
+
+  it('does not offer the phone for a failure that is not WhatsApp saying "gone"', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'downloadMedia').mockRejectedValue(new Error('i/o timeout'));
+    renderInThread(false);
+
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(await screen.findByText(/i\/o timeout/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ask phone/i })).not.toBeInTheDocument();
   });
 
   it('says why when the retry fails too, and can be tried again', async () => {

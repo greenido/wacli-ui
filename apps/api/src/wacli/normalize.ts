@@ -146,10 +146,76 @@ export function normalizeChat(
   };
 }
 
+/**
+ * The ticks an outgoing message has earned, from the receipts wacli kept.
+ *
+ * Without this, delivery state lived only in the receipts the WebSocket
+ * delivered while the thread was open: every reload drew a single grey tick on
+ * messages read days ago. wacli (0.21+) counts the recipients that reported
+ * each one, and the counts never move backwards.
+ *
+ * A group goes blue once any member has read it — the same rule the live
+ * receipts follow — since wacli counts reporters, not the membership. Both
+ * counts at zero means nothing was reported, which is still 'sent'. An older
+ * wacli sends no counts, and nothing is claimed rather than a guess.
+ */
+function deliveryStatusFrom(raw: RawMessage): UnifiedMessage['deliveryStatus'] {
+  if (!raw.FromMe) return undefined;
+  if (typeof raw.DeliveredTo !== 'number' && typeof raw.ReadBy !== 'number') return undefined;
+  if ((raw.ReadBy ?? 0) > 0) return 'read';
+  if ((raw.DeliveredTo ?? 0) > 0) return 'delivered';
+  return 'sent';
+}
+
+/**
+ * A reply's display text, taken apart again.
+ *
+ * wacli writes a reply's `DisplayText` as `> {quoted}\n{body}`, where the
+ * quoted part is the text WhatsApp embedded in the reply itself — so it is
+ * there even when the quoted message never reached the store. Left joined, the
+ * quote showed twice under the reply's quote chip, opened the chat rail's
+ * preview, and went along with every copy.
+ *
+ * The body is found from the end, as the message's own text where it can be:
+ * the quoted part may run over several lines. Without text — media, which
+ * wacli describes in one line — the last line is the body. `message` is what
+ * wacli writes when it knew nothing of the quote, which says nothing worth
+ * showing.
+ */
+export function splitQuotedDisplay(
+  displayText: string,
+  text: string
+): { quoted: string | null; body: string } | null {
+  if (!displayText.startsWith('> ')) return null;
+
+  let bodyStart = -1;
+  for (const candidate of [text, text.trim()]) {
+    if (candidate && displayText.endsWith(`\n${candidate}`)) {
+      bodyStart = displayText.length - candidate.length;
+      break;
+    }
+  }
+  if (bodyStart === -1) {
+    if (text) return null;
+    bodyStart = displayText.lastIndexOf('\n') + 1;
+    if (bodyStart <= 2) return null;
+  }
+
+  const quoted = displayText.slice(2, bodyStart - 1).trim();
+  return {
+    quoted: quoted && quoted !== 'message' ? quoted : null,
+    body: displayText.slice(bodyStart),
+  };
+}
+
 export function normalizeMessage(raw: RawMessage): UnifiedMessage {
   const chatJid = raw.ChatJID ?? '';
   const text = raw.Text ?? '';
-  const displayText = raw.DisplayText ?? text;
+  const quotedMsgId = raw.quoted_msg_id || null;
+  const fullDisplay = raw.DisplayText ?? text;
+  const reply = quotedMsgId ? splitQuotedDisplay(fullDisplay, text) : null;
+  const displayText = reply ? reply.body : fullDisplay;
+  const deliveryStatus = deliveryStatusFrom(raw);
 
   return {
     chatJid,
@@ -174,6 +240,14 @@ export function normalizeMessage(raw: RawMessage): UnifiedMessage {
     edited: Boolean(raw.Edited),
     revoked: Boolean(raw.Revoked || raw.DeletedForMe),
     snippet: raw.Snippet ?? null,
+    ...(deliveryStatus && {
+      deliveryStatus,
+      deliveredTo: raw.DeliveredTo ?? 0,
+      readBy: raw.ReadBy ?? 0,
+    }),
+    quotedMsgId,
+    quotedSenderJid: raw.quoted_sender_jid || null,
+    quotedText: reply?.quoted ?? null,
   };
 }
 

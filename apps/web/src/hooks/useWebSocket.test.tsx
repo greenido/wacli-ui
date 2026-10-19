@@ -198,7 +198,7 @@ describe('useWebSocket chat rail reconciliation', () => {
     await act(async () => {
       vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
     });
-    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined));
 
     unmount();
   });
@@ -517,6 +517,31 @@ describe('useWebSocket thread reconciliation', () => {
     expect(patched.deliveryStatus).toBe('read');
     unmount();
   });
+
+  it('keeps a read message read when a late "delivered" receipt arrives', () => {
+    // The thread now opens on the ticks wacli stored, so a straggling receipt
+    // is routinely older news than what is already on screen.
+    seedThread([message({ msgId: 'MSG-1', fromMe: true, deliveryStatus: 'read' })]);
+    const { socket, unmount } = mount();
+
+    act(() => {
+      socket.emit({
+        type: 'message.receipt',
+        data: {
+          chatJid: 'alice@s.whatsapp.net',
+          messageIds: ['MSG-1'],
+          status: 'delivered',
+          sender: 'alice@s.whatsapp.net',
+          isFromMe: false,
+        },
+        ts: '2026-09-01T11:06:00Z',
+      });
+    });
+
+    const patched = flattenMessagePages(thread()).find((m) => m.msgId === 'MSG-1')!;
+    expect(patched.deliveryStatus).toBe('read');
+    unmount();
+  });
 });
 
 /**
@@ -558,7 +583,7 @@ describe('useWebSocket read receipts are a side effect, not a cache update', () 
       vi.advanceTimersByTime(MARK_READ_DEBOUNCE_MS);
     });
 
-    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net'));
+    await waitFor(() => expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined));
     unmount();
   });
 
@@ -878,7 +903,7 @@ describe('useWebSocket read receipts wait for the operator', () => {
     await settle();
 
     await waitFor(() => expect(markChatRead).toHaveBeenCalledTimes(1));
-    expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net');
+    expect(markChatRead).toHaveBeenCalledWith('alice@s.whatsapp.net', undefined);
     const rail = queryClient.getQueryData<UnifiedChat[]>(['chats', '', 'all'])!;
     expect(rail[0]).toMatchObject({ unread: false, unreadCount: 0 });
 

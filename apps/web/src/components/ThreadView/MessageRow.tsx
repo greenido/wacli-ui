@@ -4,6 +4,8 @@ import { detectTextDirection } from '../../lib/textDirection.ts';
 import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
+import { QuoteChip } from './QuoteChip.tsx';
+import { deliveryTitle } from '../../lib/deliveryStatus.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
 export interface ThreadReaction {
@@ -16,6 +18,8 @@ interface MessageRowProps {
   msg: UnifiedMessage;
   /** Folded reactions to this message; the same array while nothing changes. */
   reactions: ThreadReaction[];
+  /** The message this one quotes, when the thread has it loaded. */
+  quoted: UnifiedMessage | null;
   isGroup: boolean;
   /** The chat to fetch this message's media from. */
   mediaChatJid: string;
@@ -28,6 +32,7 @@ interface MessageRowProps {
   onToggleReactionDrawer: (msgId: string) => void;
   onCloseReactionDrawer: () => void;
   onReact: (msg: UnifiedMessage, emoji: string) => void;
+  onJumpToMessage: (msgId: string, at: string) => void;
 }
 
 /**
@@ -40,6 +45,7 @@ interface MessageRowProps {
 export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
   msg,
   reactions,
+  quoted,
   isGroup,
   mediaChatJid,
   isFocused,
@@ -51,6 +57,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
   onToggleReactionDrawer,
   onCloseReactionDrawer,
   onReact,
+  onJumpToMessage,
 }) {
   const isMe = msg.fromMe;
   // Still on its way out, under a local id WhatsApp has never seen: a reply,
@@ -83,6 +90,17 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             : 'bg-mc-surface border border-mc-border text-mc-text'
         }`}
       >
+        {/* What this replies to. A deleted reply keeps no context worth showing. */}
+        {msg.quotedMsgId && !msg.revoked && (
+          <QuoteChip
+            quotedMsgId={msg.quotedMsgId}
+            quoted={quoted}
+            quotedText={msg.quotedText ?? null}
+            chatJid={mediaChatJid}
+            onJump={onJumpToMessage}
+          />
+        )}
+
         {/* Media Content (Image/Audio/Video/Document) */}
         {msg.mediaType && (
           // The message's own chat, not the selected one. While a
@@ -131,7 +149,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </time>
           {isMe && (
-            <span title={isPending ? 'sending' : (msg.deliveryStatus ?? 'sent')}>
+            <span title={deliveryTitle(msg, isGroup)}>
               {isPending ? (
                 <Clock size={12} className="text-mc-textMuted" />
               ) : msg.deliveryStatus === 'read' || msg.deliveryStatus === 'played' ? (
