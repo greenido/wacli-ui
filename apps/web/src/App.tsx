@@ -21,9 +21,12 @@ import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 import { useSleepEffects } from './hooks/useSleepMode.ts';
 import { useWakeOnIntent } from './hooks/useWakeOnIntent.ts';
-
-const DEFAULT_CHAT_LIST_WIDTH = 320;
-const DEFAULT_STATUS_STRIP_WIDTH = 256;
+import {
+  CHAT_LIST_PANE,
+  STATUS_STRIP_PANE,
+  readSavedPaneWidth,
+  savePaneWidth,
+} from './lib/paneWidths.ts';
 
 export const App: React.FC = () => {
   const { isConnected } = useWebSocket();
@@ -37,60 +40,27 @@ export const App: React.FC = () => {
   useWakeOnIntent({ searchOpen: isSearchOpen });
 
   // Resizable pane widths with localStorage persistence
-  const [chatListWidth, setChatListWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('wacli_chat_list_width');
-      if (saved) {
-        const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed) && parsed >= 180 && parsed <= 650) {
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return DEFAULT_CHAT_LIST_WIDTH;
-  });
-
-  const [statusStripWidth, setStatusStripWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('wacli_status_strip_width');
-      if (saved) {
-        const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed) && parsed >= 160 && parsed <= 500) {
-          return parsed;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return DEFAULT_STATUS_STRIP_WIDTH;
-  });
+  const [chatListWidth, setChatListWidth] = useState<number>(() => readSavedPaneWidth(CHAT_LIST_PANE));
+  const [statusStripWidth, setStatusStripWidth] = useState<number>(() =>
+    readSavedPaneWidth(STATUS_STRIP_PANE)
+  );
 
   const handleChatListResize = (newWidth: number) => {
     setChatListWidth(newWidth);
-    try {
-      localStorage.setItem('wacli_chat_list_width', String(newWidth));
-    } catch {
-      // ignore
-    }
+    savePaneWidth(CHAT_LIST_PANE, newWidth);
   };
 
   const handleStatusStripResize = (newWidth: number) => {
     setStatusStripWidth(newWidth);
-    try {
-      localStorage.setItem('wacli_status_strip_width', String(newWidth));
-    } catch {
-      // ignore
-    }
+    savePaneWidth(STATUS_STRIP_PANE, newWidth);
   };
 
   const handleResetChatListWidth = () => {
-    handleChatListResize(DEFAULT_CHAT_LIST_WIDTH);
+    handleChatListResize(CHAT_LIST_PANE.defaultWidth);
   };
 
   const handleResetStatusStripWidth = () => {
-    handleStatusStripResize(DEFAULT_STATUS_STRIP_WIDTH);
+    handleStatusStripResize(STATUS_STRIP_PANE.defaultWidth);
   };
 
   const toggleSearch = useCallback(() => setIsSearchOpen((prev) => !prev), []);
@@ -122,8 +92,8 @@ export const App: React.FC = () => {
         <ResizeHandle
           side="left"
           currentWidth={chatListWidth}
-          minWidth={200}
-          maxWidth={600}
+          minWidth={CHAT_LIST_PANE.min}
+          maxWidth={CHAT_LIST_PANE.max}
           onResize={handleChatListResize}
           onReset={handleResetChatListWidth}
         />
@@ -138,8 +108,8 @@ export const App: React.FC = () => {
         <ResizeHandle
           side="right"
           currentWidth={statusStripWidth}
-          minWidth={180}
-          maxWidth={500}
+          minWidth={STATUS_STRIP_PANE.min}
+          maxWidth={STATUS_STRIP_PANE.max}
           onResize={handleStatusStripResize}
           onReset={handleResetStatusStripWidth}
         />
