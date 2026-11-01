@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { X, UserPlus, Search, ArrowRight, Phone } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
@@ -20,10 +20,18 @@ export const NewChatModal: React.FC = () => {
   const queryClient = useQueryClient();
 
   const [inputQuery, setInputQuery] = useState('');
+  // Tied to the query it was made for, so typing falls back to the default.
+  const [selection, setSelection] = useState<{ query: string; index: number } | null>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
+
+  const clearQuery = () => {
+    setInputQuery('');
+    setSelection(null);
+  };
 
   const dialogRef = useModalDialog<HTMLDivElement>(activeModal === 'new-chat', () => {
     setActiveModal(null);
-    setInputQuery('');
+    clearQuery();
   });
 
   const { data: health } = useHealth();
@@ -54,7 +62,7 @@ export const NewChatModal: React.FC = () => {
       void markChatAsRead(queryClient, chat.jid);
     }
     setActiveModal(null);
-    setInputQuery('');
+    clearQuery();
     setTimeout(() => {
       triggerFocusComposer();
     }, 50);
@@ -85,26 +93,74 @@ export const NewChatModal: React.FC = () => {
 
     setSelectedChat(customChat);
     setActiveModal(null);
-    setInputQuery('');
+    clearQuery();
     setTimeout(() => {
       triggerFocusComposer();
     }, 50);
   };
 
+  const hasDigits = inputQuery.replace(/[^0-9]/g, '').length >= 3;
+  const showDirect = hasDigits || inputQuery.includes('@');
+  // Option 0 is the direct row when it is shown; the results follow it.
+  const firstResult = showDirect ? 1 : 0;
+  const optionCount = firstResult + searchResults.length;
+  // "Room 101" offers the direct row, but it reads as a name, so the match wins.
+  const looksDirect =
+    inputQuery.includes('@') || (hasDigits && /^\+?[\d\s\-().]+$/.test(inputQuery.trim()));
+  const defaultIndex =
+    showDirect && (looksDirect || searchResults.length === 0)
+      ? 0
+      : searchResults.length > 0
+        ? firstResult
+        : -1;
+  const selectedIndex =
+    selection?.query === inputQuery && selection.index < optionCount
+      ? selection.index
+      : defaultIndex;
+
+  const selectOption = (index: number) => setSelection({ query: inputQuery, index });
+
+  const moveSelection = (delta: number) => {
+    if (optionCount === 0) return;
+    const next =
+      selectedIndex < 0
+        ? delta > 0
+          ? 0
+          : optionCount - 1
+        : (selectedIndex + delta + optionCount) % optionCount;
+    selectOption(next);
+    optionsRef.current
+      ?.querySelector<HTMLElement>(`[data-option-index="${next}"]`)
+      // Optional call: jsdom has no scrollIntoView.
+      ?.scrollIntoView?.({ block: 'nearest' });
+  };
+
+  const openOption = (index: number) => {
+    if (index < 0) return;
+    if (index < firstResult) handleStartCustomNumber();
+    else handleSelectChat(searchResults[index - firstResult]);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       setActiveModal(null);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveSelection(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveSelection(-1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (searchResults.length > 0 && !inputQuery.replace(/[^0-9]/g, '')) {
-        handleSelectChat(searchResults[0]);
-      } else if (inputQuery.trim()) {
-        handleStartCustomNumber();
-      }
+      openOption(selectedIndex);
     }
   };
 
-  const hasDigits = inputQuery.replace(/[^0-9]/g, '').length >= 3;
+  const enterHint = (
+    <span className="text-[10px] bg-mc-live text-[#12151B] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ml-2 shrink-0">
+      ENTER <ArrowRight size={10} />
+    </span>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -124,7 +180,7 @@ export const NewChatModal: React.FC = () => {
           <button
             onClick={() => {
               setActiveModal(null);
-              setInputQuery('');
+              clearQuery();
             }}
             aria-label="Close new conversation dialog"
             className="p-1 text-mc-textMuted hover:text-mc-text rounded"
@@ -134,7 +190,7 @@ export const NewChatModal: React.FC = () => {
         </div>
 
         {/* Input */}
-        <div className="p-4 space-y-3">
+        <div ref={optionsRef} className="p-4 space-y-3">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2.5 text-mc-textMuted" />
             <input
@@ -149,18 +205,21 @@ export const NewChatModal: React.FC = () => {
           </div>
 
           {/* Quick Direct Number Action */}
-          {(hasDigits || inputQuery.includes('@')) && (
+          {showDirect && (
             <button
+              data-option-index={0}
+              aria-current={selectedIndex === 0 ? 'true' : undefined}
               onClick={handleStartCustomNumber}
-              className="w-full text-left p-2.5 rounded bg-mc-live/15 hover:bg-mc-live/25 border border-mc-live/50 text-mc-live flex items-center justify-between font-semibold transition-colors"
+              onMouseEnter={() => selectOption(0)}
+              className={`w-full text-left p-2.5 rounded bg-mc-live/15 hover:bg-mc-live/25 border text-mc-live flex items-center justify-between font-semibold transition-colors ${
+                selectedIndex === 0 ? 'border-mc-live ring-1 ring-mc-live/50' : 'border-mc-live/50'
+              }`}
             >
               <div className="flex items-center gap-2">
                 <Phone size={13} />
                 <span>Message &ldquo;{inputQuery.trim()}&rdquo; directly</span>
               </div>
-              <span className="text-[10px] bg-mc-live text-[#12151B] px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
-                ENTER <ArrowRight size={10} />
-              </span>
+              {selectedIndex === 0 && enterHint}
             </button>
           )}
 
@@ -178,19 +237,31 @@ export const NewChatModal: React.FC = () => {
                 No matching contacts found. Type a phone number to start a new chat.
               </div>
             ) : (
-              searchResults.map((c) => (
-                <button
-                  key={c.jid}
-                  onClick={() => handleSelectChat(c)}
-                  className="w-full text-left p-2.5 rounded hover:bg-mc-surfaceHover border border-transparent hover:border-mc-border flex items-center justify-between transition-colors"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-mc-text font-semibold truncate">{c.name}</div>
-                    <div className="text-mc-textMuted text-[10px] font-mono truncate">{c.jid}</div>
-                  </div>
-                  <span className="text-mc-live text-[10px] uppercase ml-2 shrink-0">{c.kind}</span>
-                </button>
-              ))
+              searchResults.map((c, i) => {
+                const index = firstResult + i;
+                const isSelected = index === selectedIndex;
+                return (
+                  <button
+                    key={c.jid}
+                    data-option-index={index}
+                    aria-current={isSelected ? 'true' : undefined}
+                    onClick={() => handleSelectChat(c)}
+                    onMouseEnter={() => selectOption(index)}
+                    className={`w-full text-left p-2.5 rounded border flex items-center justify-between transition-colors ${
+                      isSelected
+                        ? 'bg-mc-surfaceHover border-transparent ring-1 ring-mc-live/50'
+                        : 'border-transparent hover:bg-mc-surfaceHover hover:border-mc-border'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-mc-text font-semibold truncate">{c.name}</div>
+                      <div className="text-mc-textMuted text-[10px] font-mono truncate">{c.jid}</div>
+                    </div>
+                    <span className="text-mc-live text-[10px] uppercase ml-2 shrink-0">{c.kind}</span>
+                    {isSelected && enterHint}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
