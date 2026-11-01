@@ -870,30 +870,38 @@ export const ThreadView: React.FC = () => {
 
       {/* Scheduled Messages Banner for this chat (Send Later FR) */}
       {pendingScheduled.length > 0 && (
-        <div className="bg-mc-surface border-b border-mc-border/80 px-3 py-2 flex items-center justify-between text-xs font-mono text-mc-text">
-          <div className="flex items-center gap-2 truncate">
+        <div className="bg-mc-surface border-b border-mc-border/80 px-3 py-2 text-xs font-mono text-mc-text space-y-1">
+          <div className="flex items-center gap-2">
             <Clock size={14} className="text-mc-live shrink-0 animate-pulse" />
-            <span className="text-mc-live font-semibold">SCHEDULED ({pendingScheduled.length}):</span>
-            <span className="truncate text-mc-textMuted text-[11px]">
-              {pendingScheduled[0].message || pendingScheduled[0].fileName} (due{' '}
-              {new Date(pendingScheduled[0].scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-            </span>
+            <span className="text-mc-live font-semibold">SCHEDULED ({pendingScheduled.length})</span>
           </div>
-          {/* Already handed to wacli: there is nothing left to cancel. */}
-          {pendingScheduled[0].status === 'sending' ? (
-            <span className="text-[10px] text-mc-live font-semibold shrink-0 ml-2">SENDING NOW</span>
-          ) : (
-            <button
-              onClick={() =>
-                cancelScheduledMutation.mutate({ id: pendingScheduled[0].id, chat: pendingScheduled[0].to })
-              }
-              className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0 ml-2"
-              title="Cancel scheduled message"
-            >
-              <Trash2 size={11} />
-              <span>CANCEL</span>
-            </button>
-          )}
+          {/* Capped and scrollable, so a long queue cannot push the thread off screen. */}
+          <ul className="max-h-28 overflow-y-auto space-y-1">
+            {pendingScheduled.map((item) => {
+              const label = item.message || item.fileName || '';
+              return (
+                <li key={item.id} className="flex items-center justify-between gap-2 pl-6">
+                  <span className="truncate text-mc-textMuted text-[11px]">
+                    {label} (due{' '}
+                    {new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                  </span>
+                  {/* Already handed to wacli: there is nothing left to cancel. */}
+                  {item.status === 'sending' ? (
+                    <span className="text-[10px] text-mc-live font-semibold shrink-0">SENDING NOW</span>
+                  ) : (
+                    <button
+                      onClick={() => cancelScheduledMutation.mutate({ id: item.id, chat: item.to })}
+                      className="flex items-center gap-1 text-[10px] text-mc-danger hover:text-mc-danger/80 border border-mc-danger/40 hover:border-mc-danger px-1.5 py-0.5 rounded transition-colors shrink-0"
+                      title={`Cancel scheduled message: ${label}`}
+                    >
+                      <Trash2 size={11} />
+                      <span>CANCEL</span>
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

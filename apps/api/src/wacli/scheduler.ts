@@ -77,6 +77,13 @@ export const SCHEDULED_PAGE_SIZE = 10;
 const MAX_SCHEDULED_PAGE = 200;
 
 /**
+ * Sent and cancelled messages older than this are dropped at startup, the
+ * same window the activity log keeps. Failed ones stay: they are waiting on
+ * the operator to resend or discard them.
+ */
+export const SCHEDULED_RETENTION_DAYS = 90;
+
+/**
  * Sortable and comparable as one string, so a cursor is a single value.
  * The id breaks ties, since two messages can share a createdAt millisecond.
  */
@@ -570,6 +577,39 @@ export class Scheduler {
     this.broadcastUpdate(item);
 
     return true;
+  }
+
+  /**
+   * Removes resolved history past the retention window, from the table and
+   * from the working set, and returns how many went.
+   *
+   * The map holds every row, so without this it grew by every message ever
+   * scheduled and the 5s poll sorted all of them. The window runs from the
+   * later of when a message was queued and when it was due, so a row that only
+   * just resolved is never the one dropped.
+   */
+  public prune(retentionDays = SCHEDULED_RETENTION_DAYS): number {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      const removed = this.db()
+        .prepare(
+          `DELETE FROM scheduled
+           WHERE status IN ('sent', 'cancelled') AND MAX(scheduled_at, created_at) < ?
+           RETURNING id`
+        )
+        .all(cutoff) as Array<{ id: string }>;
+      for (const { id } of removed) this.items.delete(id);
+      if (removed.length > 0) {
+        logger.info('send', 'Pruned resolved scheduled messages', {
+          count: removed.length,
+          retentionDays,
+        });
+      }
+      return removed.length;
+    } catch (err) {
+      logger.warn('send', 'Failed to prune scheduled history', { err });
+      return 0;
+    }
   }
 
   /**
