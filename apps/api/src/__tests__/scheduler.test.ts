@@ -745,6 +745,91 @@ describe('Scheduler paging', () => {
   });
 });
 
+describe('Scheduler retention', () => {
+  let tmpSchedFile: string;
+  const DAY = 24 * 60 * 60 * 1000;
+
+  beforeEach(() => {
+    tmpSchedFile = path.join(os.tmpdir(), `wacli-test-prune-${Date.now()}-${Math.random()}.db`);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpSchedFile, { force: true });
+  });
+
+  function seedRow(id: string, status: string, ageDays: number): void {
+    const at = new Date(Date.now() - ageDays * DAY).toISOString();
+    openDatabaseAt(tmpSchedFile)
+      .prepare(
+        `INSERT INTO scheduled (id, to_jid, message, scheduled_at, created_at, status)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(id, 'alice@s.whatsapp.net', `msg ${id}`, at, at, status);
+  }
+
+  it('expires sent and cancelled messages past the retention window', () => {
+    seedRow('old-sent', 'sent', 91);
+    seedRow('old-cancelled', 'cancelled', 120);
+    seedRow('recent-sent', 'sent', 10);
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    expect(scheduler.prune()).toBe(2);
+
+    expect(listAll(scheduler).map((i) => i.id)).toEqual(['recent-sent']);
+    // Gone from disk too, so a restart does not bring them back.
+    expect(listAll(new Scheduler(tmpSchedFile)).map((i) => i.id)).toEqual(['recent-sent']);
+  });
+
+  it('keeps an old failed message, because the operator still has to act on it', () => {
+    seedRow('old-failed', 'failed', 200);
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    expect(scheduler.prune()).toBe(0);
+    expect(listAll(scheduler).map((i) => i.id)).toEqual(['old-failed']);
+  });
+
+  it('never expires a pending message, however long ago it was queued', () => {
+    // Queued long ago for a date still ahead: what it is waiting for has not happened.
+    const created = new Date(Date.now() - 200 * DAY).toISOString();
+    const due = new Date(Date.now() + DAY).toISOString();
+    openDatabaseAt(tmpSchedFile)
+      .prepare(
+        `INSERT INTO scheduled (id, to_jid, message, scheduled_at, created_at, status)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run('far-future', 'alice@s.whatsapp.net', 'later', due, created, 'pending');
+
+    const scheduler = new Scheduler(tmpSchedFile);
+    expect(scheduler.prune()).toBe(0);
+    expect(scheduler.getPage().pending.map((i) => i.id)).toEqual(['far-future']);
+  });
+
+  it('keeps a cancelled message whose due date is still inside the window', () => {
+    // Created long ago, cancelled, but it was due recently: the window runs
+    // from the later of the two, so a freshly resolved row is not dropped.
+    const created = new Date(Date.now() - 200 * DAY).toISOString();
+    const due = new Date(Date.now() - 5 * DAY).toISOString();
+    openDatabaseAt(tmpSchedFile)
+      .prepare(
+        `INSERT INTO scheduled (id, to_jid, message, scheduled_at, created_at, status)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run('recently-due', 'alice@s.whatsapp.net', 'x', due, created, 'cancelled');
+
+    expect(new Scheduler(tmpSchedFile).prune()).toBe(0);
+  });
+
+  it('drops expired rows from a queue that was already loaded', () => {
+    seedRow('old-sent', 'sent', 91);
+    const scheduler = new Scheduler(tmpSchedFile);
+    expect(listAll(scheduler)).toHaveLength(1);
+
+    scheduler.prune();
+
+    expect(listAll(scheduler)).toEqual([]);
+  });
+});
+
 describe('Scheduled attachments', () => {
   let tmpSchedFile: string;
   let workDir: string;

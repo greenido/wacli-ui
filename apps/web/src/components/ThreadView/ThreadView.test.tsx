@@ -1191,6 +1191,37 @@ describe('ThreadView scheduled banner', () => {
     expect(await screen.findByText('SENDING NOW')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'CANCEL' })).not.toBeInTheDocument();
   });
+
+  it('lists every queued message for the chat and cancels the one asked for', async () => {
+    // Only the first used to be shown or cancellable; the rest were behind
+    // the right rail's LATER tab, invisible from the conversation itself.
+    const user = userEvent.setup();
+    cancelScheduled.mockResolvedValue({ cancelled: true });
+    getScheduled.mockResolvedValue({
+      pending: [
+        PENDING,
+        { ...PENDING, id: 'sched-2', message: 'Bring the tickets', scheduledAt: '2026-09-18T20:00:00.000Z' },
+        { ...PENDING, id: 'sched-3', message: 'Already going', status: 'sending' as const },
+      ],
+      history: [],
+      nextCursor: null,
+      totalPending: 3,
+      totalHistory: 0,
+    });
+    renderThread();
+
+    expect(await screen.findByText('SCHEDULED (3)')).toBeInTheDocument();
+    expect(screen.getByText(/See you at 7/)).toBeInTheDocument();
+    expect(screen.getByText(/Bring the tickets/)).toBeInTheDocument();
+    expect(screen.getByText(/Already going/)).toBeInTheDocument();
+    // One cancel per message that can still be stopped.
+    expect(screen.getAllByRole('button', { name: 'CANCEL' })).toHaveLength(2);
+    expect(screen.getByText('SENDING NOW')).toBeInTheDocument();
+
+    await user.click(screen.getByTitle('Cancel scheduled message: Bring the tickets'));
+
+    expect(cancelScheduled).toHaveBeenCalledWith('sched-2');
+  });
 });
 
 describe('ThreadView dates', () => {

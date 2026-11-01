@@ -68,9 +68,13 @@ export function createMessagesRouter(): Router {
         rawList = raw.messages;
       }
 
-      const messages: UnifiedMessage[] = rawList.map((m) => {
-        const norm = normalizeMessage(m);
-        norm.bookmarked = Boolean(norm.msgId) && bookmarkStore.has(norm.msgId);
+      const normalized = rawList.map(normalizeMessage);
+      const bookmarkedIds = bookmarkStore.getBookmarkedIds(
+        normalized.map((m) => m.msgId),
+        chat
+      );
+      const messages: UnifiedMessage[] = normalized.map((norm) => {
+        norm.bookmarked = Boolean(norm.msgId) && bookmarkedIds.has(norm.msgId);
         return norm;
       });
 
@@ -157,10 +161,14 @@ export function createMessagesRouter(): Router {
         fetchGroupNames(),
       ]);
       const rawList = Array.isArray(raw) ? raw : (raw?.messages ?? []);
-      const messages = rawList.map((m) => {
+      const normalized = rawList.map((m) => withGroupSubject(normalizeMessage(m), groupNames));
+      const bookmarkedIds = bookmarkStore.getBookmarkedIds(
+        normalized.map((m) => m.msgId),
+        chat
+      );
+      const messages = normalized.map((norm) => {
         // The first message's chat name heads the transcript.
-        const norm = withGroupSubject(normalizeMessage(m), groupNames);
-        norm.bookmarked = Boolean(norm.msgId) && bookmarkStore.has(norm.msgId);
+        norm.bookmarked = Boolean(norm.msgId) && bookmarkedIds.has(norm.msgId);
         return norm;
       });
 
@@ -182,15 +190,31 @@ export function createMessagesRouter(): Router {
     }
   });
 
+  // GET /api/messages/bookmarks - saved local bookmarks across all chats (or filtered to one chat).
+  router.get('/messages/bookmarks', (req: Request, res: Response) => {
+    const chat = req.query.chat ? String(req.query.chat).trim() : undefined;
+    const rawLimit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+    const limit = rawLimit !== undefined && !Number.isNaN(rawLimit) ? rawLimit : undefined;
+    res.json({
+      success: true,
+      data: bookmarkStore.list({ chat, limit }),
+      error: null,
+    });
+  });
+
   // POST /api/messages/bookmark - toggle this machine's local bookmark.
   // Bookmarks are local-only state, so unlike a send or a chat mutation they
   // are still allowed while safe read-only mode is on: nothing reaches WhatsApp
   // or the wacli store.
   router.post('/messages/bookmark', (req: Request, res: Response) => {
-    const { chat, id, bookmarked } = req.body as {
+    const { chat, id, bookmarked, chatName, senderName, text, ts } = req.body as {
       chat?: string;
       id?: string;
       bookmarked?: boolean;
+      chatName?: string;
+      senderName?: string;
+      text?: string;
+      ts?: string;
     };
 
     if (!chat || !id) {
@@ -203,7 +227,12 @@ export function createMessagesRouter(): Router {
     }
 
     const next = bookmarked !== undefined ? Boolean(bookmarked) : true;
-    bookmarkStore.set(id, chat, next);
+    bookmarkStore.set(id, chat, next, {
+      chatName: typeof chatName === 'string' && chatName ? chatName : undefined,
+      senderName: typeof senderName === 'string' && senderName ? senderName : undefined,
+      text: typeof text === 'string' && text ? text : undefined,
+      ts: typeof ts === 'string' && ts ? ts : undefined,
+    });
 
     res.json({
       success: true,

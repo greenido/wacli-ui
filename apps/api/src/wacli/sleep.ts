@@ -50,6 +50,7 @@ export const SLEEP_ROUTES = {
     'POST /api/tags',
     'POST /api/tags/rename',
     'POST /api/tags/delete',
+    'GET /api/messages/bookmarks',
     'POST /api/messages/bookmark',
     'GET /api/activity',
     'GET /api/send/scheduled',

@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
  * `migrations`. The number is stored in the file itself, so a database written
  * by a newer build is recognised rather than silently half-read.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -14,10 +14,15 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE TABLE IF NOT EXISTS bookmarks (
-  msg_id     TEXT PRIMARY KEY,
-  chat_jid   TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  msg_id      TEXT PRIMARY KEY,
+  chat_jid    TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  chat_name   TEXT,
+  sender_name TEXT,
+  text        TEXT,
+  ts          TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_bookmarks_chat_jid ON bookmarks (chat_jid);
 
 CREATE TABLE IF NOT EXISTS tags (
   chat_jid TEXT NOT NULL,
@@ -59,12 +64,24 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity (timestamp DESC);
 `;
 
+function migrateToV2(db: DatabaseSync): void {
+  const existing = new Set(
+    (db.prepare('PRAGMA table_info(bookmarks)').all() as Array<{ name: string }>).map((c) => c.name)
+  );
+  for (const col of ['chat_name', 'sender_name', 'text', 'ts']) {
+    if (!existing.has(col)) {
+      db.exec(`ALTER TABLE bookmarks ADD COLUMN ${col} TEXT`);
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bookmarks_chat_jid ON bookmarks (chat_jid)');
+}
+
 /**
  * Applied in order from whatever version the file is already at. Index 0 takes
  * an empty file to version 1, so a fresh install runs the same statements an
  * upgrade would.
  */
-const migrations: Array<(db: DatabaseSync) => void> = [(db) => db.exec(SCHEMA_V1)];
+const migrations: Array<(db: DatabaseSync) => void> = [(db) => db.exec(SCHEMA_V1), migrateToV2];
 
 /** The version recorded in the file, or 0 for one this build has never opened. */
 function readVersion(db: DatabaseSync): number {

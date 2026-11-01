@@ -236,3 +236,13 @@ export interface ScheduledPage {
   totalPending: number;
   totalHistory: number;
 }
+
+export interface BookmarkEntry {
+  msgId: string;
+  chatJid: string;
+  createdAt: string;
+  chatName?: string;
+  senderName?: string;
+  text?: string;
+  ts?: string;
+}

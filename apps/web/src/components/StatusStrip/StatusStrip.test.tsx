@@ -19,6 +19,8 @@ const getMode = vi.hoisted(() => vi.fn());
 const setMode = vi.hoisted(() => vi.fn());
 const getSleep = vi.hoisted(() => vi.fn());
 const setSleep = vi.hoisted(() => vi.fn());
+const getBookmarks = vi.hoisted(() => vi.fn());
+const bookmarkMessage = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
   api: {
@@ -33,6 +35,8 @@ vi.mock('../../api/client.ts', () => ({
     setMode,
     getSleep,
     setSleep,
+    getBookmarks,
+    bookmarkMessage,
   },
 }));
 
@@ -41,6 +45,10 @@ beforeEach(() => {
   getSleep.mockReset();
   getSleep.mockResolvedValue({ sleeping: false, since: null });
   setSleep.mockReset();
+  getBookmarks.mockReset();
+  getBookmarks.mockResolvedValue([]);
+  bookmarkMessage.mockReset();
+  bookmarkMessage.mockResolvedValue({ bookmarked: false });
 });
 
 const failedItem: ScheduledMessage = {
@@ -594,5 +602,75 @@ describe('StatusStrip sleep mode', () => {
 
     expect(await screen.findByText(/sleep switch failed: api unreachable/i)).toBeInTheDocument();
     expect(moon).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+describe('StatusStrip saved bookmarks', () => {
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    getHealth.mockResolvedValue({ readOnly: false, processState: 'running' });
+    getMode.mockResolvedValue({ readOnly: false });
+    mockScheduled([]);
+    useAppStore.setState({
+      selectedChat: null,
+      sendLogs: [],
+      highlightedMessageId: null,
+      highlightedMessageAt: null,
+    });
+  });
+
+  it('lists saved bookmarks and jumps to the bookmarked message on click', async () => {
+    getBookmarks.mockResolvedValue([
+      {
+        msgId: 'MSG-BM-1',
+        chatJid: 'alice@s.whatsapp.net',
+        createdAt: '2026-09-05T10:00:00Z',
+        chatName: 'Alice',
+        senderName: 'Alice',
+        text: 'Gate code is 4821',
+        ts: '2026-06-15T08:30:00Z',
+      },
+    ]);
+    const user = userEvent.setup();
+    renderStrip();
+
+    const savedTab = await screen.findByRole('button', { name: /SAVED \(1\)/i });
+    await user.click(savedTab);
+
+    expect(await screen.findByText('Gate code is 4821')).toBeInTheDocument();
+    await user.click(screen.getByTitle(/Open conversation and jump to this bookmarked message/i));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe('alice@s.whatsapp.net');
+    expect(state.highlightedMessageId).toBe('MSG-BM-1');
+    expect(state.highlightedMessageAt).toBe('2026-06-15T08:30:00Z');
+  });
+
+  it('removes a bookmark from the saved tab', async () => {
+    getBookmarks.mockResolvedValue([
+      {
+        msgId: 'MSG-BM-2',
+        chatJid: 'alice@s.whatsapp.net',
+        createdAt: '2026-09-05T10:00:00Z',
+        chatName: 'Alice',
+        text: 'Temporary note',
+      },
+    ]);
+    const user = userEvent.setup();
+    renderStrip();
+
+    await user.click(await screen.findByRole('button', { name: /SAVED \(1\)/i }));
+    await user.click(await screen.findByTitle(/Remove bookmark/i));
+
+    await waitFor(() =>
+      expect(bookmarkMessage).toHaveBeenCalledWith({
+        chat: 'alice@s.whatsapp.net',
+        id: 'MSG-BM-2',
+        bookmarked: false,
+      })
+    );
   });
 });
