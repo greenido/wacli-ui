@@ -3,8 +3,9 @@ import React, { useState, useRef } from 'react';
 interface ResizeHandleProps {
   side: 'left' | 'right';
   currentWidth: number;
-  minWidth?: number;
-  maxWidth?: number;
+  /** Required, so each pane's limits come from lib/paneWidths and nowhere else. */
+  minWidth: number;
+  maxWidth: number;
   onResize: (newWidth: number) => void;
   onReset?: () => void;
 }
@@ -12,8 +13,8 @@ interface ResizeHandleProps {
 export const ResizeHandle: React.FC<ResizeHandleProps> = ({
   side,
   currentWidth,
-  minWidth = 200,
-  maxWidth = 600,
+  minWidth,
+  maxWidth,
   onResize,
   onReset,
 }) => {
