@@ -401,8 +401,15 @@ export const ThreadView: React.FC = () => {
   // star: wacli can read a synced star but has no command to set one, so a
   // "star" button here could never reach the phone.
   const bookmarkMutation = useMutation({
-    mutationFn: (params: { chat: string; id: string; bookmarked: boolean }) =>
-      api.bookmarkMessage(params),
+    mutationFn: (params: {
+      chat: string;
+      id: string;
+      bookmarked: boolean;
+      chatName?: string;
+      senderName?: string;
+      text?: string;
+      ts?: string;
+    }) => api.bookmarkMessage(params),
     onMutate: async ({ chat, id, bookmarked }) => {
       await queryClient.cancelQueries({ queryKey: ['messages', chat] });
       queryClient.setQueriesData<MessagePages>({ queryKey: ['messages', chat] }, (old) =>
@@ -415,6 +422,9 @@ export const ThreadView: React.FC = () => {
     },
     onError: (_err, { chat }) => {
       void queryClient.invalidateQueries({ queryKey: ['messages', chat] });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['bookmarks'] });
     },
   });
 
@@ -695,16 +705,22 @@ export const ThreadView: React.FC = () => {
   }, []);
 
   const { mutate: bookmark } = bookmarkMutation;
+  const selectedChatName = selectedChat?.name;
   const handleToggleBookmark = useCallback(
     (msg: UnifiedMessage) => {
       if (!selectedJid) return;
+      const snippet = msg.displayText || msg.text || msg.mediaCaption || msg.filename || undefined;
       bookmark({
         chat: selectedJid,
         id: msg.msgId,
         bookmarked: !msg.bookmarked,
+        chatName: selectedChatName || msg.chatName || undefined,
+        senderName: msg.fromMe ? 'Me' : msg.senderName || msg.senderJid || undefined,
+        text: snippet,
+        ts: msg.ts || undefined,
       });
     },
-    [selectedJid, bookmark]
+    [selectedJid, selectedChatName, bookmark]
   );
 
   const toggleReactionDrawer = useCallback(

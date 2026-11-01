@@ -204,6 +204,45 @@ describe('API Read Endpoints', () => {
     expect(relisted.body.data.messages[0].bookmarked).toBe(false);
   });
 
+  it('GET /api/messages/bookmarks lists saved bookmarks and GET /api/search marks bookmarked hits', async () => {
+    await request(app)
+      .post('/api/messages/bookmark')
+      .send({
+        chat: '15551234567@s.whatsapp.net',
+        id: 'MSG-SEARCH-1',
+        bookmarked: true,
+        chatName: 'Alice',
+        senderName: 'Alice',
+        text: 'Search result mock',
+        ts: '2026-08-31T12:00:00Z',
+      });
+
+    const bookmarksRes = await request(app).get('/api/messages/bookmarks');
+    expect(bookmarksRes.status).toBe(200);
+    expect(bookmarksRes.body.success).toBe(true);
+    expect(bookmarksRes.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          msgId: 'MSG-SEARCH-1',
+          chatJid: '15551234567@s.whatsapp.net',
+          chatName: 'Alice',
+          text: 'Search result mock',
+          ts: '2026-08-31T12:00:00Z',
+        }),
+      ])
+    );
+
+    const searchRes = await request(app).get('/api/search?q=hello');
+    expect(searchRes.status).toBe(200);
+    expect(searchRes.body.data.results[0].msgId).toBe('MSG-SEARCH-1');
+    expect(searchRes.body.data.results[0].bookmarked).toBe(true);
+
+    // Clean up
+    await request(app)
+      .post('/api/messages/bookmark')
+      .send({ chat: '15551234567@s.whatsapp.net', id: 'MSG-SEARCH-1', bookmarked: false });
+  });
+
   it('GET /api/chats carries a last-message preview instead of only a timestamp', async () => {
     const res = await request(app).get('/api/chats');
 

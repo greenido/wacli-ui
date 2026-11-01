@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Activity,
+  Bookmark,
   Settings,
   ShieldCheck,
   ShieldAlert,
@@ -11,7 +12,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2, LifeBuoy, Moon, X } from 'lucide-react';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
@@ -43,7 +44,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const searchQuery = useAppStore((s) => s.searchQuery);
   const chatFilter = useAppStore((s) => s.chatFilter);
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'activity' | 'scheduled'>('activity');
+  const [activeTab, setActiveTab] = useState<'activity' | 'scheduled' | 'saved'>('activity');
   // A failed message has nothing to show in the thread, so its detail has to
   // open here instead of sending the operator to a conversation that is missing
   // the very message they clicked.
@@ -70,7 +71,8 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     toJid: string,
     name?: string,
     msgId?: string,
-    hint?: MessageJumpHint
+    hint?: MessageJumpHint,
+    at?: string | null
   ) => {
     if (!toJid) return;
     const cachedChats =
@@ -107,7 +109,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     // The hint goes along with the id because most rows have no usable id at
     // all: everything sent before wacli's id was recorded, which is every
     // scheduled message already on disk.
-    setHighlightedMessageId(usableMessageId(msgId), hint ?? null);
+    setHighlightedMessageId(usableMessageId(msgId), hint ?? null, at ?? null);
   };
 
   const openSendLog = (log: SendLogEntry) => {
@@ -148,6 +150,22 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: POLL_ACTIVITY_MS,
   });
+
+  const bookmarksQuery = useQuery({
+    queryKey: ['bookmarks'],
+    queryFn: () => api.getBookmarks(),
+  });
+
+  const unbookmarkMutation = useMutation({
+    mutationFn: ({ chat, id }: { chat: string; id: string }) =>
+      api.bookmarkMessage({ chat, id, bookmarked: false }),
+    onSuccess: (_data, { chat }) => {
+      void queryClient.invalidateQueries({ queryKey: ['bookmarks'] });
+      void queryClient.invalidateQueries({ queryKey: ['messages', chat] });
+    },
+  });
+
+  const bookmarks = bookmarksQuery.data ?? [];
 
   // The `?? []` fallback allocates a fresh array each render, so it lives
   // inside the memo rather than feeding one from outside.
@@ -503,10 +521,97 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               <Clock size={11} />
               <span>LATER ({scheduledCount})</span>
             </button>
+            <button
+              onClick={() => setActiveTab('saved')}
+              className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors flex items-center gap-1 ${
+                activeTab === 'saved'
+                  ? 'bg-mc-surfaceHover text-mc-live font-bold'
+                  : 'text-mc-textMuted hover:text-mc-text'
+              }`}
+            >
+              <Bookmark size={11} />
+              <span>SAVED ({bookmarks.length})</span>
+            </button>
           </div>
         </div>
 
-        {activeTab === 'activity' ? (
+        {activeTab === 'saved' ? (
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            {bookmarks.length === 0 ? (
+              <div className="text-center py-6 text-mc-textMuted/60 text-[11px]">
+                {bookmarksQuery.isPending ? 'Loading bookmarks…' : 'No bookmarked messages.'}
+              </div>
+            ) : (
+              bookmarks.map((bm) => {
+                const isSelected = selectedChat?.jid === bm.chatJid;
+                const jumpToBookmark = () => {
+                  const hint =
+                    bm.text && bm.ts ? { text: bm.text, sentAfter: bm.ts } : undefined;
+                  handleSelectMessageChat(bm.chatJid, bm.chatName, bm.msgId, hint, bm.ts ?? null);
+                };
+                return (
+                  <div
+                    key={bm.msgId}
+                    role="button"
+                    tabIndex={0}
+                    onClick={jumpToBookmark}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        jumpToBookmark();
+                      }
+                    }}
+                    className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+                      isSelected
+                        ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                        : 'border-mc-border/70'
+                    }`}
+                    title="Open conversation and jump to this bookmarked message"
+                  >
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-mc-textMuted">
+                        {new Date(bm.ts || bm.createdAt).toLocaleDateString([], {
+                          month: 'short',
+                          day: 'numeric',
+                        })}{' '}
+                        {new Date(bm.ts || bm.createdAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          unbookmarkMutation.mutate({ chat: bm.chatJid, id: bm.msgId });
+                        }}
+                        disabled={unbookmarkMutation.isPending}
+                        className="text-mc-textMuted hover:text-mc-danger transition-colors"
+                        title="Remove bookmark"
+                        aria-label="Remove bookmark"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                    <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
+                      <span className="truncate">{bm.chatName || bm.chatJid}</span>
+                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                        OPEN →
+                      </span>
+                    </div>
+                    <div
+                      dir={detectTextDirection(bm.text || bm.msgId)}
+                      className="text-mc-textMuted truncate text-start"
+                    >
+                      {bm.senderName && <span>{bm.senderName}: </span>}
+                      <span>{bm.text || bm.msgId}</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : activeTab === 'activity' ? (
           <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
             {activityRows.length === 0 ? (
               <div className="text-center py-6 text-mc-textMuted/60 text-[11px]">

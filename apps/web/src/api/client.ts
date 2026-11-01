@@ -9,6 +9,7 @@ import type {
   ScheduledMessage,
   ScheduledPage,
   ActivityPage,
+  BookmarkEntry,
   SleepState,
 } from '../types.ts';
 
@@ -381,7 +382,15 @@ export const api = {
    * Mission Control's own bookmark. Not a WhatsApp star: wacli can read a
    * synced star but has no command to set one, so this never leaves the host.
    */
-  bookmarkMessage: (data: { chat: string; id: string; bookmarked: boolean }) =>
+  bookmarkMessage: (data: {
+    chat: string;
+    id: string;
+    bookmarked: boolean;
+    chatName?: string;
+    senderName?: string;
+    text?: string;
+    ts?: string;
+  }) =>
     request<{ chat: string; id: string; bookmarked: boolean }>('/api/messages/bookmark', {
       method: 'POST',
       headers: {
@@ -389,6 +398,9 @@ export const api = {
       },
       body: JSON.stringify(data),
     }),
+
+  getBookmarks: (params?: { chat?: string; limit?: number }) =>
+    request<BookmarkEntry[]>('/api/messages/bookmarks', {}, params),
 
   getSettings: () =>
     request<{ readOnly: boolean; storeDir?: string; account?: string; currentLogFile?: string }>(

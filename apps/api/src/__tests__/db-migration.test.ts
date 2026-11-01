@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { openDatabaseAt, DatabaseUnavailableError } from '../db/index.js';
 import { migrateJsonStores } from '../db/migrate-json.js';
 import { applySchema, SCHEMA_VERSION } from '../db/schema.js';
@@ -180,5 +180,36 @@ describe('schema versioning', () => {
     fs.writeFileSync(file, 'definitely not sqlite');
 
     expect(() => openDatabaseAt(file)).toThrow(DatabaseUnavailableError);
+  });
+
+  it('upgrades a v1 database to v2 and preserves existing bookmarks', () => {
+    const file = path.join(dir, 'v1.db');
+    const raw = new DatabaseSync(file);
+    raw.exec(`
+      CREATE TABLE bookmarks (
+        msg_id     TEXT PRIMARY KEY,
+        chat_jid   TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO bookmarks (msg_id, chat_jid, created_at)
+      VALUES ('MSG-V1', 'alice@s.whatsapp.net', '2026-09-01T10:00:00Z');
+      PRAGMA user_version = 1;
+    `);
+    raw.close();
+
+    const upgraded = openDatabaseAt(file);
+    expect(upgraded.prepare('PRAGMA user_version').get()).toEqual({
+      user_version: SCHEMA_VERSION,
+    });
+    const row = upgraded
+      .prepare('SELECT msg_id, chat_jid, chat_name, text FROM bookmarks WHERE msg_id = ?')
+      .get('MSG-V1');
+    expect(row).toEqual({
+      msg_id: 'MSG-V1',
+      chat_jid: 'alice@s.whatsapp.net',
+      chat_name: null,
+      text: null,
+    });
+    upgraded.close();
   });
 });

@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { BookmarkStore } from '../wacli/bookmarks.js';
 import { DatabaseUnavailableError, openDatabaseAt } from '../db/index.js';
 
@@ -73,5 +74,59 @@ describe('BookmarkStore', () => {
     fs.writeFileSync(file, 'this is not a database');
 
     expect(() => new BookmarkStore(file)).toThrow(DatabaseUnavailableError);
+  });
+
+  it('batch-checks many message IDs in a single query instead of N+1 queries', () => {
+    const store = new BookmarkStore(file);
+    store.set('MSG-1', 'alice@s.whatsapp.net', true);
+    store.set('MSG-3', 'alice@s.whatsapp.net', true);
+    store.set('MSG-99', 'bob@s.whatsapp.net', true);
+
+    const prepareSpy = vi.spyOn(DatabaseSync.prototype, 'prepare');
+    try {
+      const matched = store.getBookmarkedIds(
+        ['MSG-1', 'MSG-2', 'MSG-3', 'MSG-4'],
+        'alice@s.whatsapp.net'
+      );
+      expect([...matched].sort()).toEqual(['MSG-1', 'MSG-3']);
+      expect(prepareSpy).toHaveBeenCalledTimes(1);
+
+      // Empty input does not touch SQLite at all.
+      prepareSpy.mockClear();
+      expect(store.getBookmarkedIds([]).size).toBe(0);
+      expect(prepareSpy).not.toHaveBeenCalled();
+    } finally {
+      prepareSpy.mockRestore();
+    }
+  });
+
+  it('lists saved bookmarks with optional metadata and chat filtering', () => {
+    const store = new BookmarkStore(file);
+    store.set('MSG-1', 'alice@s.whatsapp.net', true, {
+      chatName: 'Alice',
+      senderName: 'Alice',
+      text: 'Remember the door code 4821',
+      ts: '2026-09-01T10:00:00Z',
+    });
+    store.set('MSG-2', 'bob@s.whatsapp.net', true, {
+      chatName: 'Bob',
+      senderName: 'Me',
+      text: 'Signed contract attached',
+      ts: '2026-09-02T12:00:00Z',
+    });
+
+    const all = store.list();
+    expect(all).toHaveLength(2);
+    expect(all.find((b) => b.msgId === 'MSG-1')).toMatchObject({
+      msgId: 'MSG-1',
+      chatJid: 'alice@s.whatsapp.net',
+      chatName: 'Alice',
+      senderName: 'Alice',
+      text: 'Remember the door code 4821',
+      ts: '2026-09-01T10:00:00Z',
+    });
+
+    const aliceOnly = store.list({ chat: 'alice@s.whatsapp.net' });
+    expect(aliceOnly.map((b) => b.msgId)).toEqual(['MSG-1']);
   });
 });

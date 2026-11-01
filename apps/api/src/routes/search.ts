@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { execWacli } from '../wacli/commands.js';
+import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
 import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { RawMessage, UnifiedMessage } from '../types.js';
@@ -55,9 +56,17 @@ export function createSearchRouter(): Router {
 
       // A hit's chat name titles the thread it opens, so a group's has to be
       // its subject rather than the member wacli stamped on the message.
-      const results: UnifiedMessage[] = rawList.map((rawMsg) =>
+      const normalized = rawList.map((rawMsg) =>
         withGroupSubject(normalizeMessage(rawMsg), groupNames)
       );
+      const bookmarkedIds = bookmarkStore.getBookmarkedIds(
+        normalized.map((m) => m.msgId),
+        chat
+      );
+      const results: UnifiedMessage[] = normalized.map((m) => {
+        m.bookmarked = Boolean(m.msgId) && bookmarkedIds.has(m.msgId);
+        return m;
+      });
 
       res.json({
         success: true,
