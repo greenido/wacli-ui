@@ -9,6 +9,7 @@ export type ActiveModal =
   | 'new-chat'
   | 'chat-info'
   | 'tag-manager'
+  | 'templates'
   | 'help'
   | 'mode-confirm';
 

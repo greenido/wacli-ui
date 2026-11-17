@@ -61,6 +61,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { chords: [[MOD, 'U']], action: 'Attach a file to this message' },
       { chords: [['Enter']], action: 'Send — opens the confirmation step' },
       { chords: [['Shift', 'Enter']], action: 'New line in the composer' },
+      { chords: [['/']], action: 'At the start of a message: pick a quick-reply template' },
       { chords: [[MOD, 'Enter']], action: 'Send later — schedule this message' },
       {
         chords: [[MOD, 'Shift', 'L']],

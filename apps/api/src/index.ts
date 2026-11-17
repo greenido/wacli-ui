@@ -22,6 +22,7 @@ import { createContactsRouter } from './routes/contacts.js';
 import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
 import { createSleepRouter } from './routes/sleep.js';
+import { createTemplatesRouter } from './routes/templates.js';
 import { modeManager } from './wacli/mode.js';
 import { scheduler } from './wacli/scheduler.js';
 import { SleepController, sleepGate } from './wacli/sleep.js';
@@ -226,6 +227,7 @@ export function createApp(
   app.use('/api', createContactsRouter(processManager));
   app.use('/api', createSendRouter(processManager));
   app.use('/api', createMediaRouter(processManager));
+  app.use('/api', createTemplatesRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
 
   // Serve static UI assets if built

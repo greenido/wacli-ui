@@ -246,3 +246,13 @@ export interface BookmarkEntry {
   text?: string;
   ts?: string;
 }
+
+/** A quick-reply template. Kept by Mission Control on this machine. */
+export interface QuickReplyTemplate {
+  id: string;
+  name: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+}

@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
+import { render, screen, act, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Composer } from './Composer.tsx';
+import { TemplateManagerModal } from '../TemplateManagerModal/TemplateManagerModal.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedChat } from '../../types.ts';
+import type { QuickReplyTemplate, UnifiedChat } from '../../types.ts';
 
 const api = vi.hoisted(() => ({
   getMode: vi.fn(),
   setMode: vi.fn(),
+  getTemplates: vi.fn(),
+  markTemplateUsed: vi.fn(),
+  createTemplate: vi.fn(),
+  updateTemplate: vi.fn(),
+  deleteTemplate: vi.fn(),
 }));
 
 vi.mock('../../api/client.ts', () => ({ api, ApiClientError: class extends Error {} }));
@@ -53,6 +59,8 @@ describe('Composer', () => {
     // Live sends, remembered and confirmed, so the composer itself renders.
     localStorage.setItem('wacli_safe_mode', 'false');
     api.getMode.mockResolvedValue({ readOnly: false });
+    api.getTemplates.mockResolvedValue([]);
+    api.markTemplateUsed.mockResolvedValue({ id: 'x' });
     useAppStore.setState({ selectedChat: CHAT, composerDrafts: {}, composerFiles: {} });
   });
 
@@ -127,5 +135,141 @@ describe('Composer', () => {
     fireEvent.dragOver(composer, { dataTransfer: carrying([]) });
 
     expect(screen.queryByText('DROP TO ATTACH')).not.toBeInTheDocument();
+  });
+
+  describe('quick replies', () => {
+    const template = (id: string, name: string, body: string): QuickReplyTemplate => ({
+      id,
+      name,
+      body,
+      createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-01T00:00:00Z',
+      lastUsedAt: null,
+    });
+    const LATE = template('t-late', 'Running late', 'Ten minutes behind, sorry.');
+    const THANKS = template('t-thanks', 'Thanks', 'Thank you!');
+    const LATER = template('t-later', 'Later', 'Talk later.');
+
+    beforeEach(() => {
+      api.getTemplates.mockResolvedValue([THANKS, LATE, LATER]);
+      useAppStore.setState({ activeModal: null, sendConfirmData: null });
+    });
+
+    /** Types into the composer the way a change event delivers it. */
+    function type(box: HTMLElement, value: string) {
+      fireEvent.change(box, { target: { value } });
+    }
+
+    async function openWith(value: string) {
+      const box = renderComposer();
+      act(() => box.focus());
+      type(box, value);
+      // The footer is there whether or not anything matched; the list is
+      // there once the templates have loaded.
+      await screen.findByText(/Enter insert/);
+      await waitFor(() => expect(screen.queryByText(/Loading templates/)).toBeNull());
+      return box;
+    }
+
+    it('opens on a leading slash and replaces the search with the template', async () => {
+      const box = await openWith('/');
+
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+        'ThanksThank you!',
+        'Running lateTen minutes behind, sorry.',
+        'LaterTalk later.',
+      ]);
+
+      fireEvent.keyDown(box, { key: 'Enter' });
+
+      expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe('Thank you!');
+      expect(screen.queryByRole('listbox')).toBeNull();
+      // Picking fills the composer; nothing is staged to send.
+      expect(useAppStore.getState().activeModal).toBeNull();
+      expect(api.markTemplateUsed).toHaveBeenCalledWith('t-thanks');
+    });
+
+    it('narrows as you type and moves with the arrow keys', async () => {
+      const box = await openWith('/lat');
+
+      expect(screen.getAllByRole('option')).toHaveLength(2);
+      expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
+      expect(box).toHaveAttribute('aria-activedescendant', screen.getAllByRole('option')[0].id);
+
+      fireEvent.keyDown(box, { key: 'ArrowDown' });
+      expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');
+      fireEvent.keyDown(box, { key: 'Tab' });
+
+      // "Later" starts with the search, so it ranks above "Running late".
+      expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe(LATE.body);
+    });
+
+    it('closes on Esc and then sends the slash as typed', async () => {
+      const box = await openWith('/shrug');
+      expect(screen.getByText(/No template matches/)).toBeInTheDocument();
+
+      fireEvent.keyDown(box, { key: 'Escape' });
+      expect(screen.queryByText(/No template matches/)).toBeNull();
+
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(useAppStore.getState().activeModal).toBe('send-confirm');
+      expect(useAppStore.getState().sendConfirmData?.messageText).toBe('/shrug');
+    });
+
+    it('sends what was typed when no template matches', async () => {
+      const box = await openWith('/zzz');
+
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(useAppStore.getState().sendConfirmData?.messageText).toBe('/zzz');
+    });
+
+    it('inserts at the caret when opened from the button', async () => {
+      const box = renderComposer() as HTMLTextAreaElement;
+      act(() => box.focus());
+      type(box, 'Hi  there');
+      box.setSelectionRange(3, 3);
+
+      fireEvent.click(screen.getByTitle(/Quick replies/));
+      await screen.findByRole('listbox', { name: 'Quick replies' });
+      fireEvent.click(screen.getByRole('option', { name: /Thanks/ }));
+
+      expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe('Hi Thank you! there');
+    });
+
+    it('opens again once the manager closes and hands focus back', async () => {
+      // The dialog returns focus from a layout-effect cleanup, which React runs
+      // with its event system off; onFocus never saw it, and the picker stayed
+      // hidden, so Enter sent the search text instead of inserting a template.
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={client}>
+          <Composer />
+          <TemplateManagerModal />
+        </QueryClientProvider>
+      );
+      const box = screen.getByRole('textbox');
+      act(() => box.focus());
+      type(box, '/');
+      await screen.findByRole('listbox', { name: 'Quick replies' });
+
+      fireEvent.click(screen.getByRole('button', { name: 'MANAGE' }));
+      await screen.findByRole('dialog');
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(box).toHaveFocus();
+
+      type(box, '/tha');
+      await screen.findByRole('listbox', { name: 'Quick replies' });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      expect(useAppStore.getState().composerDrafts[CHAT.jid]).toBe(THANKS.body);
+      expect(useAppStore.getState().activeModal).toBeNull();
+    });
+
+    it('opens the manager from the picker', async () => {
+      await openWith('/');
+
+      fireEvent.click(screen.getByRole('button', { name: 'MANAGE' }));
+      expect(useAppStore.getState().activeModal).toBe('templates');
+    });
   });
 });
