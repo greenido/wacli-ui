@@ -151,6 +151,63 @@ describe('framing the console', () => {
   });
 });
 
+/**
+ * Every message body, contact name and file name the console shows was written
+ * by someone else. React's escaping is the first line; the policy is the
+ * second, for the day something slips through it.
+ */
+describe('what the browser lets the console load', () => {
+  function directives(res: request.Response): Map<string, string> {
+    const header = String(res.headers['content-security-policy'] ?? '');
+    return new Map(
+      header.split(';').map((part) => {
+        const [name, ...sources] = part.trim().split(/\s+/);
+        return [name, sources.join(' ')] as const;
+      })
+    );
+  }
+
+  it('allows script, style and fonts from this server only', async () => {
+    const res = await request(appWith()).get('/api/mode').set('Host', `127.0.0.1:${PORT}`);
+    const csp = directives(res);
+
+    expect(csp.get('default-src')).toBe("'self'");
+    expect(csp.get('script-src')).toBe("'self'");
+    expect(csp.get('style-src')).toBe("'self'");
+    expect(csp.get('font-src')).toBe("'self'");
+    expect(csp.get('object-src')).toBe("'none'");
+    expect(csp.get('base-uri')).toBe("'none'");
+    expect(csp.get('frame-ancestors')).toBe("'none'");
+  });
+
+  it('lets the page open its live feed on the name it was loaded by', async () => {
+    for (const host of [`127.0.0.1:${PORT}`, `localhost:${PORT}`, `wacli-ui:${PORT}`]) {
+      const res = await request(appWith()).get('/api/mode').set('Host', host);
+      expect(directives(res).get('connect-src'), host).toBe(`'self' ws://${host}`);
+    }
+  });
+
+  it('puts nothing from a malformed Host into the policy', async () => {
+    // Refused by the Host check anyway; the headers go out on the refusal.
+    const res = await request(appWith())
+      .get('/api/mode')
+      .set('Host', "localhost:3002 'unsafe-inline'");
+
+    expect(res.status).toBe(403);
+    expect(directives(res).get('connect-src')).toBe("'self'");
+    expect(String(res.headers['content-security-policy'])).not.toContain('unsafe-inline');
+  });
+
+  it('tells other sites nothing, by referrer or by embedding', async () => {
+    const res = await request(appWith()).get('/api/mode');
+
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['cross-origin-resource-policy']).toBe('same-site');
+    expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
+  });
+});
+
 describe('the Host header', () => {
   it('refuses a name this machine does not answer to', async () => {
     // What DNS rebinding looks like on arrival: a loopback socket, but a Host

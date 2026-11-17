@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { logger } from './logger.js';
 import { accessPolicy, isAllowedHost, isAllowedOrigin, type AccessPolicy } from './net/loopback.js';
+import { securityHeaders } from './net/security-headers.js';
 import { WacliProcessManager } from './wacli/process-manager.js';
 import { startWacliUpdateChecks } from './wacli/update-check.js';
 import { eventBridge, EventBridge } from './ws/event-bridge.js';
@@ -143,19 +144,11 @@ export function createApp(
   const app = express();
   app.disable('x-powered-by');
 
-  // The origin check decides who may call this console. It cannot decide who
-  // may *frame* it: a page that frames Mission Control reads nothing through
-  // the frame, but the operator's own clicks land inside it, and one of them
-  // unlocks live sends. Set before the two checks below so a refusal carries
-  // them as well — a 403 renders in a frame like anything else.
-  //
-  // Both headers: frame-ancestors is the one modern browsers honour,
-  // X-Frame-Options the one older ones still read.
-  app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
-    next();
-  });
+  // The origin check decides who may call this console. These headers decide
+  // what the browser lets the console's own pages do — load, frame, connect
+  // to. Set before the two checks below so a refusal carries them as well: a
+  // 403 renders in a frame like anything else.
+  app.use(securityHeaders);
 
   // A Host this machine does not answer to is DNS rebinding: somebody else's
   // name, pointed at this port after their page loaded.
