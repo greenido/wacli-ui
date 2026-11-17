@@ -11,6 +11,7 @@ import type {
   ActivityPage,
   BookmarkEntry,
   SleepState,
+  QuickReplyTemplate,
 } from '../types.ts';
 
 const API_BASE =
@@ -228,6 +229,32 @@ export const api = {
       },
       body: JSON.stringify(data),
     }),
+
+  /** Quick-reply templates, most recently used first. Local to this machine. */
+  getTemplates: () => request<QuickReplyTemplate[]>('/api/templates'),
+
+  createTemplate: (data: { name: string; body: string }) =>
+    request<QuickReplyTemplate>('/api/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  updateTemplate: (id: string, data: { name: string; body: string }) =>
+    request<QuickReplyTemplate>(`/api/templates/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  deleteTemplate: (id: string) =>
+    request<{ id: string; deleted: boolean }>(`/api/templates/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  /** Moves a template to the top of the picker. */
+  markTemplateUsed: (id: string) =>
+    request<{ id: string }>(`/api/templates/${encodeURIComponent(id)}/use`, { method: 'POST' }),
 
   /** How far back the local archive reaches — what the thread can page to. */
   getHistoryCoverage: (params: { chat?: string } = {}) =>

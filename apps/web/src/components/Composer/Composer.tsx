@@ -1,10 +1,19 @@
-import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
-import { Send, Paperclip, X, Unlock, ShieldAlert, Clock } from 'lucide-react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useId } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send, Paperclip, X, Unlock, ShieldAlert, Clock, MessageSquareText } from 'lucide-react';
+import { api } from '../../api/client.ts';
+import {
+  insertTemplate,
+  matchTemplates,
+  templateOptionId,
+  templateQuery,
+} from '../../lib/templatePicker.ts';
+import { TemplatePicker } from './TemplatePicker.tsx';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
-import type { UnifiedMessage } from '../../types.ts';
+import type { QuickReplyTemplate, UnifiedMessage } from '../../types.ts';
 
 /** What the confirm dialog shows instead of a bare wamid. */
 function describeReplyTarget(msg: UnifiedMessage): { sender: string; text: string } {
@@ -38,6 +47,56 @@ export const Composer: React.FC = () => {
 
   const { isReadOnly, setSafeMode, isSettingMode } = useSafeMode();
 
+  // Quick replies. Each of these names the chat it applies to, so switching
+  // chats closes the picker without an effect to reset it.
+  const queryClient = useQueryClient();
+  const pickerId = useId();
+  const [hasFocus, setHasFocus] = useState(false);
+  /** The chat whose picker the button opened, with no `/` typed. */
+  const [pickerForcedFor, setPickerForcedFor] = useState<string | null>(null);
+  /** The chat whose `/` search was closed with Esc, until the slash goes. */
+  const [pickerDismissedFor, setPickerDismissedFor] = useState<string | null>(null);
+  const [pickerIndex, setPickerIndex] = useState(0);
+  /** Where the caret goes once an inserted template has rendered. */
+  const pendingCaret = useRef<number | null>(null);
+
+  const templatesQuery = useQuery({
+    queryKey: ['templates'],
+    queryFn: () => api.getTemplates(),
+    enabled: Boolean(selectedChat) && !isReadOnly,
+    staleTime: 60_000,
+  });
+  const templates = templatesQuery.data ?? [];
+
+  const slashQuery = templateQuery(composerDraft);
+  const pickerOpen =
+    hasFocus &&
+    !isReadOnly &&
+    (pickerForcedFor === chatJid || (slashQuery !== null && pickerDismissedFor !== chatJid));
+  const pickerMatches = pickerOpen ? matchTemplates(templates, slashQuery ?? '') : [];
+  const activeIndex = Math.min(pickerIndex, Math.max(0, pickerMatches.length - 1));
+
+  const closePicker = () => {
+    setPickerForcedFor(null);
+    if (slashQuery !== null) setPickerDismissedFor(chatJid);
+  };
+
+  const pickTemplate = (template: QuickReplyTemplate) => {
+    const caret = textareaRef.current?.selectionStart ?? composerDraft.length;
+    const next = insertTemplate(composerDraft, template.body, caret, slashQuery !== null);
+    setComposerDraft(chatJid, next.draft);
+    setPickerForcedFor(null);
+    // A template that itself begins with a slash is text, not another search.
+    setPickerDismissedFor(templateQuery(next.draft) !== null ? chatJid : null);
+    setPickerIndex(0);
+    pendingCaret.current = next.caret;
+    // Only reorders the picker; a failure here costs nothing worth showing.
+    api
+      .markTemplateUsed(template.id)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['templates'] }))
+      .catch(() => {});
+  };
+
   // The box grows with the draft, up to its max-h-32, and scrolls from there.
   // Held at one row, a multi-line draft sat in a one-line box that showed a
   // single line of it at a time.
@@ -53,6 +112,39 @@ export const Composer: React.FC = () => {
     // scrollHeight leaves out the border, which the box's height includes.
     el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
   }, [composerDraft, chatJid, isReadOnly]);
+
+  // After a template goes in, the caret sits at its end rather than wherever
+  // the browser leaves it when the value is replaced.
+  useLayoutEffect(() => {
+    const caret = pendingCaret.current;
+    if (caret === null) return;
+    pendingCaret.current = null;
+    textareaRef.current?.setSelectionRange(caret, caret);
+  }, [composerDraft]);
+
+  // Whether the textarea has focus, for showing the picker only while typing.
+  // Native listeners, not onFocus/onBlur: a dialog closing hands focus back
+  // from its layout-effect cleanup, which React runs mid-commit with its own
+  // event system switched off, so onFocus never heard the composer get focus
+  // back and the picker stayed hidden. Declared ahead of the effects below
+  // that focus the textarea, so the listeners are there to see it.
+  const hasTextarea = Boolean(selectedChat) && !isReadOnly;
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!hasTextarea || !el) return;
+    const onFocus = () => setHasFocus(true);
+    const onBlur = () => {
+      setHasFocus(false);
+      setPickerForcedFor(null);
+    };
+    el.addEventListener('focus', onFocus);
+    el.addEventListener('blur', onBlur);
+    if (document.activeElement === el) onFocus();
+    return () => {
+      el.removeEventListener('focus', onFocus);
+      el.removeEventListener('blur', onBlur);
+    };
+  }, [hasTextarea]);
 
   // Opening a chat by clicking it means you intend to write, so the caret
   // follows. Stepping through the rail on the keyboard does not: a composer
@@ -137,6 +229,30 @@ export const Composer: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // The picker has the keys while it is open. With nothing to pick, Enter
+    // falls through to an ordinary send of what was typed.
+    if (pickerOpen) {
+      const count = pickerMatches.length;
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && count > 0) {
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        setPickerIndex((activeIndex + step + count) % count);
+        return;
+      }
+      const plainEnter = e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey;
+      if ((plainEnter || e.key === 'Tab') && count > 0) {
+        e.preventDefault();
+        pickTemplate(pickerMatches[activeIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closePicker();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       stageForConfirm(false);
@@ -269,7 +385,43 @@ export const Composer: React.FC = () => {
           <Paperclip size={16} />
         </button>
 
+        {/* Kept from taking focus, so a template lands at the caret the
+            operator left in the draft rather than at its start. */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setPickerForcedFor(pickerOpen ? null : chatJid);
+            setPickerIndex(0);
+            textareaRef.current?.focus();
+          }}
+          aria-expanded={pickerOpen}
+          className={`p-2 rounded hover:bg-mc-surfaceHover transition-colors ${
+            pickerOpen ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
+          }`}
+          title="Quick replies (or type / to start a message)"
+        >
+          <MessageSquareText size={16} />
+        </button>
+
         <div className="flex-1 min-h-[38px] relative">
+          {pickerOpen && (
+            <TemplatePicker
+              id={pickerId}
+              matches={pickerMatches}
+              activeIndex={activeIndex}
+              query={slashQuery ?? ''}
+              hasTemplates={templates.length > 0}
+              isLoading={templatesQuery.isLoading}
+              isError={templatesQuery.isError}
+              onPick={pickTemplate}
+              onHover={setPickerIndex}
+              onManage={() => {
+                setPickerForcedFor(null);
+                setActiveModal('templates');
+              }}
+            />
+          )}
           {/* The draft flips as it is typed, so composing in Hebrew looks the
               way it will read once sent — and the caret sits at the right edge
               instead of the left. The placeholder is English either way, so it
@@ -277,7 +429,18 @@ export const Composer: React.FC = () => {
           <textarea
             ref={textareaRef}
             value={composerDraft}
-            onChange={(e) => setComposerDraft(chatJid, e.target.value)}
+            onChange={(e) => {
+              setComposerDraft(chatJid, e.target.value);
+              setPickerIndex(0);
+              setPickerForcedFor(null);
+              // Esc closed this search; deleting the slash is what ends it.
+              if (templateQuery(e.target.value) === null) setPickerDismissedFor(null);
+            }}
+            aria-autocomplete="list"
+            aria-controls={pickerOpen && pickerMatches.length > 0 ? pickerId : undefined}
+            aria-activedescendant={
+              pickerOpen && pickerMatches.length > 0 ? templateOptionId(pickerId, activeIndex) : undefined
+            }
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}

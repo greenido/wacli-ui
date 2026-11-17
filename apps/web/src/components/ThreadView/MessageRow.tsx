@@ -5,6 +5,7 @@ import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import { QuoteChip } from './QuoteChip.tsx';
+import { LinkifiedText } from './LinkifiedText.tsx';
 import { deliveryTitle } from '../../lib/deliveryStatus.ts';
 import type { UnifiedMessage } from '../../types.ts';
 
@@ -125,7 +126,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {msg.revoked ? (
               <span className="italic text-mc-textMuted">This message was deleted.</span>
             ) : (
-              msg.displayText || msg.text
+              <LinkifiedText text={msg.displayText || msg.text} />
             )}
           </div>
         )}

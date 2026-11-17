@@ -16,6 +16,10 @@ jobs:
           node-version: 22
           cache: 'npm'
       - run: npm ci
+      # Only what ships, and only high or worse: dev tooling never reaches an
+      # operator's machine, and a moderate advisory should not block a PR that
+      # has nothing to do with it. Dependabot raises the fix either way.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test

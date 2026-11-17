@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
  * `migrations`. The number is stored in the file itself, so a database written
  * by a newer build is recognised rather than silently half-read.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -77,11 +77,33 @@ function migrateToV2(db: DatabaseSync): void {
 }
 
 /**
+ * Quick-reply templates: text the operator keeps for the `/` picker in the
+ * composer. Local, like bookmarks and tags; WhatsApp never sees them until one
+ * is sent as an ordinary message.
+ */
+function migrateToV3(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS templates (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      body         TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL,
+      last_used_at TEXT
+    );
+  `);
+}
+
+/**
  * Applied in order from whatever version the file is already at. Index 0 takes
  * an empty file to version 1, so a fresh install runs the same statements an
  * upgrade would.
  */
-const migrations: Array<(db: DatabaseSync) => void> = [(db) => db.exec(SCHEMA_V1), migrateToV2];
+const migrations: Array<(db: DatabaseSync) => void> = [
+  (db) => db.exec(SCHEMA_V1),
+  migrateToV2,
+  migrateToV3,
+];
 
 /** The version recorded in the file, or 0 for one this build has never opened. */
 function readVersion(db: DatabaseSync): number {

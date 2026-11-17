@@ -59,6 +59,11 @@ export const SLEEP_ROUTES = {
     'DELETE /api/send/scheduled/:id',
     'POST /api/send/scheduled/:id/resend',
     'POST /api/send/scheduled/:id/discard',
+    'GET /api/templates',
+    'POST /api/templates',
+    'POST /api/templates/:id',
+    'DELETE /api/templates/:id',
+    'POST /api/templates/:id/use',
     // Serves what is already on disk, and makes its own call about the wacli
     // download it would otherwise fall back to (see routes/media.ts).
     'GET /api/media/content',

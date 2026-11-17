@@ -111,8 +111,9 @@ There's no `--host` flag, and that's on purpose. See [Security & privacy](#secur
 - Delivery ticks: sent, delivered, read, played.
 - Inline media: images, stickers, video, voice notes with 1× / 1.5× / 2× playback, and documents to download.
 - **Expired media isn't a dead end.** When WhatsApp's servers no longer have a file, the tile says so and offers **ASK PHONE**, which asks your phone to send it again (wacli 0.22+, live mode only). A phone that doesn't answer is probably just offline, not proof the file is gone.
+- **Links are clickable.** `http://`, `https://` and bare `www.` links open in a new tab, and the site isn't told where you came from. Anything else that looks like a link (`javascript:`, `file:` and friends) stays plain text, and hovering shows the real address, so a lookalike domain shows up under its true name.
 - Hover a message to reply, react, copy or bookmark. The emoji drawer has a quick row, four categories, a search box, and the good sense to open where a sidebar won't cover it.
-- A composer that keeps a separate draft, attachment and reply target for every chat.
+- A composer that keeps a separate draft, attachment and reply target for every chat, with [quick replies](#-quick-replies) one `/` away.
 
 **Right: mission status.**
 - Mode, wacli version, daemon state and PID, WebSocket relay, heartbeat, store lock and linked identity, plus a **Restart Daemon** button for bad days.
@@ -139,6 +140,17 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 - **Attachments wait somewhere safe.** A queued file is kept in `~/.wacli-mission-control/scheduled-files/` (mode `0700`), not in a temp directory your OS likes to tidy. It's deleted once it's sent, cancelled or discarded. If it vanishes anyway, the message fails and says why. The caption never goes out alone.
 - Each message is saved on its own, so one the database rejects can't stop the rest of the queue from being saved.
 
+### ⚡ Quick replies
+
+*For the replies you've typed so many times your fingers do it on their own.*
+
+- Type **`/`** at the start of a message and your saved replies pop up above the composer. Keep typing to narrow them (`/late`), use the arrows to pick one, then <kbd>Enter</kbd> or <kbd>Tab</kbd> to drop it in.
+- **Inserting isn't sending.** A quick reply only fills the composer. You can still edit it, and it still goes through the confirmation step like anything else.
+- Really meant to start with a slash? <kbd>Esc</kbd> closes the list and <kbd>Enter</kbd> sends what you typed. If nothing matches, <kbd>Enter</kbd> just sends.
+- The **speech-bubble button** next to the paperclip opens the same list and inserts at the caret, so a reply can go in the middle of a sentence.
+- **MANAGE** lets you write, edit and delete them. **NEW TEMPLATE** starts from whatever's in the composer, so the reply you just typed for the third time doesn't need a fourth.
+- The ones you used most recently come first. They're stored on this machine in Mission Control's database (WhatsApp never sees them until you send one), and they work in safe mode and while asleep.
+
 ### 🌙 Sleep mode
 
 *Put the console to bed. The alarm clock keeps working.*
@@ -153,7 +165,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
   - send, reply or react;
   - reload the page, or open another tab.
 
-  Every wake is logged with its reason. Scrolling, bookmarks, tags, Help, Settings, safe mode, queueing a Send Later, and the LATER queue's own buttons all leave it asleep.
+  Every wake is logged with its reason. Scrolling, bookmarks, tags, quick replies, Help, Settings, safe mode, queueing a Send Later, and the LATER queue's own buttons all leave it asleep.
 - **Every tab, across restarts.** Sleep is stored in the database, so every open tab dozes together and a restarted server comes back asleep without starting the daemon.
 - **Frozen, not fetched.** While asleep, the API answers wacli reads with `409 ASLEEP` instead of running wacli, so a forgotten tab or a script can't quietly undo sleep. An attachment that wasn't downloaded before sleep stays a placeholder.
 - **It doesn't keep your computer awake.** If the machine sleeps, Node sleeps too, and messages that come due go out when it wakes. For sends that must be on time, keep the machine awake (on macOS, `caffeinate -i`). Nap for hours or days, not weeks: WhatsApp eventually unlinks a device that stays offline.
@@ -209,6 +221,7 @@ These use a modifier, so they work even mid-sentence in the composer. <kbd>Cmd</
 | <kbd>Cmd</kbd> + <kbd>U</kbd> | Attach a file to this message |
 | <kbd>Enter</kbd> | Send (opens the confirmation step) |
 | <kbd>Shift</kbd> + <kbd>Enter</kbd> | New line in the composer |
+| <kbd>/</kbd> | At the start of a message: pick a quick reply |
 | <kbd>Cmd</kbd> + <kbd>Enter</kbd> | Send later: schedule this message |
 | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> | Switch between SAFE (read-only) and LIVE sending (asks first) |
 | <kbd>Esc</kbd> | Close a dialog, clear the reply pill, or step out of the composer |
@@ -273,11 +286,12 @@ Mission Control holds a live WhatsApp session and has no login screen. So its wh
 - **Loopback only, no exceptions.** The server listens on `127.0.0.1`, and the bind address isn't configurable. That's why there's no `--host` flag. A request whose `Host` header names some other machine gets `403 FORBIDDEN_HOST`, which is what stops DNS-rebinding tricks.
 - **Only its own pages.** The REST API and the live WebSocket answer only pages Mission Control served on its own port. Any other local app (a dev server, a notebook, another site on this machine) gets `403 FORBIDDEN_ORIGIN`, even though it's on `localhost` too. Under `npm run dev`, the Vite dev server (`5174`) and preview (`4174`) are trusted as well. Clients that send no `Origin` header, such as curl, aren't web pages and are let through.
 - **Your own local name.** Want `http://wacli-ui:3002`? Add `127.0.0.1 wacli-ui` to `/etc/hosts`. Mission Control reads the hosts file at startup and trusts any name it maps to `127.0.0.1`. A name that isn't in the file is never trusted, because DNS could answer for it.
+- **A strict Content-Security-Policy.** Every message you see was written by someone else, so the page only runs script, styles and fonts that Mission Control itself served, and it can only connect back to its own server. If something in a message ever slipped past React's escaping, the browser would refuse to run it anyway. Responses also carry `nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Resource-Policy: same-site`, so another site's `<img>` or `<video>` aimed at the console gets nothing back.
 - **Media stays in `media/`.** The media route serves only files under the store's `media/` directory, so `session.db` (your linked device's keys) and `wacli.db` (the archive) one level up are off limits. A file's type comes from an allowlist of extensions, never from a download's name. SVG is never rendered inline, and anything not on the list is served as opaque bytes.
 - **Signed webhooks.** The daemon's events are signed with HMAC-SHA256 using a secret generated fresh on every start and checked in constant time. The secret only ever appears in logs as `<redacted>`.
 - **One console per database.** A second Mission Control pointed at the same database refuses to start and says why: two would each send every scheduled message. While it runs, the server keeps the database file to itself, so tools such as the `sqlite3` shell can open it only after it stops. To run two consoles, give each its own `WACLI_DB_FILE`.
 - **No store, no start.** If its database can't be opened, the API refuses to boot rather than guess. Safe mode lives in that file, and a server that couldn't read it would be answering "may I send?" from a compiled-in default instead of from you.
-- **No middleman.** Mission Control has no server of its own to relay through. Every operation runs against your local wacli, which talks to WhatsApp; exports download straight to your browser; notifications are raised by your own browser. The one other outside request is the UI loading its fonts (IBM Plex) from Google Fonts.
+- **No middleman.** Mission Control has no server of its own to relay through. Every operation runs against your local wacli, which talks to WhatsApp; exports download straight to your browser; notifications are raised by your own browser. Even the fonts (IBM Plex) ship with the app, so loading the console doesn't send a single request off your machine.
 - **Logs mind their manners.** What you send appears as `--message <redacted>` or `--caption <redacted>` wherever a command is logged or quoted in an error, including a failed scheduled message's stored reason and the activity log. Incoming message bodies stay out of the logs unless you set `WACLI_LOG_WEBHOOK_PAYLOADS=1`. Nothing is written to disk without `LOG=1`, and run logs older than 3 days are deleted at startup.
 - **The activity log expires too.** It records who you messaged and what you said, so it lives in a database file created `0600`, and entries older than 90 days are deleted at startup.
 - **Queued files stay private.** Attachments waiting for Send Later sit in `~/.wacli-mission-control/scheduled-files/` (mode `0700`) and are deleted once they're done.
@@ -345,6 +359,11 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/tags` | Add or remove a local tag (`{ jid, tag, add }`); allowed in safe mode |
 | `POST` | `/api/tags/rename` | Rename a tag on every chat (`{ from, to }`); merges when `to` already exists |
 | `POST` | `/api/tags/delete` | Remove a tag from every chat (`{ tag }`) |
+| `GET` | `/api/templates` | Quick replies, most recently used first |
+| `POST` | `/api/templates` | Save a quick reply (`{ name, body }`); allowed in safe mode |
+| `POST` | `/api/templates/:id` | Edit a quick reply (`{ name, body }`) |
+| `DELETE` | `/api/templates/:id` | Delete a quick reply |
+| `POST` | `/api/templates/:id/use` | Record that a quick reply was used, which moves it to the top |
 | `POST` | `/api/send/text` | Send a text or a reply (`{ to, message, replyTo?, confirm: true }`) |
 | `POST` | `/api/send/file` | Send a file (`multipart/form-data`: `file`, `to`, `caption?`, `replyTo?`, `confirm`) |
 | `POST` | `/api/send/react` | React with an emoji (`{ to, id, reaction, sender?, confirm: true }`) |
@@ -491,7 +510,7 @@ Because wacli can read stars but can't set them. The bookmark lives on this mach
 When the laptop sleeps, Node sleeps with it. On macOS, `caffeinate -i` keeps it awake for sends that have to be on time.
 
 **Does it phone home?**<br>
-No. Mission Control talks to your local wacli, and wacli talks to WhatsApp. The only other request that leaves the machine is your browser fetching the UI's fonts from Google Fonts. Typography is its one vice.
+No. Mission Control talks to your local wacli, and wacli talks to WhatsApp. Nothing else leaves the machine. The UI even brings its own fonts, so it has given up its one vice.
 
 **Will it spam my contacts?**<br>
 Only if you unlock live sends, type a message, press Enter, and then confirm the read-back. That's four decisions, which is about three more than most spam gets.
