@@ -151,6 +151,17 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 - **MANAGE** lets you write, edit and delete them. **NEW TEMPLATE** starts from whatever's in the composer, so the reply you just typed for the third time doesn't need a fourth.
 - The ones you used most recently come first. They're stored on this machine in Mission Control's database (WhatsApp never sees them until you send one), and they work in safe mode and while asleep.
 
+### ⏳ Waiting on a reply
+
+*For "seen, 2 days ago" and the silence after it.*
+
+- The **WAITING** tab in the status strip lists messages you sent that reached the other phone (delivered, read or played) and have had no reply since, the longest wait at the top: *Ada Lovelace read this · sent 2 days ago*.
+- **It reads the archive you already have.** It's worked out from the same scan of recent messages the chat list uses for its previews, so it costs no extra wacli call. A reply clears the row as soon as it syncs, even if it beat the read receipt there. A 👍 reaction doesn't count as a reply.
+- **Direct chats only, for now.** In a group the next message is usually about something else, so "no reply since" would mean almost nothing there.
+- Click a row to jump to the message. **Nudge** opens the chat with a follow-up quoting it ready in the composer. Name a quick reply *Follow-up* and Nudge uses your words instead of its own. Nothing goes out until you confirm, and safe mode still has the last word.
+- **Remind me** hides a row until later (in 3 hours, tomorrow at 9, in 3 days, next week), then it comes back marked REMINDER. **Done** lets it go for good. Both live on this machine and work in safe mode and while asleep. The list itself waits for you to wake up.
+- It looks as far back as that scan does, the newest 3,000 messages. Silence older than that is a different problem.
+
 ### 🌙 Sleep mode
 
 *Put the console to bed. The alarm clock keeps working.*
@@ -270,7 +281,7 @@ flowchart TB
 2. **The bridge.** The API verifies each webhook and pushes it to the browser over `/ws`. Arriving messages are folded straight into the cached chat rail and thread, so the common case costs no request at all. A slow poll stays on as the safety net for anything the socket misses.
 3. **Reads.** Chats, messages, search, contacts, groups and archive coverage run as one-shot `wacli … --json` commands with `WACLI_READONLY=1`.
 4. **Sends.** Sends, reactions and read receipts run as `wacli send …`, which hands the job to the running daemon over the store's `.send.sock`, so the daemon stays connected throughout. If the daemon isn't connected yet (or your wacli is too old to hand off), Mission Control pauses the daemon for the send and brings it back afterwards. A contact alias or a history backfill always pauses it. A Restart, Sleep or shutdown waits for any send the daemon is carrying to finish first.
-5. **Its own memory.** Safe mode, the scheduled queue, the activity log, bookmarks, tags and sleep state live in `~/.wacli-mission-control/mission-control.db`, built on Node's own `node:sqlite` and created with mode `0600`.
+5. **Its own memory.** Safe mode, the scheduled queue, the activity log, bookmarks, tags, what you've done with the WAITING list and sleep state live in `~/.wacli-mission-control/mission-control.db`, built on Node's own `node:sqlite` and created with mode `0600`.
 
 **Stack**
 - `apps/api`: Node.js 22.13+, Express 5, `ws`, `multer`, `node:sqlite`, TypeScript.
@@ -348,6 +359,9 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/chats/mark-read` | Send a read receipt for a chat (`{ chat, through? }`), stopping at message `through` on wacli 0.22+; refused in safe mode |
 | `GET` | `/api/messages` | A chat's messages (`?chat=<jid>&limit=100`, plus `before`, `after`, `asc`); raise `limit` to page further back |
 | `POST` | `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
+| `GET` | `/api/waiting` | Your messages in direct chats that were delivered or read and have had no reply since, longest wait first (`?limit=`, up to 200). Returns `{ items, total, snoozed }` |
+| `POST` | `/api/waiting/dismiss` | Stop listing one for good (`{ chat, id }`). Local only, allowed in safe mode |
+| `POST` | `/api/waiting/snooze` | Hide one until a time within the next year (`{ chat, id, until }`, ISO 8601). Local only, allowed in safe mode |
 | `GET` | `/api/messages/export` | Export a conversation (`?chat=<jid>&limit=1000`); answers `truncated` when the cap was hit |
 | `GET` | `/api/search` | Full-text search (`?q=<query>&limit=50`, plus `chat`, `before`, `after`, `type`) |
 | `GET` | `/api/history/coverage` | How far back the local archive reaches (`?chat=<jid>`, or every chat when omitted) |

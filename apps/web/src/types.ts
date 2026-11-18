@@ -247,6 +247,26 @@ export interface BookmarkEntry {
   ts?: string;
 }
 
+/**
+ * A message the operator sent that reached the other phone and has had no
+ * reply since. Direct chats only; see apps/api/src/wacli/waiting.ts.
+ */
+export interface WaitingItem {
+  chatJid: string;
+  chatName: string;
+  message: UnifiedMessage;
+  /** Set when the row is back from a reminder that has come due. */
+  snoozedUntil: string | null;
+}
+
+export interface WaitingList {
+  items: WaitingItem[];
+  /** Rows waiting, before the page limit. */
+  total: number;
+  /** Rows hidden until a reminder. */
+  snoozed: number;
+}
+
 /** A quick-reply template. Kept by Mission Control on this machine. */
 export interface QuickReplyTemplate {
   id: string;

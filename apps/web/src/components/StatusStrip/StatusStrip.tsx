@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Activity, Bookmark, Clock, LifeBuoy, Moon, Settings } from 'lucide-react';
+import { Activity, Bookmark, Clock, Hourglass, LifeBuoy, Moon, Settings } from 'lucide-react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { useScheduledQueue } from '../../hooks/useScheduledQueue.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
-import { POLL_ACTIVITY_MS } from '../../lib/queryOptions.ts';
+import { POLL_ACTIVITY_MS, POLL_WAITING_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
@@ -14,6 +15,7 @@ import { HealthPanel } from './HealthPanel.tsx';
 import { ActivityTab } from './ActivityTab.tsx';
 import { ScheduledTab } from './ScheduledTab.tsx';
 import { SavedTab } from './SavedTab.tsx';
+import { WaitingTab } from './WaitingTab.tsx';
 import { useOpenMessage } from './useOpenMessage.ts';
 import { useScheduledActions } from './useScheduledActions.ts';
 import type { SendLogEntry } from '../../types.ts';
@@ -23,12 +25,13 @@ interface StatusStripProps {
   width?: number;
 }
 
-type Tab = 'activity' | 'scheduled' | 'saved';
+type Tab = 'activity' | 'scheduled' | 'saved' | 'waiting';
 
 /**
- * The right-hand pane: system health on top, and below it three lists of what
- * the console has done or will do. The lists' data lives here rather than in
- * each tab, because the tab bar shows all three counts at once.
+ * The right-hand pane: system health on top, and below it four lists: what
+ * the console has done or will do, what the operator saved, and who has yet to
+ * answer them. The lists' data lives here rather than in each tab, because the
+ * tab bar shows every count at once.
  */
 export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 256 }) => {
   const setActiveModal = useAppStore((s) => s.setActiveModal);
@@ -43,7 +46,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
 
   const { data: health } = useHealth();
   const { isReadOnly } = useSafeMode();
-  const { known: sleepKnown, sleeping, setSleeping, isSettingSleep, sleepError } = useSleepMode();
+  const { known: sleepKnown, sleeping, awake, setSleeping, isSettingSleep, sleepError } = useSleepMode();
 
   const sortedSendLogs = useMemo(
     () =>
@@ -87,6 +90,16 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   });
 
   const bookmarks = bookmarksQuery.data ?? [];
+
+  // Reaches wacli (the server's scan of recent messages), so it waits for the
+  // same readiness the chat rail does, and asleep it keeps what it last had.
+  const waitingQuery = useQuery({
+    queryKey: ['waiting'],
+    queryFn: () => api.getWaiting(),
+    refetchInterval: POLL_WAITING_MS,
+    ...wacliReadQueryOptions(awake && isWacliReadyForReads(health)),
+  });
+  const waitingItems = useMemo(() => waitingQuery.data?.items ?? [], [waitingQuery.data]);
 
   // The `?? []` fallback allocates a fresh array each render, so it lives
   // inside the memo rather than feeding one from outside.
@@ -202,7 +215,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
       {/* Bottom Half: Send Activity Log & Scheduled Queue */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="px-2 py-1.5 border-b border-mc-border flex items-center justify-between text-mc-textMuted bg-mc-bg/30">
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             <button onClick={() => setActiveTab('activity')} className={tabClass('activity', 'text-mc-text')}>
               ACTIVITY ({activityTotal})
             </button>
@@ -220,10 +233,27 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
               <Bookmark size={11} />
               <span>SAVED ({bookmarks.length})</span>
             </button>
+            <button
+              onClick={() => setActiveTab('waiting')}
+              className={`${tabClass('waiting', 'text-mc-live')} flex items-center gap-1`}
+              title="Messages you sent that have had no reply"
+            >
+              <Hourglass size={11} />
+              <span>WAITING ({waitingQuery.data?.total ?? 0})</span>
+            </button>
           </div>
         </div>
 
-        {activeTab === 'saved' ? (
+        {activeTab === 'waiting' ? (
+          <WaitingTab
+            items={waitingItems}
+            snoozed={waitingQuery.data?.snoozed ?? 0}
+            isPending={waitingQuery.isPending}
+            isError={waitingQuery.isError}
+            selectedJid={selectedJid}
+            openMessage={openMessage}
+          />
+        ) : activeTab === 'saved' ? (
           <SavedTab
             bookmarks={bookmarks}
             isPending={bookmarksQuery.isPending}
