@@ -9,6 +9,7 @@ import { activityStore } from '../wacli/activity.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import { sentMessageIdFrom } from '../wacli/normalize.js';
 import { logger } from '../logger.js';
+import { queryString } from './query.js';
 
 /**
  * A query-string page size, or undefined to let the store pick its default.
@@ -457,7 +458,7 @@ export function createSendRouter(processManager: WacliProcessManager): Router {
     res.json({
       success: true,
       data: scheduler.getPage({
-        chat: req.query.chat as string | undefined,
+        chat: queryString(req, 'chat'),
         limit: parsePositiveInt(req.query.limit),
         before: typeof req.query.before === 'string' ? req.query.before : undefined,
       }),

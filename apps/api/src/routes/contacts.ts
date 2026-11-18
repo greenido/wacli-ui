@@ -6,6 +6,7 @@ import { tagStore, normalizeTag } from '../wacli/tags.js';
 import { logger } from '../logger.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { RawContact, RawGroup } from '../types.js';
+import { queryString } from './query.js';
 
 /**
  * An alias is written into wacli's own contact table, so it is a mutation. Tags
@@ -32,7 +33,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
   // GET /api/contacts/show - one contact's local metadata
   router.get('/contacts/show', async (req, res, next) => {
     try {
-      const jid = req.query.jid as string | undefined;
+      const jid = queryString(req, 'jid');
       if (!jid) {
         res.status(400).json({ success: false, data: null, error: 'Query parameter "jid" is required.' });
         return;
@@ -75,7 +76,7 @@ export function createContactsRouter(processManager: WacliProcessManager): Route
   // GET /api/groups - local group metadata
   router.get('/groups', async (req, res, next) => {
     try {
-      const query = req.query.query as string | undefined;
+      const query = queryString(req, 'query');
       const args = ['groups', 'list', '--limit', '200'];
       if (query) args.push('--query', query);
 

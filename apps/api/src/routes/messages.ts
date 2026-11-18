@@ -4,6 +4,7 @@ import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
 import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { RawMessage, UnifiedMessage } from '../types.js';
+import { queryLimit, queryString } from './query.js';
 
 interface RawMessagesListResponse {
   fts?: boolean;
@@ -47,14 +48,14 @@ export function createMessagesRouter(): Router {
     try {
       const args = ['messages', 'list'];
 
-      const chat = req.query.chat as string | undefined;
-      const limit = req.query.limit as string | undefined;
-      const before = req.query.before as string | undefined;
-      const after = req.query.after as string | undefined;
+      const chat = queryString(req, 'chat');
+      const limit = queryLimit(req);
+      const before = queryString(req, 'before');
+      const after = queryString(req, 'after');
       const asc = req.query.asc;
 
       if (chat) args.push('--chat', chat);
-      if (limit) args.push('--limit', limit);
+      if (limit) args.push('--limit', String(limit));
       if (before) args.push('--before', before);
       if (after) args.push('--after', after);
       if (asc === 'true') args.push('--asc');
@@ -82,7 +83,7 @@ export function createMessagesRouter(): Router {
         success: true,
         data: {
           messages,
-          hasMore: hasMoreFrom(raw, messages.length, Number(limit || 50)),
+          hasMore: hasMoreFrom(raw, messages.length, limit ?? 50),
         },
         error: null,
       });
@@ -96,8 +97,8 @@ export function createMessagesRouter(): Router {
   // is not loaded needs its time to open a window around it.
   router.get('/messages/show', async (req, res, next) => {
     try {
-      const chat = req.query.chat as string | undefined;
-      const id = req.query.id as string | undefined;
+      const chat = queryString(req, 'chat');
+      const id = queryString(req, 'id');
       if (!chat || !id) {
         res.status(400).json({
           success: false,
@@ -135,7 +136,7 @@ export function createMessagesRouter(): Router {
   // GET /api/messages/export - a whole conversation, for keeping or reading elsewhere
   router.get('/messages/export', async (req, res, next) => {
     try {
-      const chat = req.query.chat as string | undefined;
+      const chat = queryString(req, 'chat');
       if (!chat) {
         res.status(400).json({
           success: false,
@@ -151,8 +152,8 @@ export function createMessagesRouter(): Router {
         : EXPORT_DEFAULT_LIMIT;
 
       const args = ['messages', 'export', '--chat', chat, '--limit', String(limit)];
-      const before = req.query.before as string | undefined;
-      const after = req.query.after as string | undefined;
+      const before = queryString(req, 'before');
+      const after = queryString(req, 'after');
       if (before) args.push('--before', before);
       if (after) args.push('--after', after);
 

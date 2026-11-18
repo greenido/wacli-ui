@@ -133,24 +133,37 @@ describe('Media Routes', () => {
   });
 
   describe('the name a download is given', () => {
-    // The caller chooses it, so it may be anything, and it lands in a header.
-    it.each([
-      ['invoice.pdf', 'attachment; filename="invoice.pdf"'],
-      // Written into the header raw, this failed the whole download with a 500.
-      [
-        'חשבונית.pdf',
-        `attachment; filename="???????.pdf"; filename*=UTF-8''${encodeURIComponent('חשבונית.pdf')}`,
-      ],
-      ['café.pdf', 'attachment; filename="café.pdf"'],
-      ['ev"il.ogg', 'attachment; filename="ev\\"il.ogg"'],
-    ])('downloads under %s', async (filename, disposition) => {
-      const res = await request(app)
-        .get('/api/media/content')
-        .query({ path: tmpFile, download: '1', filename });
+    /**
+     * The name a browser saves the file under. The header's exact spelling is
+     * the `content-disposition` package's business, and it changes between
+     * releases (2.x stopped quoting plain names and moved non-ASCII names into
+     * `filename*`), so what is checked is the name it resolves to.
+     */
+    function savedName(header: string | undefined): string | null {
+      if (!header) return null;
+      const extended = /filename\*=UTF-8''([^;\s]+)/i.exec(header);
+      if (extended) return decodeURIComponent(extended[1]);
+      const quoted = /filename="((?:[^"\\]|\\.)*)"/.exec(header);
+      if (quoted) return quoted[1].replace(/\\(.)/g, '$1');
+      const token = /filename=([^;\s]+)/.exec(header);
+      return token ? token[1] : null;
+    }
 
-      expect(res.status).toBe(200);
-      expect(res.headers['content-disposition']).toBe(disposition);
-    });
+    // The caller chooses it, so it may be anything, and it lands in a header.
+    // A non-ASCII name written into the header raw failed the whole download
+    // with a 500, hence the Hebrew one.
+    it.each(['invoice.pdf', 'חשבונית.pdf', 'café.pdf', 'ev"il.ogg'])(
+      'downloads under %s',
+      async (filename) => {
+        const res = await request(app)
+          .get('/api/media/content')
+          .query({ path: tmpFile, download: '1', filename });
+
+        expect(res.status).toBe(200);
+        expect(res.headers['content-disposition']).toMatch(/^attachment;/);
+        expect(savedName(res.headers['content-disposition'])).toBe(filename);
+      }
+    );
 
     it('cannot add a header of its own', async () => {
       const res = await request(app)
@@ -168,7 +181,7 @@ describe('Media Routes', () => {
         .query({ path: tmpFile, download: '1', filename: 'evil.html' });
 
       expect(res.status).toBe(200);
-      expect(res.headers['content-disposition']).toBe('attachment; filename="evil.html"');
+      expect(savedName(res.headers['content-disposition'])).toBe('evil.html');
       expect(res.headers['content-type']).toMatch(/^audio\/ogg\b/);
       expect(res.headers['x-content-type-options']).toBe('nosniff');
     });
