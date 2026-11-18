@@ -1,6 +1,10 @@
 # Weekly, grouped, so a quiet week costs nothing and a busy one is one PR per
 # ecosystem rather than one per package. Security updates are not batched:
 # Dependabot opens those as soon as an advisory lands.
+#
+# The groups take minor and patch releases only. A major one (Tailwind 3 -> 4,
+# Vite 7 -> 8) usually needs code changes, and inside a group it held every
+# routine bump hostage until someone did them. Majors arrive one PR each.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,8 +15,10 @@ updates:
     groups:
       production:
         dependency-type: production
+        update-types: [minor, patch]
       development:
         dependency-type: development
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
