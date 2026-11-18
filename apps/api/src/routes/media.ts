@@ -11,6 +11,7 @@ import { isStoreLockMessage } from '../wacli/store-lock.js';
 import { isTransientFailure, parseHttpStatus } from '../wacli/failures.js';
 import { wacliSupports } from '../wacli/capabilities.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
+import { queryString } from './query.js';
 
 /**
  * Why a download failed, in the operator's terms.
@@ -288,11 +289,11 @@ export function createMediaRouter(processManager: WacliProcessManager): Router {
   // GET /api/media/content - stream image/audio/video/document with range support
   router.get('/media/content', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const chat = req.query.chat as string | undefined;
-      const id = req.query.id as string | undefined;
-      const requestedPath = req.query.path as string | undefined;
+      const chat = queryString(req, 'chat');
+      const id = queryString(req, 'id');
+      const requestedPath = queryString(req, 'path');
       const isDownload = req.query.download === '1' || req.query.download === 'true';
-      const customFilename = req.query.filename as string | undefined;
+      const customFilename = queryString(req, 'filename');
 
       // Reject out-of-store paths up front rather than treating them as "missing"
       // and silently re-downloading over them.

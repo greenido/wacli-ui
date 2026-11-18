@@ -4,6 +4,7 @@ import { bookmarkStore } from '../wacli/bookmarks.js';
 import { normalizeMessage } from '../wacli/normalize.js';
 import { fetchGroupNames, withGroupSubject } from '../wacli/group-names.js';
 import type { RawMessage, UnifiedMessage } from '../types.js';
+import { queryLimit, queryString } from './query.js';
 
 interface RawSearchResponse {
   fts?: boolean;
@@ -15,7 +16,7 @@ export function createSearchRouter(): Router {
 
   router.get('/search', async (req, res, next) => {
     try {
-      const q = req.query.q as string | undefined;
+      const q = queryString(req, 'q');
       if (!q || !q.trim()) {
         res.json({ success: true, data: { query: '', fts: true, results: [] }, error: null });
         return;
@@ -23,14 +24,14 @@ export function createSearchRouter(): Router {
 
       const args = ['messages', 'search'];
 
-      const chat = req.query.chat as string | undefined;
-      const limit = req.query.limit as string | undefined;
-      const before = req.query.before as string | undefined;
-      const after = req.query.after as string | undefined;
-      const type = req.query.type as string | undefined;
+      const chat = queryString(req, 'chat');
+      const limit = queryLimit(req);
+      const before = queryString(req, 'before');
+      const after = queryString(req, 'after');
+      const type = queryString(req, 'type');
 
       if (chat) args.push('--chat', chat);
-      if (limit) args.push('--limit', limit);
+      if (limit) args.push('--limit', String(limit));
       if (before) args.push('--before', before);
       if (after) args.push('--after', after);
       if (type) args.push('--type', type);

@@ -5,6 +5,7 @@ import { normalizeCoverage } from '../wacli/normalize.js';
 import { logger } from '../logger.js';
 import type { WacliProcessManager } from '../wacli/process-manager.js';
 import type { RawChatCoverage } from '../types.js';
+import { queryString } from './query.js';
 
 interface RawCoverageResponse {
   coverage: RawChatCoverage[] | null;
@@ -45,7 +46,7 @@ export function createHistoryRouter(processManager: WacliProcessManager): Router
   // GET /api/history/coverage - how far back the local archive actually reaches
   router.get('/history/coverage', async (req, res, next) => {
     try {
-      const chat = req.query.chat as string | undefined;
+      const chat = queryString(req, 'chat');
       const args = ['history', 'coverage', '--limit', chat ? '1' : '100'];
       if (chat) args.push('--chat', chat);
 

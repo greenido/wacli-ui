@@ -8,6 +8,7 @@ import { fetchGroupNames } from '../wacli/group-names.js';
 import { logger } from '../logger.js';
 import type { ChatPreview } from '../wacli/normalize.js';
 import type { RawChat, RawMessage, UnifiedChat } from '../types.js';
+import { queryLimit, queryString } from './query.js';
 
 /**
  * How many recent messages to scan for chat-rail previews. wacli's chat record
@@ -204,15 +205,15 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
     try {
       const args = ['chats', 'list'];
 
-      const query = req.query.query as string | undefined;
-      const limit = req.query.limit as string | undefined;
+      const query = queryString(req, 'query');
+      const limit = queryLimit(req);
       const archived = req.query.archived;
       const pinned = req.query.pinned;
       const muted = req.query.muted;
       const unread = req.query.unread;
 
       if (query) args.push('--query', query);
-      if (limit) args.push('--limit', limit);
+      if (limit) args.push('--limit', String(limit));
       if (archived === 'true') args.push('--archived');
       else if (archived === 'false') args.push('--no-archived');
 
