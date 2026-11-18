@@ -43,8 +43,8 @@ Checked against the code on 2026-11-18. Each row names the PR that closed it.
 | 21 | Rejected CORS origin answers 500 | Fixed: 403 `FORBIDDEN_ORIGIN` | [#29](https://github.com/greenido/wacli-ui/pull/29) |
 | 22 | Pane width clamps disagree | Fixed | [#56](https://github.com/greenido/wacli-ui/pull/56) |
 | 23 | `console.warn` in `mode.ts` | Fixed | [#21](https://github.com/greenido/wacli-ui/pull/21) |
-| 24 | Query params cast without validation | Fixed: `routes/query.ts`, 400 on a bad value | state-of-repo PR |
-| 25 | Default log dir inside `node_modules` | Fixed: `~/.wacli-mission-control/logs` | state-of-repo PR |
+| 24 | Query params cast without validation | Fixed: `routes/query.ts`, 400 on a bad value | [#61](https://github.com/greenido/wacli-ui/pull/61) |
+| 25 | Default log dir inside `node_modules` | Fixed: `~/.wacli-mission-control/logs` | [#61](https://github.com/greenido/wacli-ui/pull/61) |
 | 3 | `POST /api/settings` outside the mutation guard | Accepted, no change | — |
 | 4 | Confirming a send disarms safe mode | Accepted, no change | — |
 
