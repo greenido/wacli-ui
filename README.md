@@ -314,7 +314,7 @@ Mission Control reads a `.env` file from the directory you start it in (`apps/ap
 | `WACLI_UPDATE_CHECK` | `1` | Twice a day, asks GitHub for the latest wacli release and, if yours is older, says so in the log and in a dismissible notice with the upgrade command. It never upgrades anything. `0` skips the request |
 | `WACLI_DB_FILE` | `~/.wacli-mission-control/mission-control.db` | Where safe mode, the scheduled queue, the activity log, bookmarks, tags and sleep state live |
 | `WACLI_LOG_WEBHOOK_PAYLOADS` | `0` | `1` logs full inbound webhook payloads. Off by default, so message bodies and contact details stay out of log files |
-| `LOG` | `0` | `1` also writes `apps/api/logs/run-<timestamp>.log`. Events always go to the terminal |
+| `LOG` | `0` | `1` also writes `~/.wacli-mission-control/logs/run-<timestamp>.log`. Events always go to the terminal |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN` or `ERROR`. `DEBUG` adds per-command timings, subprocess failures and wacli's own stderr |
 | `NO_COLOR` | unset | Any value turns off ANSI colour in terminal logs |
 | `STATIC_WEB_DIR` | the bundled `apps/web/dist` | Serve the UI from a different build directory |
@@ -414,7 +414,7 @@ Event types: `message.new`, `message.receipt`, `chat.presence`, `chat.update`, `
 
 ## Reading the logs
 
-Events always go to the terminal. Start with `LOG=1` to also write `apps/api/logs/run-<timestamp>.log`. Every line is one event with the same shape: a constant message, then the details as `key=value` fields.
+Events always go to the terminal. Start with `LOG=1` to also write `~/.wacli-mission-control/logs/run-<timestamp>.log`, readable by you alone. Every line is one event with the same shape: a constant message, then the details as `key=value` fields.
 
 ```
 [2026-09-04T20:20:25.976Z] [INFO] [http] GET /chats status=200 durationMs=155 query="limit=100&archived=false"
@@ -424,7 +424,7 @@ Events always go to the terminal. Start with `LOG=1` to also write `apps/api/log
 Which is what makes the file worth grepping. For example, every request that took more than a second:
 
 ```bash
-grep 'durationMs=[0-9]\{4,\}' apps/api/logs/run-*.log
+grep 'durationMs=[0-9]\{4,\}' ~/.wacli-mission-control/logs/run-*.log
 ```
 
 <details>

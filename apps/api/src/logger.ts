@@ -1,9 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { resolveConfigDir } from './db/paths.js';
 
 export type LogCategory =
   | 'process'
@@ -147,6 +144,17 @@ export interface RunLoggerOptions {
   file?: boolean;
 }
 
+/**
+ * Where run logs go: `logs` beside the database, in the console's own config
+ * directory (normally `~/.wacli-mission-control`). It used to be `../logs`
+ * relative to the code, which for a global npm install is inside
+ * `node_modules`: a file that can carry chat JIDs, in a directory the next
+ * upgrade deletes. Owner-only, like the rest of that directory.
+ */
+export function defaultLogsDir(): string {
+  return path.join(resolveConfigDir(), 'logs');
+}
+
 /** Disk logging is opt-in: start with `LOG=1` (or pass `file: true`). */
 export function isDiskLoggingEnabled(raw: string | undefined = process.env.LOG): boolean {
   return raw === '1';
@@ -171,9 +179,11 @@ export class RunLogger {
   } | null = null;
 
   constructor(customLogsDir?: string, options: RunLoggerOptions = {}) {
-    this.logsDir = customLogsDir ?? path.resolve(__dirname, '../logs');
     this.level = options.level ?? parseLogLevel(process.env.LOG_LEVEL);
     this.fileEnabled = options.file ?? isDiskLoggingEnabled();
+    // Resolved only when there is a file to write: finding the config directory
+    // creates it, and the shared logger is built on import.
+    this.logsDir = customLogsDir ?? (this.fileEnabled ? defaultLogsDir() : '');
 
     const underTest = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
     this.consoleEnabled = options.console ?? !underTest;
@@ -182,7 +192,7 @@ export class RunLogger {
     if (!this.fileEnabled) return;
 
     if (!fs.existsSync(this.logsDir)) {
-      fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o755 });
+      fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o700 });
     }
 
     const now = new Date();
@@ -190,7 +200,7 @@ export class RunLogger {
     this.logFilePath = path.join(this.logsDir, `run-${timestamp}.log`);
 
     try {
-      fs.writeFileSync(this.logFilePath, '', { encoding: 'utf8', mode: 0o644 });
+      fs.writeFileSync(this.logFilePath, '', { encoding: 'utf8', mode: 0o600 });
       // A log that cannot say which process wrote it, at what verbosity, is a
       // log you have to guess about three days later.
       this.info('process', 'Run log initialized', {
@@ -326,7 +336,7 @@ export class RunLogger {
 
     try {
       if (!fs.existsSync(this.logsDir)) {
-        fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o755 });
+        fs.mkdirSync(this.logsDir, { recursive: true, mode: 0o700 });
       }
       // Synchronous on purpose: a crash must not take the lines explaining it
       // down with it, and a local console writes nowhere near enough to care.

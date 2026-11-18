@@ -319,6 +319,25 @@ describe('RunLogger', () => {
     expect(fs.existsSync(defaultDir)).toBe(false);
   });
 
+  it('keeps run logs beside the database, readable by the owner only', () => {
+    // Not `../logs` from the code: for a global install that is inside
+    // node_modules, which the next upgrade wipes.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wacli-test-home-'));
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    try {
+      const logger = new RunLogger(undefined, { file: true, console: false });
+      const filePath = logger.getFilePath()!;
+      const dir = path.join(home, '.wacli-mission-control', 'logs');
+
+      expect(path.dirname(filePath)).toBe(dir);
+      expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    } finally {
+      vi.mocked(os.homedir).mockRestore();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('writes a run log to disk when LOG=1', () => {
     process.env.LOG = '1';
     const logger = new RunLogger(tmpLogsDir, { console: false });
