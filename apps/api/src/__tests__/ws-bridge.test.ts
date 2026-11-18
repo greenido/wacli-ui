@@ -25,15 +25,31 @@ describe('WebSocket Event Bridge & Webhook Pipeline', () => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 
     const receivedEvents: MissionControlEvent[] = [];
+    const waiters: Array<() => void> = [];
     ws.on('message', (data) => {
       receivedEvents.push(JSON.parse(data.toString()) as MissionControlEvent);
+      waiters.splice(0).forEach((wake) => wake());
     });
 
-    await new Promise<void>((resolve) => {
-      ws.on('open', () => resolve());
-    });
+    /**
+     * Resolves once an event of this type has arrived. Waiting on `open`, or a
+     * fixed sleep, raced the frames: under load the greeting landed after the
+     * socket opened and the check found nothing.
+     */
+    async function eventOfType(type: MissionControlEvent['type']): Promise<MissionControlEvent> {
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        const found = receivedEvents.find((e) => e.type === type);
+        if (found) return found;
+        if (Date.now() > deadline) throw new Error(`no ${type} event within 2s`);
+        await new Promise<void>((resolve) => {
+          waiters.push(resolve);
+          setTimeout(resolve, 50);
+        });
+      }
+    }
 
-    expect(receivedEvents.length).toBeGreaterThanOrEqual(1);
+    await eventOfType('connection.status');
     expect(receivedEvents[0].type).toBe('connection.status');
 
     // Simulate wacli posting a webhook message
@@ -56,12 +72,8 @@ describe('WebSocket Event Bridge & Webhook Pipeline', () => {
 
     expect(res.status).toBe(200);
 
-    // Wait a tick for WS broadcast
-    await new Promise((r) => setTimeout(r, 100));
-
-    const newMsgEvent = receivedEvents.find((e) => e.type === 'message.new');
-    expect(newMsgEvent).toBeDefined();
-    if (newMsgEvent && newMsgEvent.type === 'message.new') {
+    const newMsgEvent = await eventOfType('message.new');
+    if (newMsgEvent.type === 'message.new') {
       expect(newMsgEvent.data.msgId).toBe('LIVE-MSG-100');
       expect(newMsgEvent.data.text).toBe('Live real-time message via webhook');
     }
