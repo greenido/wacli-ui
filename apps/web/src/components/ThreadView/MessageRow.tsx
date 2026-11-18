@@ -8,12 +8,9 @@ import { QuoteChip } from './QuoteChip.tsx';
 import { LinkifiedText } from './LinkifiedText.tsx';
 import { deliveryTitle } from '../../lib/deliveryStatus.ts';
 import type { UnifiedMessage } from '../../types.ts';
+import type { ThreadReaction } from '../../lib/reactionFold.ts';
 
-export interface ThreadReaction {
-  emoji: string;
-  fromMe: boolean;
-  sender: string;
-}
+export type { ThreadReaction };
 
 interface MessageRowProps {
   msg: UnifiedMessage;
