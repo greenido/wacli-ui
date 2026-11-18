@@ -16,6 +16,40 @@ rather than renumbered away.
 
 ---
 
+## Status
+
+Checked against the code on 2026-11-18. Each row names the PR that closed it.
+
+| # | Finding | Status | Where |
+|---|---|---|---|
+| 1 | `/ws` readable from any page | Fixed | [#18](https://github.com/greenido/wacli-ui/pull/18) |
+| 2 | Shutdown hangs with a tab open | Fixed | [#18](https://github.com/greenido/wacli-ui/pull/18) |
+| 5 | Safe-mode UI fails open | Fixed: `useSafeMode` starts locked | [#19](https://github.com/greenido/wacli-ui/pull/19) |
+| 6 | No React error boundary | Fixed | [#19](https://github.com/greenido/wacli-ui/pull/19) |
+| 7 | `--host` / `HOST` do nothing | Fixed: flag removed, as resolved above | [#19](https://github.com/greenido/wacli-ui/pull/19) |
+| 8 | `storeDir` and `account` exclusive | Fixed | [#19](https://github.com/greenido/wacli-ui/pull/19) |
+| 9 | Search term starting with `-` | Fixed: query passed after `--` | [#47](https://github.com/greenido/wacli-ui/pull/47) |
+| 10 | Thread yanks the reader down | Fixed | [#20](https://github.com/greenido/wacli-ui/pull/20) |
+| 11 | Network call in a cache updater | Fixed | [#20](https://github.com/greenido/wacli-ui/pull/20) |
+| 12 | Unhandled media stream `error` | Fixed | [#20](https://github.com/greenido/wacli-ui/pull/20) |
+| 13 | Traversal in scheduled attachments | Fixed: stored under a random name | [#32](https://github.com/greenido/wacli-ui/pull/32) |
+| 14 | Cancel/discard report a no-op as success | Fixed: answered 409 | [#20](https://github.com/greenido/wacli-ui/pull/20) |
+| 15 | WebSocket reconnect without backoff | Fixed | [#20](https://github.com/greenido/wacli-ui/pull/20) |
+| 16 | `scheduled.json` never pruned | Fixed: SQLite, history pruned after 90 days | [#21](https://github.com/greenido/wacli-ui/pull/21), [#55](https://github.com/greenido/wacli-ui/pull/55) |
+| 17 | Paged-back thread goes stale while the socket is down | **Open** | — |
+| 18 | `handleProcessExit` runs twice | Fixed | [#34](https://github.com/greenido/wacli-ui/pull/34) |
+| 19 | Per-chat scheduled list unsorted | Fixed: `getPage` sorts both lists | [#21](https://github.com/greenido/wacli-ui/pull/21) |
+| 20 | `hasMore` costs a wasted round trip | Fixed: wacli 0.22's exact `has_more` | [#54](https://github.com/greenido/wacli-ui/pull/54) |
+| 21 | Rejected CORS origin answers 500 | Fixed: 403 `FORBIDDEN_ORIGIN` | [#29](https://github.com/greenido/wacli-ui/pull/29) |
+| 22 | Pane width clamps disagree | Fixed | [#56](https://github.com/greenido/wacli-ui/pull/56) |
+| 23 | `console.warn` in `mode.ts` | Fixed | [#21](https://github.com/greenido/wacli-ui/pull/21) |
+| 24 | Query params cast without validation | Fixed: `routes/query.ts`, 400 on a bad value | state-of-repo PR |
+| 25 | Default log dir inside `node_modules` | Fixed: `~/.wacli-mission-control/logs` | state-of-repo PR |
+| 3 | `POST /api/settings` outside the mutation guard | Accepted, no change | — |
+| 4 | Confirming a send disarms safe mode | Accepted, no change | — |
+
+---
+
 ## P0 — fix first
 
 ### 1. Any web page can read the live message feed over `/ws` — **verified**
