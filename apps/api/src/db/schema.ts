@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
  * `migrations`. The number is stored in the file itself, so a database written
  * by a newer build is recognised rather than silently half-read.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -95,6 +95,24 @@ function migrateToV3(db: DatabaseSync): void {
 }
 
 /**
+ * What the operator decided about a message in the WAITING tab: done with it
+ * for good, or hide it until a reminder time. Whether a message is waiting at
+ * all is worked out from the wacli archive on every read and never stored, so
+ * a reply clears a row without anything here having to notice.
+ */
+function migrateToV4(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS waiting_marks (
+      msg_id        TEXT PRIMARY KEY,
+      chat_jid      TEXT NOT NULL,
+      dismissed_at  TEXT,
+      snoozed_until TEXT,
+      updated_at    TEXT NOT NULL
+    );
+  `);
+}
+
+/**
  * Applied in order from whatever version the file is already at. Index 0 takes
  * an empty file to version 1, so a fresh install runs the same statements an
  * upgrade would.
@@ -103,6 +121,7 @@ const migrations: Array<(db: DatabaseSync) => void> = [
   (db) => db.exec(SCHEMA_V1),
   migrateToV2,
   migrateToV3,
+  migrateToV4,
 ];
 
 /** The version recorded in the file, or 0 for one this build has never opened. */
