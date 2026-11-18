@@ -25,6 +25,8 @@ export const SLEEP_ROUTES = {
     'GET /api/contacts/show',
     'GET /api/groups',
     'GET /api/search',
+    // Reads the recent-message scan, which is a wacli subprocess.
+    'GET /api/waiting',
   ],
   // Writes that reach wacli. These are the operator acting, which is what
   // waking is for, so they wake the app and then run.
@@ -64,6 +66,8 @@ export const SLEEP_ROUTES = {
     'POST /api/templates/:id',
     'DELETE /api/templates/:id',
     'POST /api/templates/:id/use',
+    'POST /api/waiting/dismiss',
+    'POST /api/waiting/snooze',
     // Serves what is already on disk, and makes its own call about the wacli
     // download it would otherwise fall back to (see routes/media.ts).
     'GET /api/media/content',

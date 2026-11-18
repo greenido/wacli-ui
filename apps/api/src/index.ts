@@ -23,6 +23,7 @@ import { createSendRouter } from './routes/send.js';
 import { createMediaRouter } from './routes/media.js';
 import { createSleepRouter } from './routes/sleep.js';
 import { createTemplatesRouter } from './routes/templates.js';
+import { createWaitingRouter } from './routes/waiting.js';
 import { QueryParamError } from './routes/query.js';
 import { modeManager } from './wacli/mode.js';
 import { scheduler } from './wacli/scheduler.js';
@@ -229,6 +230,7 @@ export function createApp(
   app.use('/api', createSendRouter(processManager));
   app.use('/api', createMediaRouter(processManager));
   app.use('/api', createTemplatesRouter());
+  app.use('/api', createWaitingRouter());
   app.use('/internal/wacli', createWebhookRouter(processManager, bridge));
 
   // Serve static UI assets if built
