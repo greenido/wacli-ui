@@ -913,3 +913,38 @@ describe('StatusStrip daemon state', () => {
     expect(screen.queryByText('off (--no-sync)')).not.toBeInTheDocument();
   });
 });
+
+describe('StatusStrip layout', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockScheduled([]);
+  });
+
+  it('collapses the system status down to the tabs, and remembers it', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderStrip();
+
+    const toggle = screen.getByRole('button', { name: /SYSTEM STATUS/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('MODE')).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('MODE')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Later \(/ })).toBeInTheDocument();
+
+    unmount();
+    renderStrip();
+    expect(screen.getByRole('button', { name: /SYSTEM STATUS/ })).toHaveAttribute('aria-expanded', 'false');
+    localStorage.clear();
+  });
+
+  it('shows the tabs as icons, with each name as the tooltip', () => {
+    renderStrip();
+    for (const name of ['Activity', 'Later', 'Saved', 'Waiting']) {
+      const tab = screen.getByRole('button', { name: new RegExp(`^${name} \\(`) });
+      expect(tab.getAttribute('title')).toMatch(new RegExp(`^${name}:`));
+      expect(tab.textContent).not.toMatch(/[A-Za-z]/);
+    }
+  });
+});

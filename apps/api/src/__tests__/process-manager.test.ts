@@ -71,6 +71,21 @@ describe('WacliProcessManager', () => {
     expect(pm.getLastError()).toBe('store is locked by pid 1234');
   });
 
+  it('does not pin a self-healing missing app state key as the last error', () => {
+    const pm = new WacliProcessManager({ apiPort: 3002 });
+    const handle = (pm as unknown as { handleStderrLine: (line: string) => void }).handleStderrLine.bind(pm);
+
+    handle(
+      "15:58:06.508 [Client ERROR] Failed to sync app state after notification: failed to decode app state " +
+        "regular patches: failed to get key 00000000A1B2 to verify patch v482 MACs: didn't find app state key"
+    );
+    expect(pm.getLastError()).toBeNull();
+
+    // Any other plain-text error still counts.
+    handle('15:58:07.000 [Client ERROR] something else broke');
+    expect(pm.getLastError()).toBe('15:58:07.000 [Client ERROR] something else broke');
+  });
+
   it('handles connected and logged_out events', () => {
     const states: string[] = [];
     const pm = new WacliProcessManager({

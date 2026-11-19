@@ -16,6 +16,7 @@ import { api } from '../../api/client.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { CopyableError } from '../CopyableError/CopyableError.tsx';
 
 /**
  * The install commands the setup guide hands out, in one place so the string a
@@ -307,11 +308,7 @@ export const WacliStatusBanner: React.FC = () => {
               <p className="text-xs font-medium text-mc-text">
                 wacli encountered an error. Check the diagnostics or restart the background sync daemon:
               </p>
-              {health?.lastError && (
-                <div className="p-2 bg-mc-danger/10 border border-mc-danger/30 rounded text-xs font-mono text-mc-danger">
-                  {health.lastError}
-                </div>
-              )}
+              {health?.lastError && <CopyableError message={health.lastError} className="font-mono" />}
             </div>
           )}
         </div>

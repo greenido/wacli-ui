@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Activity, Bookmark, Clock, Hourglass, LifeBuoy, Moon, Settings } from 'lucide-react';
+import { Activity, Bookmark, ChevronDown, ChevronRight, Clock, History, Hourglass, LifeBuoy, Moon, Settings } from 'lucide-react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
@@ -12,6 +12,7 @@ import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { ResendConfirmModal } from './ResendConfirmModal.tsx';
 import { HealthPanel } from './HealthPanel.tsx';
+import { statusColor } from '../../lib/statusColor.ts';
 import { ActivityTab } from './ActivityTab.tsx';
 import { ScheduledTab } from './ScheduledTab.tsx';
 import { SavedTab } from './SavedTab.tsx';
@@ -27,6 +28,16 @@ interface StatusStripProps {
 
 type Tab = 'activity' | 'scheduled' | 'saved' | 'waiting';
 
+const HEALTH_COLLAPSED_KEY = 'wacli_status_health_collapsed';
+
+function readHealthCollapsed(): boolean {
+  try {
+    return localStorage.getItem(HEALTH_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The right-hand pane: system health on top, and below it four lists: what
  * the console has done or will do, what the operator saved, and who has yet to
@@ -40,6 +51,17 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const setComposerDraft = useAppStore((s) => s.setComposerDraft);
   const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
   const [activeTab, setActiveTab] = useState<Tab>('activity');
+  const [healthCollapsed, setHealthCollapsed] = useState(readHealthCollapsed);
+
+  const toggleHealth = () => {
+    const next = !healthCollapsed;
+    setHealthCollapsed(next);
+    try {
+      localStorage.setItem(HEALTH_COLLAPSED_KEY, next ? '1' : '0');
+    } catch {
+      // Storage can be unavailable; the toggle still works for this visit.
+    }
+  };
 
   const openMessage = useOpenMessage();
   const scheduledActions = useScheduledActions();
@@ -146,7 +168,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   });
 
   const tabClass = (tab: Tab, activeColor: string) =>
-    `px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+    `px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors flex items-center gap-1 ${
       activeTab === tab
         ? `bg-mc-surfaceHover ${activeColor} font-bold`
         : 'text-mc-textMuted hover:text-mc-text'
@@ -162,10 +184,34 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
     >
       {/* Header */}
       <div className="h-12 border-b border-mc-border flex items-center justify-between px-3">
-        <div className="flex items-center gap-2">
-          <Activity size={15} className="text-mc-live" />
-          <span className="font-semibold text-mc-text tracking-wider">SYSTEM STATUS</span>
-        </div>
+        <button
+          type="button"
+          onClick={toggleHealth}
+          aria-expanded={!healthCollapsed}
+          aria-controls="status-strip-health"
+          title={healthCollapsed ? 'Show system status' : 'Hide system status'}
+          className="flex items-center gap-2 min-w-0 rounded hover:bg-mc-surfaceHover px-1 -mx-1 py-0.5 transition-colors"
+        >
+          {healthCollapsed ? (
+            <ChevronRight size={13} className="text-mc-textMuted shrink-0" />
+          ) : (
+            <ChevronDown size={13} className="text-mc-textMuted shrink-0" />
+          )}
+          <Activity size={15} className="text-mc-live shrink-0" />
+          <span className="font-semibold text-mc-text tracking-wider truncate">SYSTEM STATUS</span>
+          {/* Collapsed, the panel's verdict still shows: the daemon's light,
+              and a red one whenever there is an error to read. */}
+          {healthCollapsed && (
+            <span
+              aria-hidden="true"
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                health?.lastError
+                  ? 'bg-mc-danger'
+                  : statusColor(health?.processState ?? 'stopped', wsConnected).split(' ')[0]
+              }`}
+            />
+          )}
+        </button>
         <div className="flex items-center gap-0.5">
           {/* No confirmation: sleep takes nothing away that waking does not
               give back, and the scheduled queue keeps sending either way. */}
@@ -204,42 +250,63 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
         </div>
       </div>
 
-      <HealthPanel
-        health={health}
-        wsConnected={wsConnected}
-        isReadOnly={isReadOnly}
-        sleeping={sleeping}
-        sleepError={sleepError}
-      />
+      {!healthCollapsed && (
+        <div id="status-strip-health">
+          <HealthPanel
+            health={health}
+            wsConnected={wsConnected}
+            isReadOnly={isReadOnly}
+            sleeping={sleeping}
+            sleepError={sleepError}
+          />
+        </div>
+      )}
 
       {/* Bottom Half: Send Activity Log & Scheduled Queue */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="px-2 py-1.5 border-b border-mc-border flex items-center justify-between text-mc-textMuted bg-mc-bg/30">
           <div className="flex flex-wrap gap-1">
-            <button onClick={() => setActiveTab('activity')} className={tabClass('activity', 'text-mc-text')}>
-              ACTIVITY ({activityTotal})
+            {/* Icons and counts only, to fit a narrow pane; the name is the
+                tooltip and the accessible name. */}
+            <button
+              onClick={() => setActiveTab('activity')}
+              className={tabClass('activity', 'text-mc-text')}
+              aria-label={`Activity (${activityTotal})`}
+              aria-pressed={activeTab === 'activity'}
+              title="Activity: what the console sent and did"
+            >
+              <History size={13} />
+              <span>{activityTotal}</span>
             </button>
             <button
               onClick={() => setActiveTab('scheduled')}
-              className={`${tabClass('scheduled', 'text-mc-live')} flex items-center gap-1`}
+              className={tabClass('scheduled', 'text-mc-live')}
+              aria-label={`Later (${scheduledCount})`}
+              aria-pressed={activeTab === 'scheduled'}
+              title="Later: scheduled messages"
             >
-              <Clock size={11} />
-              <span>LATER ({scheduledCount})</span>
+              <Clock size={13} />
+              <span>{scheduledCount}</span>
             </button>
             <button
               onClick={() => setActiveTab('saved')}
-              className={`${tabClass('saved', 'text-mc-live')} flex items-center gap-1`}
+              className={tabClass('saved', 'text-mc-live')}
+              aria-label={`Saved (${bookmarks.length})`}
+              aria-pressed={activeTab === 'saved'}
+              title="Saved: bookmarked messages"
             >
-              <Bookmark size={11} />
-              <span>SAVED ({bookmarks.length})</span>
+              <Bookmark size={13} />
+              <span>{bookmarks.length}</span>
             </button>
             <button
               onClick={() => setActiveTab('waiting')}
-              className={`${tabClass('waiting', 'text-mc-live')} flex items-center gap-1`}
-              title="Messages you sent that have had no reply"
+              className={tabClass('waiting', 'text-mc-live')}
+              aria-label={`Waiting (${waitingQuery.data?.total ?? 0})`}
+              aria-pressed={activeTab === 'waiting'}
+              title="Waiting: messages you sent that have had no reply"
             >
-              <Hourglass size={11} />
-              <span>WAITING ({waitingQuery.data?.total ?? 0})</span>
+              <Hourglass size={13} />
+              <span>{waitingQuery.data?.total ?? 0}</span>
             </button>
           </div>
         </div>

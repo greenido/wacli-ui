@@ -64,6 +64,18 @@ export function syncSupportsSendSpacing(bin: string): boolean {
 }
 
 /**
+ * whatsmeow logs a missing app state key at ERROR ("failed to get key … didn't
+ * find app state key"), but repairs it on its own: it asks the phone for the
+ * key and fetches every app state collection again once the key arrives. Only
+ * app state (contact names, pins, mutes, archive) waits; messages keep syncing.
+ * Pinning the line as the daemon's last error put a red alarm beside a healthy
+ * sync, and it stayed there until the next reconnect.
+ */
+export function isSelfHealingStderr(line: string): boolean {
+  return /didn't find app state key/i.test(line);
+}
+
+/**
  * How many of our own daemon PIDs to remember.
  *
  * A `wacli doctor` result is cached for a few seconds, so the PID it names as
@@ -495,6 +507,12 @@ export class WacliProcessManager {
       }
     } catch {
       // Non-JSON line from wacli stderr (e.g. human logging)
+      if (isSelfHealingStderr(trimmed)) {
+        logger.warn('process', 'App state key missing; whatsmeow is requesting it from the phone', {
+          line: trimmed,
+        });
+        return;
+      }
       const lower = trimmed.toLowerCase();
       if (lower.includes('error') || lower.includes('fatal') || lower.includes('panic') || lower.includes('locked')) {
         this.lastError = trimmed;
