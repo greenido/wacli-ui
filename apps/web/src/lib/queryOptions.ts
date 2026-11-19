@@ -23,6 +23,12 @@ export const POLL_SCHEDULED_MS = 15_000;
  */
 export const POLL_ACTIVITY_MS = 10_000;
 export const POLL_MODE_MS = 15_000;
+/**
+ * WAITING is worked out from the same message scan the chat rail reads, and
+ * the server holds that scan for a few seconds, so polling at the rail's pace
+ * lets the two share one wacli subprocess instead of each paying for its own.
+ */
+export const POLL_WAITING_MS = POLL_CHATS_MS;
 
 /**
  * Spelled out rather than picked from `UseQueryOptions`, so the same options

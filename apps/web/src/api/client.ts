@@ -12,6 +12,7 @@ import type {
   BookmarkEntry,
   SleepState,
   QuickReplyTemplate,
+  WaitingList,
 } from '../types.ts';
 
 const API_BASE =
@@ -428,6 +429,25 @@ export const api = {
 
   getBookmarks: (params?: { chat?: string; limit?: number }) =>
     request<BookmarkEntry[]>('/api/messages/bookmarks', {}, params),
+
+  /** Sent messages with no reply since, longest wait first. */
+  getWaiting: (params?: { limit?: number }) => request<WaitingList>('/api/waiting', {}, params),
+
+  /** Local only, like a bookmark: nothing is sent, so safe mode allows it. */
+  dismissWaiting: (data: { chat: string; id: string }) =>
+    request<{ chat: string; id: string; dismissed: boolean }>('/api/waiting/dismiss', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  /** Hides the row until `until` (ISO 8601). A reminder on this machine, not a send. */
+  snoozeWaiting: (data: { chat: string; id: string; until: string }) =>
+    request<{ chat: string; id: string; snoozedUntil: string }>('/api/waiting/snooze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 
   getSettings: () =>
     request<{ readOnly: boolean; storeDir?: string; account?: string; currentLogFile?: string }>(

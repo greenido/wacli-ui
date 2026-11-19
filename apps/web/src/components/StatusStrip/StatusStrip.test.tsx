@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusStrip } from './StatusStrip.tsx';
 import { useAppStore } from '../../store/appStore.ts';
-import type { ScheduledMessage } from '../../types.ts';
+import type { ScheduledMessage, UnifiedMessage, WaitingItem } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
 const getScheduled = vi.hoisted(() => vi.fn());
@@ -21,6 +21,10 @@ const getSleep = vi.hoisted(() => vi.fn());
 const setSleep = vi.hoisted(() => vi.fn());
 const getBookmarks = vi.hoisted(() => vi.fn());
 const bookmarkMessage = vi.hoisted(() => vi.fn());
+const getWaiting = vi.hoisted(() => vi.fn());
+const dismissWaiting = vi.hoisted(() => vi.fn());
+const snoozeWaiting = vi.hoisted(() => vi.fn());
+const getTemplates = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
   api: {
@@ -37,6 +41,10 @@ vi.mock('../../api/client.ts', () => ({
     setSleep,
     getBookmarks,
     bookmarkMessage,
+    getWaiting,
+    dismissWaiting,
+    snoozeWaiting,
+    getTemplates,
   },
 }));
 
@@ -49,6 +57,12 @@ beforeEach(() => {
   getBookmarks.mockResolvedValue([]);
   bookmarkMessage.mockReset();
   bookmarkMessage.mockResolvedValue({ bookmarked: false });
+  getWaiting.mockReset();
+  getWaiting.mockResolvedValue({ items: [], total: 0, snoozed: 0 });
+  dismissWaiting.mockReset();
+  snoozeWaiting.mockReset();
+  getTemplates.mockReset();
+  getTemplates.mockResolvedValue([]);
 });
 
 const failedItem: ScheduledMessage = {
@@ -672,5 +686,202 @@ describe('StatusStrip saved bookmarks', () => {
         bookmarked: false,
       })
     );
+  });
+});
+
+describe('StatusStrip waiting on a reply', () => {
+  const ADA = '15550100001@s.whatsapp.net';
+  const GRACE = '15550100002@s.whatsapp.net';
+
+  function waiting(chatJid: string, chatName: string, msgId: string, text: string, extra: Partial<UnifiedMessage> = {}): WaitingItem {
+    return {
+      chatJid,
+      chatName,
+      snoozedUntil: null,
+      message: {
+        chatJid,
+        chatName,
+        msgId,
+        senderJid: '',
+        senderName: '',
+        ts: '2026-11-16T10:00:00Z',
+        fromMe: true,
+        text,
+        displayText: text,
+        isForwarded: false,
+        reactionToId: null,
+        reactionEmoji: null,
+        mediaType: null,
+        mediaCaption: null,
+        filename: null,
+        mimeType: null,
+        localPath: null,
+        starred: false,
+        bookmarked: false,
+        edited: false,
+        revoked: false,
+        deliveryStatus: 'read',
+        ...extra,
+      },
+    };
+  }
+
+  const toGrace = waiting(GRACE, 'Grace Hopper', 'GRACE-1', 'Found the moth yet?', {
+    ts: '2026-11-14T10:00:00Z',
+    deliveryStatus: 'delivered',
+  });
+  const toAda = waiting(ADA, 'Ada Lovelace', 'ADA-1', 'Did the engine run?');
+
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    // Ready for reads: WAITING reaches wacli, so it waits for what the rail waits for.
+    getHealth.mockResolvedValue({
+      readOnly: false,
+      processState: 'running',
+      wacliInstalled: true,
+      wacliWorking: true,
+      statusSummary: 'ok',
+    });
+    getMode.mockResolvedValue({ readOnly: false });
+    mockScheduled([]);
+    getWaiting.mockResolvedValue({ items: [toGrace, toAda], total: 2, snoozed: 0 });
+    useAppStore.setState({
+      selectedChat: null,
+      sendLogs: [],
+      highlightedMessageId: null,
+      highlightedMessageAt: null,
+      composerDrafts: {},
+      replyingToByChat: {},
+    });
+  });
+
+  async function openWaiting(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: /WAITING \(2\)/i }));
+  }
+
+  it('counts the rows in the tab bar and lists them as the server ordered them', async () => {
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    const grace = await screen.findByText('Found the moth yet?');
+    const ada = screen.getByText('Did the engine run?');
+    expect(grace.compareDocumentPosition(ada) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Delivered to Grace Hopper')).toBeInTheDocument();
+    expect(screen.getByText('Ada Lovelace read this')).toBeInTheDocument();
+  });
+
+  it('jumps to the waiting message when its row is clicked', async () => {
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    await user.click(await screen.findByText('Did the engine run?'));
+
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(ADA);
+    expect(state.highlightedMessageId).toBe('ADA-1');
+    expect(state.highlightedMessageAt).toBe('2026-11-16T10:00:00Z');
+  });
+
+  it('nudges by filling the composer with the follow-up template, quoting the message, and sending nothing', async () => {
+    getTemplates.mockResolvedValue([
+      { id: 't1', name: 'Follow-up', body: 'Any thoughts on this?', createdAt: '', updatedAt: '', lastUsedAt: null },
+    ]);
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    const row = (await screen.findByText('Did the engine run?')).closest('[role="button"]') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: /Nudge/i }));
+
+    await waitFor(() => expect(useAppStore.getState().composerDrafts[ADA]).toBe('Any thoughts on this?'));
+    const state = useAppStore.getState();
+    expect(state.selectedChat?.jid).toBe(ADA);
+    expect(state.replyingToByChat[ADA]?.msgId).toBe('ADA-1');
+    expect(state.sendConfirmData).toBeNull();
+    expect(dismissWaiting).not.toHaveBeenCalled();
+  });
+
+  it('leaves a draft the operator already started alone when nudging', async () => {
+    useAppStore.setState({ composerDrafts: { [ADA]: 'half a thought' } });
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    const row = (await screen.findByText('Did the engine run?')).closest('[role="button"]') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: /Nudge/i }));
+
+    await waitFor(() => expect(useAppStore.getState().replyingToByChat[ADA]?.msgId).toBe('ADA-1'));
+    expect(useAppStore.getState().composerDrafts[ADA]).toBe('half a thought');
+  });
+
+  it('dismisses a row with Done and refetches the list', async () => {
+    dismissWaiting.mockResolvedValue({ chat: ADA, id: 'ADA-1', dismissed: true });
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    const row = (await screen.findByText('Did the engine run?')).closest('[role="button"]') as HTMLElement;
+    getWaiting.mockResolvedValue({ items: [toGrace], total: 1, snoozed: 0 });
+    await user.click(within(row).getByRole('button', { name: /Done/i }));
+
+    expect(dismissWaiting).toHaveBeenCalledWith({ chat: ADA, id: 'ADA-1' });
+    await waitFor(() => expect(screen.queryByText('Did the engine run?')).toBeNull());
+    expect(screen.getByRole('button', { name: /WAITING \(1\)/i })).toBeInTheDocument();
+    // Done is not a click on the row: the chat stays where it was.
+    expect(useAppStore.getState().selectedChat).toBeNull();
+  });
+
+  it('snoozes a row until a chosen reminder time', async () => {
+    snoozeWaiting.mockResolvedValue({ chat: GRACE, id: 'GRACE-1', snoozedUntil: '' });
+    const user = userEvent.setup();
+    renderStrip();
+    await openWaiting(user);
+
+    const row = (await screen.findByText('Found the moth yet?')).closest('[role="button"]') as HTMLElement;
+    getWaiting.mockResolvedValue({ items: [toAda], total: 1, snoozed: 1 });
+    await user.click(within(row).getByRole('button', { name: /Remind me/i }));
+    await user.click(within(row).getByRole('button', { name: /Tomorrow 9:00/i }));
+
+    expect(snoozeWaiting).toHaveBeenCalledTimes(1);
+    const { chat, id, until } = snoozeWaiting.mock.calls[0][0];
+    expect({ chat, id }).toEqual({ chat: GRACE, id: 'GRACE-1' });
+    expect(new Date(until).getTime()).toBeGreaterThan(Date.now());
+    expect(await screen.findByText('1 hidden until a reminder')).toBeInTheDocument();
+  });
+
+  it('marks a row that is back from a reminder', async () => {
+    getWaiting.mockResolvedValue({
+      items: [{ ...toAda, snoozedUntil: '2026-11-17T09:00:00Z' }],
+      total: 1,
+      snoozed: 0,
+    });
+    const user = userEvent.setup();
+    renderStrip();
+    await user.click(await screen.findByRole('button', { name: /WAITING \(1\)/i }));
+
+    expect(await screen.findByText(/REMINDER/)).toBeInTheDocument();
+  });
+
+  it('does not ask wacli while the app is asleep', async () => {
+    getSleep.mockResolvedValue({ sleeping: true, since: '2026-11-18T08:00:00Z' });
+    renderStrip();
+
+    await screen.findByRole('button', { name: /WAITING \(0\)/i });
+    await waitFor(() => expect(getSleep).toHaveBeenCalled());
+    expect(getWaiting).not.toHaveBeenCalled();
+  });
+
+  it('says so when nobody owes a reply', async () => {
+    getWaiting.mockResolvedValue({ items: [], total: 0, snoozed: 0 });
+    const user = userEvent.setup();
+    renderStrip();
+    await user.click(await screen.findByRole('button', { name: /WAITING \(0\)/i }));
+
+    expect(await screen.findByText('Nobody owes you a reply.')).toBeInTheDocument();
   });
 });
