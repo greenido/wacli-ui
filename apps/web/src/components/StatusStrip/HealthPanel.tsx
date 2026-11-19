@@ -1,8 +1,10 @@
 import React from 'react';
-import { AlertTriangle, RotateCw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { RotateCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { isHeartbeatStale } from '../../lib/heartbeat.ts';
+import { CopyableError } from '../CopyableError/CopyableError.tsx';
+import { statusColor } from '../../lib/statusColor.ts';
 import type { MissionControlStatus } from '../../types.ts';
 
 interface HealthPanelProps {
@@ -34,15 +36,7 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
   const doctor = health?.doctor;
   const heartbeatAge = health?.heartbeatAgeSeconds;
 
-  const getStatusColor = () => {
-    if (!wsConnected || processState === 'failed' || processState === 'logged_out') {
-      return 'bg-mc-danger text-mc-danger';
-    }
-    if (processState === 'restarting' || processState === 'paused' || processState === 'starting') {
-      return 'bg-mc-safe text-mc-safe';
-    }
-    return 'bg-mc-live text-mc-live';
-  };
+  const getStatusColor = () => statusColor(processState, wsConnected);
 
   return (
     <div className="p-3 space-y-3 border-b border-mc-border">
@@ -216,12 +210,7 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
         </div>
       )}
 
-      {health?.lastError && (
-        <div className="bg-mc-danger/10 border border-mc-danger/30 p-2 rounded text-[11px] text-mc-danger flex items-start gap-1.5">
-          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <span className="break-all">{health.lastError}</span>
-        </div>
-      )}
+      {health?.lastError && <CopyableError message={health.lastError} />}
     </div>
   );
 };

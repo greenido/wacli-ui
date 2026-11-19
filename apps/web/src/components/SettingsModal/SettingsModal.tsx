@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, AlertTriangle, Bell, BellOff, Sun } from 'lucide-react';
+import { X, ShieldCheck, ShieldAlert, Database, FileText, CheckCircle2, Activity, RotateCw, Bell, BellOff, Sun } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../api/client.ts';
 import { useHealth } from '../../hooks/useHealth.ts';
@@ -14,6 +14,7 @@ import {
   setNotificationsEnabled,
 } from '../../lib/notifications.ts';
 import { isHeartbeatStale } from '../../lib/heartbeat.ts';
+import { CopyableError } from '../CopyableError/CopyableError.tsx';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
 
@@ -298,12 +299,7 @@ export const SettingsModal: React.FC = () => {
                   </span>
                 </div>
               )}
-              {health?.lastError && (
-                <div className="bg-mc-danger/10 border border-mc-danger/30 p-2 rounded text-[10px] text-mc-danger flex items-start gap-1.5 mt-1">
-                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-                  <span className="break-all">{health.lastError}</span>
-                </div>
-              )}
+              {health?.lastError && <CopyableError message={health.lastError} className="mt-1" />}
             </div>
           </div>
 
