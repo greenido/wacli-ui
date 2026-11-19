@@ -14,6 +14,7 @@ function health(wacliUpdate: MissionControlStatus['wacliUpdate']): MissionContro
   return {
     readOnly: false,
     processState: 'running',
+    syncDisabled: false,
     processPid: 4242,
     heartbeatAgeSeconds: 1,
     lastError: null,

@@ -122,6 +122,11 @@ export interface UnifiedDoctor {
 export interface MissionControlStatus {
   readOnly: boolean;
   processState: 'stopped' | 'starting' | 'running' | 'paused' | 'restarting' | 'logged_out' | 'failed';
+  /**
+   * Started with `--no-sync` (WACLI_DISABLE_SYNC=1): a daemon that is down is
+   * down on purpose, and reads, which never needed it, are not waiting on it.
+   */
+  syncDisabled: boolean;
   processPid: number | null;
   heartbeatAgeSeconds: number | null;
   lastError: string | null;

@@ -885,3 +885,31 @@ describe('StatusStrip waiting on a reply', () => {
     expect(await screen.findByText('Nobody owes you a reply.')).toBeInTheDocument();
   });
 });
+
+describe('StatusStrip daemon state', () => {
+  beforeEach(() => {
+    getHealth.mockReset();
+    getScheduled.mockReset();
+    getActivity.mockReset();
+    getActivity.mockResolvedValue({ items: [], nextCursor: null, total: 0 });
+    getMode.mockResolvedValue({ readOnly: true });
+    mockScheduled([]);
+    useAppStore.setState({ selectedChat: null, sendLogs: [] });
+  });
+
+  it('calls a daemon switched off with --no-sync off, not stopped', async () => {
+    getHealth.mockResolvedValue({ readOnly: true, processState: 'stopped', syncDisabled: true });
+    renderStrip();
+
+    expect(await screen.findByText('off (--no-sync)')).toBeInTheDocument();
+    expect(screen.getByTitle('Start the daemon')).toBeInTheDocument();
+  });
+
+  it('still says stopped when nothing asked for it', async () => {
+    getHealth.mockResolvedValue({ readOnly: true, processState: 'stopped', syncDisabled: false });
+    renderStrip();
+
+    expect(await screen.findByText('stopped')).toBeInTheDocument();
+    expect(screen.queryByText('off (--no-sync)')).not.toBeInTheDocument();
+  });
+});
