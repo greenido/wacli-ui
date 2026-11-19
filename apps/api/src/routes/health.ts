@@ -172,6 +172,7 @@ export function createHealthRouter(processManager: WacliProcessManager): Router 
     const status: MissionControlStatus = {
       readOnly: modeManager.isReadOnly(),
       processState: processManager.getState(),
+      syncDisabled: process.env.WACLI_DISABLE_SYNC === '1',
       processPid: processManager.getPid(),
       heartbeatAgeSeconds: processManager.getHeartbeatAgeSeconds(),
       lastError,

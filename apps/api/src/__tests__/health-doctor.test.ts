@@ -119,6 +119,22 @@ describe('Health doctor probe', () => {
     expect(res.body.data.statusSummary).toBe('sync_starting');
   });
 
+  it('says when the daemon is off on purpose, so the console still reads', async () => {
+    const before = process.env.WACLI_DISABLE_SYNC;
+    process.env.WACLI_DISABLE_SYNC = '1';
+    try {
+      const app = createApp(new WacliProcessManager({ apiPort: 3002 }));
+
+      const res = await request(app).get('/api/health?fresh=1');
+
+      expect(res.body.data.processState).toBe('stopped');
+      expect(res.body.data.syncDisabled).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.WACLI_DISABLE_SYNC;
+      else process.env.WACLI_DISABLE_SYNC = before;
+    }
+  });
+
   it('reuses a cached doctor result instead of probing the store every poll', async () => {
     const app = createApp(connectedManager());
 

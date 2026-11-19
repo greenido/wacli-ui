@@ -30,6 +30,7 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
   });
 
   const processState = health?.processState ?? 'stopped';
+  const offByChoice = processState === 'stopped' && Boolean(health?.syncDisabled);
   const doctor = health?.doctor;
   const heartbeatAge = health?.heartbeatAgeSeconds;
 
@@ -117,15 +118,30 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${getStatusColor().split(' ')[0]} ${processState === 'running' ? 'animate-pulse' : ''}`} />
-              <span className={`font-semibold uppercase ${getStatusColor().split(' ')[1]}`}>
-                {processState}
-              </span>
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  offByChoice ? 'bg-mc-textMuted' : getStatusColor().split(' ')[0]
+                } ${processState === 'running' ? 'animate-pulse' : ''}`}
+              />
+              {/* Off on purpose (`--no-sync`) is not a fault either: reads
+                  still work, and only live updates wait for a daemon. */}
+              {offByChoice ? (
+                <span
+                  className="font-semibold uppercase text-mc-textMuted"
+                  title="Started with --no-sync. Chats and messages still load; nothing new arrives live until the daemon runs."
+                >
+                  off (--no-sync)
+                </span>
+              ) : (
+                <span className={`font-semibold uppercase ${getStatusColor().split(' ')[1]}`}>
+                  {processState}
+                </span>
+              )}
               <button
                 onClick={() => restartDaemonMutation.mutate()}
                 disabled={restartDaemonMutation.isPending}
                 className="ml-1 p-0.5 rounded hover:bg-mc-surfaceHover text-mc-textMuted hover:text-mc-text transition-colors"
-                title="Restart Daemon"
+                title={offByChoice ? 'Start the daemon' : 'Restart Daemon'}
               >
                 <RotateCw size={11} className={restartDaemonMutation.isPending ? 'animate-spin' : ''} />
               </button>

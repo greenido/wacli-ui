@@ -13,6 +13,15 @@ export function isWacliReadyForReads(health?: MissionControlStatus | null): bool
   }
 
   const state = health.processState;
+
+  // Reads are one-shot read-only commands and never needed the daemon. A
+  // stopped one is held against them because, normally, stopped means not up
+  // yet or down unexpectedly. Started with `--no-sync` it means neither, and
+  // holding reads back left the whole console empty.
+  if (state === 'stopped' && health.syncDisabled) {
+    return true;
+  }
+
   if (
     state === 'starting' ||
     state === 'restarting' ||
