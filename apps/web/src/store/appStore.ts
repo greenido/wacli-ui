@@ -93,6 +93,8 @@ interface AppState {
   highlightedMessageAt: string | null;
   activeModal: ActiveModal | null;
   chatFocusIntent: ChatFocusIntent;
+  /** wacli's change feed is answering, so the blind polls can slow down. */
+  changeFeedLive: boolean;
   /**
    * A one-shot signal to whichever pane owns a shortcut's behaviour: the rail
    * knows the filtered chat order, the thread knows its loaded messages, and
@@ -143,6 +145,7 @@ interface AppState {
     at?: string | null
   ) => void;
   setActiveModal: (modal: ActiveModal | null) => void;
+  setChangeFeedLive: (live: boolean) => void;
   runCommand: (name: UiCommand) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
   /** Opens the dialog for `action`, or closes it with null. */
@@ -173,6 +176,7 @@ export const useAppStore = create<AppState>((set) => ({
   highlightedMessageAt: null,
   activeModal: null,
   chatFocusIntent: 'composer',
+  changeFeedLive: false,
   uiCommand: null,
   composerDrafts: {},
   composerFiles: {},
@@ -258,6 +262,7 @@ export const useAppStore = create<AppState>((set) => ({
   setHighlightedMessageId: (id, hint = null, at = null) =>
     set({ highlightedMessageId: id, highlightedMessageHint: hint, highlightedMessageAt: at }),
   setActiveModal: (modal) => set({ activeModal: modal }),
+  setChangeFeedLive: (live) => set((s) => (s.changeFeedLive === live ? s : { changeFeedLive: live })),
   runCommand: (name) =>
     set((s) => ({ uiCommand: { name, seq: (s.uiCommand?.seq ?? 0) + 1 } })),
   setSendConfirmData: (data) => set({ sendConfirmData: data }),

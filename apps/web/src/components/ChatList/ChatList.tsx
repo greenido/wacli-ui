@@ -6,7 +6,7 @@ import { chatWithUnreadCleared, hasPendingRead, markChatAsRead } from '../../lib
 import { isChatMuted, isMarkedUnread, toggleArchive, togglePin } from '../../lib/chatState.ts';
 import { ChatActionsMenu, type ChatMenuPick } from './ChatActionsMenu.tsx';
 import { useChatActions } from './useChatActions.ts';
-import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { POLL_CHATS_MS, pollBehindFeed, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue.ts';
@@ -33,6 +33,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
   const tagFilter = useAppStore((s) => s.tagFilter);
   const setTagFilter = useAppStore((s) => s.setTagFilter);
   const presenceMap = useAppStore((s) => s.presenceMap);
+  const changeFeedLive = useAppStore((s) => s.changeFeedLive);
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const queryClient = useQueryClient();
   const filterInputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +65,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       // Read here, but not yet in the archive: the receipt is still waiting.
       return fetched.map((c) => (hasPendingRead(c.jid) ? chatWithUnreadCleared(c) : c));
     },
-    refetchInterval: POLL_CHATS_MS,
+    refetchInterval: pollBehindFeed(POLL_CHATS_MS, changeFeedLive),
     ...readQueryOpts,
   });
 

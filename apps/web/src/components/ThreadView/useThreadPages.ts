@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
-import { POLL_MESSAGES_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { POLL_MESSAGES_MS, pollBehindFeed, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { useAppStore } from '../../store/appStore.ts';
 import {
   hasMessage,
   newerCursor,
@@ -69,6 +70,8 @@ export function useThreadPages({ chatJid, readsReady, jumpTargetId, jumpTargetAt
     at: string;
   } | null>(null);
 
+  const changeFeedLive = useAppStore((s) => s.changeFeedLive);
+
   // One page per "load older", walked back with a `before` cursor, rather than
   // one ever-widening `limit`. Re-reading the whole thread to reach 200 more
   // messages is what made the sixth step cost a 1200-message subprocess — and
@@ -85,8 +88,12 @@ export function useThreadPages({ chatJid, readsReady, jumpTargetId, jumpTargetAt
         : Promise.resolve({ messages: [], hasMore: false }),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? olderCursor(lastPage) : undefined),
+    // Behind the change feed this only has receipts left to catch, and the
+    // feed refetches every page of a thread that changed, however deep.
     refetchInterval: (query) =>
-      shouldPollThread(query.state.data?.pages.length ?? 1) ? POLL_MESSAGES_MS : false,
+      shouldPollThread(query.state.data?.pages.length ?? 1)
+        ? pollBehindFeed(POLL_MESSAGES_MS, changeFeedLive)
+        : false,
     // Keep the previous conversation on screen while the next one loads, so
     // switching chats does not blank the pane.
     placeholderData: keepPreviousData,

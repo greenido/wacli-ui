@@ -14,6 +14,14 @@ export interface UnifiedChat {
   unreadCount: number;
 }
 
+/** GET /api/changes. Mirrors `ChangesAnswer` in `apps/api/src/routes/changes.ts`. */
+export interface ChangesAnswer {
+  supported: boolean;
+  checkpoint: string | null;
+  chats: string[];
+  reset: boolean;
+}
+
 export interface UnifiedMessage {
   chatJid: string;
   chatName: string;

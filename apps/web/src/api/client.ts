@@ -13,6 +13,7 @@ import type {
   SleepState,
   QuickReplyTemplate,
   WaitingList,
+  ChangesAnswer,
 } from '../types.ts';
 import type { ChatStateAction, ChatStateChange } from '../lib/chatState.ts';
 
@@ -172,6 +173,12 @@ export const api = {
     asc?: boolean;
   }) =>
     request<{ messages: UnifiedMessage[]; hasMore: boolean }>('/api/messages', {}, params),
+
+  /**
+   * Which chats' messages changed since `since` (wacli 0.22+). Without one,
+   * a fresh checkpoint to start from.
+   */
+  getChanges: (since?: string) => request<ChangesAnswer>('/api/changes', {}, { since }),
 
   /** One message by id. A 404 means the local archive does not hold it. */
   getMessage: (params: { chat: string; id: string }) =>

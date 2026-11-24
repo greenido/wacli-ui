@@ -6,7 +6,7 @@ import { useHealth } from '../../hooks/useHealth.ts';
 import { useSafeMode } from '../../hooks/useSafeMode.ts';
 import { useScheduledQueue } from '../../hooks/useScheduledQueue.ts';
 import { useSleepMode } from '../../hooks/useSleepMode.ts';
-import { POLL_ACTIVITY_MS, POLL_WAITING_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
+import { POLL_ACTIVITY_MS, POLL_WAITING_MS, pollBehindFeed, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { useInfiniteScroll } from '../../hooks/useInfiniteScroll.ts';
 import { useAppStore } from '../../store/appStore.ts';
@@ -47,6 +47,7 @@ function readHealthCollapsed(): boolean {
 export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 256 }) => {
   const setActiveModal = useAppStore((s) => s.setActiveModal);
   const sendLogs = useAppStore((s) => s.sendLogs);
+  const changeFeedLive = useAppStore((s) => s.changeFeedLive);
   const selectedJid = useAppStore((s) => s.selectedChat?.jid);
   const setComposerDraft = useAppStore((s) => s.setComposerDraft);
   const triggerFocusComposer = useAppStore((s) => s.triggerFocusComposer);
@@ -118,7 +119,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
   const waitingQuery = useQuery({
     queryKey: ['waiting'],
     queryFn: () => api.getWaiting(),
-    refetchInterval: POLL_WAITING_MS,
+    refetchInterval: pollBehindFeed(POLL_WAITING_MS, changeFeedLive),
     ...wacliReadQueryOptions(awake && isWacliReadyForReads(health)),
   });
   const waitingItems = useMemo(() => waitingQuery.data?.items ?? [], [waitingQuery.data]);

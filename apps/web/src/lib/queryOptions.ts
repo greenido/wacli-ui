@@ -31,6 +31,21 @@ export const POLL_MODE_MS = 15_000;
 export const POLL_WAITING_MS = POLL_CHATS_MS;
 
 /**
+ * wacli's change feed (0.22+): one small read that names every chat whose
+ * messages changed. While it answers, the console refetches exactly those
+ * threads and the rail, so the blind polls above only have to catch what the
+ * feed cannot see — receipts and chat state (pins, mutes, unread counts) — and
+ * slow to POLL_BEHIND_FEED_MS.
+ */
+export const POLL_CHANGES_MS = 10_000;
+export const POLL_BEHIND_FEED_MS = 120_000;
+
+/** The blind poll for a read the change feed also covers. */
+export function pollBehindFeed(intervalMs: number, feedLive: boolean): number {
+  return feedLive ? Math.max(intervalMs, POLL_BEHIND_FEED_MS) : intervalMs;
+}
+
+/**
  * Spelled out rather than picked from `UseQueryOptions`, so the same options
  * spread into an infinite query too — those type `enabled` against paged data,
  * and a shape borrowed from the plain query would not fit. None of these three

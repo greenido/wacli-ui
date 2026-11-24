@@ -16,6 +16,7 @@ import { TagManagerModal } from './components/TagManagerModal/TagManagerModal.ts
 import { TemplateManagerModal } from './components/TemplateManagerModal/TemplateManagerModal.tsx';
 import { ModeConfirmModal } from './components/ModeConfirmModal/ModeConfirmModal.tsx';
 import { MessageActionModal } from './components/MessageActionModal/MessageActionModal.tsx';
+import { useChangeFeed } from './hooks/useChangeFeed.ts';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   // Opening a chat, searching or filtering wakes a sleeping app.
   useWakeOnIntent({ searchOpen: isSearchOpen });
+  useChangeFeed();
 
   // Resizable pane widths with localStorage persistence
   const [chatListWidth, setChatListWidth] = useState<number>(() => readSavedPaneWidth(CHAT_LIST_PANE));
