@@ -28,7 +28,7 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = ({ chat, coverage, arch
         </div>
         <div className="text-xs font-mono text-mc-textMuted truncate flex items-center gap-2">
           <span>{chat.jid}</span>
-          {isTyping && <span className="text-mc-live animate-pulse">● typing...</span>}
+          {isTyping && <span className="text-mc-accent animate-pulse">● typing...</span>}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -45,7 +45,7 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = ({ chat, coverage, arch
           onClick={() => setActiveModal('chat-info')}
           title="Contact details, local alias, and tags"
           aria-label="Chat info"
-          className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors"
         >
           <Info size={12} />
           <span>INFO</span>

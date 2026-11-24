@@ -86,9 +86,9 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
           isReactionDrawerOpen ? 'z-40' : 'z-0'
         } ${
           isFocused
-            ? 'ring-2 ring-mc-live ring-offset-2 ring-offset-mc-bg shadow-[0_0_20px_rgba(37,211,102,0.7)] bg-[#1e3d2f] border-mc-live animate-pulse'
+            ? 'ring-2 ring-mc-accent ring-offset-2 ring-offset-mc-bg shadow-[0_0_20px_rgb(var(--mc-accent)/0.7)] bg-mc-accent/20 border-mc-accent animate-pulse'
             : isMe
-            ? 'bg-[#1B2823] border border-mc-live/30 text-mc-text'
+            ? 'bg-mc-accent/10 border border-mc-accent/30 text-mc-text'
             : 'bg-mc-surface border border-mc-border text-mc-text'
         }`}
       >
@@ -136,12 +136,12 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
         <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] font-mono text-mc-textMuted">
           {msg.starred && (
             <span title="Starred in WhatsApp">
-              <Star size={11} className="fill-[#F5A623] text-[#F5A623]" />
+              <Star size={11} className="fill-mc-star text-mc-star" />
             </span>
           )}
           {msg.bookmarked && (
             <span title="Bookmarked in Mission Control (this machine only)">
-              <Bookmark size={11} className="fill-mc-live text-mc-live" />
+              <Bookmark size={11} className="fill-mc-accent text-mc-accent" />
             </span>
           )}
           {msg.edited && <span className="italic">edited</span>}
@@ -182,7 +182,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {/* Reply */}
             <button
               onClick={() => onReply(msg)}
-              className="p-1 hover:text-mc-live text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
+              className="p-1 hover:text-mc-accent text-mc-textMuted hover:bg-mc-surfaceHover rounded transition-colors"
               title="Reply"
             >
               <Reply size={12} />
@@ -192,7 +192,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             <button
               onClick={() => onCopy(msg)}
               className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-                isCopied ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
+                isCopied ? 'text-mc-accent' : 'text-mc-textMuted hover:text-mc-text'
               }`}
               title={isCopied ? 'Copied to clipboard!' : 'Copy message text'}
             >
@@ -204,7 +204,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             <button
               onClick={() => onToggleBookmark(msg)}
               className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
-                msg.bookmarked ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-live'
+                msg.bookmarked ? 'text-mc-accent' : 'text-mc-textMuted hover:text-mc-accent'
               }`}
               title={
                 msg.bookmarked
@@ -212,7 +212,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
                   : 'Bookmark locally (not synced to WhatsApp)'
               }
             >
-              <Bookmark size={12} className={msg.bookmarked ? 'fill-mc-live' : ''} />
+              <Bookmark size={12} className={msg.bookmarked ? 'fill-mc-accent' : ''} />
             </button>
 
             {/* Expanded Emoji Reaction Drawer */}
@@ -220,8 +220,8 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
               onClick={() => onToggleReactionDrawer(msg.msgId)}
               className={`p-1 hover:bg-mc-surfaceHover rounded transition-colors ${
                 isReactionDrawerOpen
-                  ? 'text-mc-live'
-                  : 'text-mc-textMuted hover:text-mc-live'
+                  ? 'text-mc-accent'
+                  : 'text-mc-textMuted hover:text-mc-accent'
               }`}
               title="React with emoji"
             >
@@ -233,7 +233,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {canForward(msg) && (
               <button
                 onClick={() => onMessageAction(msg, 'forward')}
-                className="p-1 text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover rounded transition-colors"
+                className="p-1 text-mc-textMuted hover:text-mc-accent hover:bg-mc-surfaceHover rounded transition-colors"
                 title="Forward"
               >
                 <Forward size={12} />
@@ -242,7 +242,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             {canEdit(msg) && (
               <button
                 onClick={() => onMessageAction(msg, 'edit')}
-                className="p-1 text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover rounded transition-colors"
+                className="p-1 text-mc-textMuted hover:text-mc-accent hover:bg-mc-surfaceHover rounded transition-colors"
                 title="Edit (within 20 minutes of sending)"
               >
                 <Pencil size={12} />

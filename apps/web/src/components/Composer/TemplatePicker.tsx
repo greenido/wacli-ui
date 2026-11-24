@@ -72,7 +72,7 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({
               onMouseEnter={() => onHover(index)}
               onClick={() => onPick(template)}
               className={`px-3 py-1.5 cursor-pointer ${
-                index === activeIndex ? 'bg-mc-live/15 text-mc-text' : 'text-mc-textMuted hover:bg-mc-surfaceHover'
+                index === activeIndex ? 'bg-mc-accent/15 text-mc-text' : 'text-mc-textMuted hover:bg-mc-surfaceHover'
               }`}
             >
               <span className="font-semibold text-mc-text">{template.name}</span>
@@ -88,7 +88,7 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({
         <button
           type="button"
           onClick={onManage}
-          className="shrink-0 text-mc-live hover:underline"
+          className="shrink-0 text-mc-accent hover:underline"
         >
           MANAGE
         </button>

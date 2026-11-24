@@ -125,7 +125,7 @@ export const ChatInfoModal: React.FC = () => {
       >
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
           <h2 id="chat-info-title" className="flex items-center gap-2 font-semibold text-sm text-mc-text min-w-0">
-            {isGroup ? <Users size={15} className="text-mc-live shrink-0" /> : <User size={15} className="text-mc-live shrink-0" />}
+            {isGroup ? <Users size={15} className="text-mc-accent shrink-0" /> : <User size={15} className="text-mc-accent shrink-0" />}
             <span className="truncate">{selectedChat.name}</span>
           </h2>
           <button
@@ -183,7 +183,7 @@ export const ChatInfoModal: React.FC = () => {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && isEditingAlias) aliasMutation.mutate(aliasValue.trim());
                   }}
-                  className="flex-1 bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live disabled:opacity-50"
+                  className="flex-1 bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent disabled:opacity-50"
                 />
                 <button
                   onClick={() => aliasMutation.mutate(aliasValue.trim())}
@@ -193,12 +193,12 @@ export const ChatInfoModal: React.FC = () => {
                       ? 'Safe read-only mode is active: an alias is written to the wacli store, so it is disabled.'
                       : 'Save this alias to the wacli store'
                   }
-                  className="flex items-center gap-1 px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {aliasMutation.isPending ? (
                     <Loader2 size={12} className="animate-spin" />
                   ) : aliasMutation.isSuccess && !isEditingAlias ? (
-                    <Check size={12} className="text-mc-live" />
+                    <Check size={12} className="text-mc-accent" />
                   ) : (
                     <Pencil size={12} />
                   )}
@@ -230,7 +230,7 @@ export const ChatInfoModal: React.FC = () => {
                   // spelled out, or a screen reader announces only the label.
                   aria-label={`Remove tag "${tag}"`}
                   title={`Remove tag "${tag}"`}
-                  className="group flex items-center gap-1 px-1.5 py-0.5 rounded bg-mc-live/10 border border-mc-live/40 text-mc-live text-[10px] hover:bg-mc-danger/15 hover:border-mc-danger/50 hover:text-mc-danger transition-colors"
+                  className="group flex items-center gap-1 px-1.5 py-0.5 rounded bg-mc-accent/10 border border-mc-accent/40 text-mc-accent text-[10px] hover:bg-mc-danger/15 hover:border-mc-danger/50 hover:text-mc-danger transition-colors"
                 >
                   <span>{tag}</span>
                   <X size={9} className="opacity-50 group-hover:opacity-100" />
@@ -264,7 +264,7 @@ export const ChatInfoModal: React.FC = () => {
                         }}
                         onMouseEnter={() => setActiveSuggestion(i)}
                         className={`px-2 py-1 text-xs cursor-pointer ${
-                          i === activeSuggestion ? 'bg-mc-live/15 text-mc-live' : 'text-mc-text'
+                          i === activeSuggestion ? 'bg-mc-accent/15 text-mc-accent' : 'text-mc-text'
                         }`}
                       >
                         {tag}
@@ -313,14 +313,14 @@ export const ChatInfoModal: React.FC = () => {
                       submitTag(activeSuggestion >= 0 ? suggestions[activeSuggestion] : tagDraft);
                     }
                   }}
-                  className="w-full bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live"
+                  className="w-full bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent"
                 />
               </div>
               <button
                 onClick={() => submitTag(tagDraft)}
                 disabled={!normalizedDraft || isDuplicate || tagMutation.isPending}
                 title={isDuplicate ? `This chat already has "${normalizedDraft}"` : 'Add this tag'}
-                className="flex items-center gap-1 px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center gap-1 px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {tagMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
                 <span>ADD</span>
@@ -328,7 +328,7 @@ export const ChatInfoModal: React.FC = () => {
             </div>
             {isDuplicate ? (
               <p className="text-[10px] text-mc-textMuted font-sans">
-                This chat already has <span className="text-mc-live">{normalizedDraft}</span>.
+                This chat already has <span className="text-mc-accent">{normalizedDraft}</span>.
               </p>
             ) : similarTag ? (
               <p className="flex items-start gap-1 text-[10px] text-mc-safe font-sans">
@@ -338,7 +338,7 @@ export const ChatInfoModal: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => submitTag(similarTag)}
-                    className="underline underline-offset-2 hover:text-mc-live"
+                    className="underline underline-offset-2 hover:text-mc-accent"
                   >
                     {similarTag}
                   </button>{' '}

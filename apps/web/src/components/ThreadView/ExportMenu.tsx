@@ -107,7 +107,7 @@ export const ExportMenu: React.FC<ExportMenuProps> = ({ chatJid, chatName }) => 
         aria-haspopup="menu"
         aria-expanded={isOpen}
         title="Export this conversation"
-        className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
+        className="flex items-center gap-1.5 text-[11px] font-mono px-2 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
       >
         {exportMutation.isPending ? (
           <Loader2 size={12} className="animate-spin" />

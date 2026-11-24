@@ -117,7 +117,7 @@ const EditBody: React.FC<{ action: Action; readOnly: boolean; close: () => void 
               }
             }}
             rows={4}
-            className="w-full p-2 rounded border border-mc-border bg-mc-bg text-xs text-mc-text focus:outline-none focus:border-mc-live resize-y text-start"
+            className="w-full p-2 rounded border border-mc-border bg-mc-bg text-xs text-mc-text focus:outline-none focus:border-mc-accent resize-y text-start"
           />
         </label>
         <p className="text-[11px] font-mono text-mc-textMuted">
@@ -278,7 +278,7 @@ const ForwardBody: React.FC<{ action: Action; readOnly: boolean; close: () => vo
             onKeyDown={onSearchKey}
             placeholder="Search chats..."
             aria-label="Search chats to forward to"
-            className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-1.5 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live"
+            className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-1.5 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent"
           />
         </div>
         <ul
@@ -302,7 +302,7 @@ const ForwardBody: React.FC<{ action: Action; readOnly: boolean; close: () => vo
                 onClick={() => setTarget(chat)}
                 className={`px-2 py-1.5 text-xs cursor-pointer flex items-center justify-between gap-2 ${
                   chosen
-                    ? 'bg-mc-live/15 text-mc-live'
+                    ? 'bg-mc-accent/15 text-mc-accent'
                     : index === cursor
                       ? 'bg-mc-surfaceHover text-mc-text'
                       : 'text-mc-text hover:bg-mc-surfaceHover'
@@ -344,9 +344,9 @@ const ForwardBody: React.FC<{ action: Action; readOnly: boolean; close: () => vo
 };
 
 const TITLES = {
-  edit: { text: 'EDIT MESSAGE', icon: <Pencil size={15} className="text-mc-live" /> },
+  edit: { text: 'EDIT MESSAGE', icon: <Pencil size={15} className="text-mc-accent" /> },
   delete: { text: 'DELETE MESSAGE', icon: <Trash2 size={15} className="text-mc-danger" /> },
-  forward: { text: 'FORWARD MESSAGE', icon: <Forward size={15} className="text-mc-live" /> },
+  forward: { text: 'FORWARD MESSAGE', icon: <Forward size={15} className="text-mc-accent" /> },
 } as const;
 
 /**

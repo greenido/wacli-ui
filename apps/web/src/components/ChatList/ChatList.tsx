@@ -234,12 +234,12 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       <div className="p-3 border-b border-mc-border space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <MessageSquare size={16} className="text-mc-live" />
+            <MessageSquare size={16} className="text-mc-accent" />
             <h1 className="font-semibold text-mc-text tracking-wide text-sm">CHATS</h1>
           </div>
           <button
             onClick={() => setActiveModal('new-chat')}
-            className="flex items-center gap-1 text-xs font-mono text-mc-live hover:bg-mc-surfaceHover px-2 py-1 rounded border border-mc-border hover:border-mc-live/50 transition-all"
+            className="flex items-center gap-1 text-xs font-mono text-mc-accent hover:bg-mc-surfaceHover px-2 py-1 rounded border border-mc-border hover:border-mc-accent/50 transition-all"
             title="Start new message"
           >
             <Plus size={13} />
@@ -256,7 +256,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search chats or contacts...  ( / )"
             aria-label="Filter chats by name or JID"
-            className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-1.5 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live font-sans"
+            className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-1.5 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent font-sans"
           />
         </div>
 
@@ -268,7 +268,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
               onClick={() => setChatFilter(filter)}
               className={`px-2 py-0.5 rounded capitalize transition-colors ${
                 chatFilter === filter
-                  ? 'bg-mc-live/15 text-mc-live border border-mc-live/40 font-semibold'
+                  ? 'bg-mc-accent/15 text-mc-accent border border-mc-accent/40 font-semibold'
                   : 'text-mc-textMuted hover:text-mc-text border border-transparent hover:bg-mc-surfaceHover'
               }`}
             >
@@ -295,7 +295,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                     title={`Show only chats tagged "${tag}"`}
                     className={`px-2 py-0.5 rounded shrink-0 transition-colors ${
                       isActive
-                        ? 'bg-mc-live/15 text-mc-live border border-mc-live/40 font-semibold'
+                        ? 'bg-mc-accent/15 text-mc-accent border border-mc-accent/40 font-semibold'
                         : 'text-mc-textMuted hover:text-mc-text border border-transparent hover:bg-mc-surfaceHover'
                     }`}
                   >
@@ -387,7 +387,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
             <div className="space-y-1">
               <div className="text-xs font-semibold text-mc-safe">Pairing Required</div>
               <div className="text-[11px] text-mc-textMuted font-sans">
-                Run <code className="text-mc-live font-mono font-semibold">wacli auth</code> in your terminal to pair your WhatsApp account.
+                Run <code className="text-mc-accent font-mono font-semibold">wacli auth</code> in your terminal to pair your WhatsApp account.
               </div>
             </div>
           </div>
@@ -415,7 +415,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                 onClick={() => handleSelectChat(chat)}
                 className={`w-full text-left p-3 flex items-start justify-between gap-2 transition-colors ${
                   isSelected
-                    ? 'bg-mc-surfaceHover border-l-2 border-mc-live'
+                    ? 'bg-mc-surfaceHover border-l-2 border-mc-accent'
                     : 'hover:bg-mc-surfaceHover/60'
                 }`}
               >
@@ -445,7 +445,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                     className="text-[11px] truncate text-start"
                   >
                     {isTyping ? (
-                      <span className="text-mc-live font-mono animate-pulse">typing...</span>
+                      <span className="text-mc-accent font-mono animate-pulse">typing...</span>
                     ) : chat.lastMessage ? (
                       <span className="text-mc-textMuted">
                         {chat.lastMessageFromMe && <span className="text-mc-textMuted/70">You: </span>}
@@ -467,7 +467,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                     {formatTimestamp(chat.lastMessageTs)}
                   </span>
                   {chat.unreadCount > 0 && (
-                    <span className="bg-mc-live text-[#12151B] font-bold px-1.5 py-0.2 rounded-full text-[10px] min-w-4 text-center">
+                    <span className="bg-mc-accent text-mc-onAccent font-bold px-1.5 py-0.2 rounded-full text-[10px] min-w-4 text-center">
                       {chat.unreadCount}
                     </span>
                   )}
@@ -478,7 +478,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                       role="img"
                       aria-label="Marked unread"
                       title="Marked unread"
-                      className="w-2.5 h-2.5 rounded-full bg-mc-live"
+                      className="w-2.5 h-2.5 rounded-full bg-mc-accent"
                     />
                   )}
                 </div>
@@ -497,7 +497,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                 title="Pin, mute, archive, mark unread"
                 // Over the timestamp rather than the unread count, which is
                 // the one worth keeping in sight while the menu is reached for.
-                className={`absolute right-2 top-2 p-0.5 rounded border border-mc-border bg-mc-surface text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
+                className={`absolute right-2 top-2 p-0.5 rounded border border-mc-border bg-mc-surface text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
                   menuOpen ? 'opacity-100' : 'opacity-0'
                 }`}
               >

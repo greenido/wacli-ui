@@ -23,7 +23,7 @@ export function LinkifiedText({ text }: { text: string }) {
             target="_blank"
             rel="noopener noreferrer"
             title={part.href}
-            className="text-mc-live underline decoration-mc-live/40 underline-offset-2 hover:decoration-mc-live break-all"
+            className="text-mc-accent underline decoration-mc-accent/40 underline-offset-2 hover:decoration-mc-accent break-all"
           >
             {part.text}
           </a>

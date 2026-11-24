@@ -212,6 +212,14 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 - **Desktop notifications** are opt-in (in Settings) and raised by your own browser from the WebSocket. No push service, no third party. Your own messages, reactions, muted chats and the chat already on screen stay quiet. Clicking a notification opens that chat.
 - **Read receipts go out only when you look.** A chat is marked read when you click it, or when a message arrives while the console is the visible, focused window. A background tab keeps the unread badge until you come back, and opening the console reselects your last chat without marking it read. With wacli 0.22+, the receipt also stops at the newest message that was actually on your screen, so something that lands in the few seconds before it goes out stays unread until you've seen it.
 
+### 🎨 Themes (for operators who've seen daylight)
+
+- Six looks: **System** (follows your OS between Dark and Light), **Dark** (the original), **Light**, **Green chat**, **Solarized** (warm and low-glare) and **Midnight** (true black, kind to OLED and to 2 a.m.).
+- Switch from the 🎨 button in the status strip, or set it all in **Settings → Appearance**.
+- **Pick your accent:** eight swatches or any colour you like. It recolours highlights, links, focus rings and the selected chat. Green-for-live, amber-for-safe and red-for-trouble keep their meaning, so a pink theme can't hide a live send.
+- Pick something unreadable, like pale yellow on Light, and the accent is quietly shaded until text in it passes WCAG AA. You get your colour, just a version you can read.
+- Saved per browser, applied before the first paint (no flash of dark on a light morning), and kept in step across open tabs.
+
 ### 🩺 When things go sideways
 
 - A **status banner** tells "wacli isn't installed" apart from "wacli isn't paired", "another wacli process (pid 1234) holds the store lock", "the daemon is still starting" and "the backend is unreachable", and offers a next step for each.

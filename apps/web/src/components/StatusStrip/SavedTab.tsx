@@ -50,9 +50,9 @@ export const SavedTab: React.FC<SavedTabProps> = ({ bookmarks, isPending, select
                   jumpToBookmark();
                 }
               }}
-              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-accent/60 hover:bg-mc-surfaceHover/80 ${
                 isSelected
-                  ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                  ? 'border-mc-accent/60 bg-mc-surfaceHover/50 ring-1 ring-mc-accent/30'
                   : 'border-mc-border/70'
               }`}
               title="Open conversation and jump to this bookmarked message"
@@ -84,7 +84,7 @@ export const SavedTab: React.FC<SavedTabProps> = ({ bookmarks, isPending, select
               </div>
               <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
                 <span className="truncate">{bm.chatName || bm.chatJid}</span>
-                <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                <span className="text-[9px] text-mc-accent font-mono opacity-80 shrink-0">
                   OPEN →
                 </span>
               </div>

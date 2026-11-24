@@ -69,7 +69,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
           {/* The whole reason this dialog exists. Shown for a requeue too:
               scheduling the retry for later defers the duplicate, it does not
               avoid one. */}
-          <div className="p-3 bg-[#E8B96A]/10 border border-[#E8B96A]/40 rounded text-mc-safe flex items-start gap-2.5">
+          <div className="p-3 bg-mc-safe/10 border border-mc-safe/40 rounded text-mc-safe flex items-start gap-2.5">
             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
             <div>
               <span className="font-bold">This may deliver the message twice.</span>
@@ -154,7 +154,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
                 onClick={() => setIsScheduled(false)}
                 className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
                   !isScheduled
-                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    ? 'bg-mc-live text-mc-onLive font-bold'
                     : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
                 }`}
               >
@@ -168,7 +168,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
                 }}
                 className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
                   isScheduled
-                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    ? 'bg-mc-live text-mc-onLive font-bold'
                     : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
                 }`}
               >
@@ -205,7 +205,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
                 aria-label="Dispatch time"
                 value={scheduleTime}
                 onChange={(e) => setScheduleTime(e.target.value)}
-                className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1.5 text-mc-text font-mono text-[11px] focus:outline-none focus:border-mc-live"
+                className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1.5 text-mc-text font-mono text-[11px] focus:outline-none focus:border-mc-accent"
               />
             </div>
           )}
@@ -231,7 +231,7 @@ export const ResendConfirmModal: React.FC<ResendConfirmModalProps> = ({
             onClick={handleConfirm}
             disabled={!canSubmit}
             data-autofocus
-            className="px-3 py-1.5 rounded bg-mc-live text-[#12151B] font-bold flex items-center gap-1.5 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-3 py-1.5 rounded bg-mc-live text-mc-onLive font-bold flex items-center gap-1.5 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isPending ? (
               <>

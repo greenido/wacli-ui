@@ -18,6 +18,7 @@ import { ScheduledTab } from './ScheduledTab.tsx';
 import { SavedTab } from './SavedTab.tsx';
 import { WaitingTab } from './WaitingTab.tsx';
 import { useOpenMessage } from './useOpenMessage.ts';
+import { ThemeMenu } from '../ThemePicker/ThemeMenu.tsx';
 import { useScheduledActions } from './useScheduledActions.ts';
 import type { SendLogEntry } from '../../types.ts';
 
@@ -198,7 +199,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           ) : (
             <ChevronDown size={13} className="text-mc-textMuted shrink-0" />
           )}
-          <Activity size={15} className="text-mc-live shrink-0" />
+          <Activity size={15} className="text-mc-accent shrink-0" />
           <span className="font-semibold text-mc-text tracking-wider truncate">SYSTEM STATUS</span>
           {/* Collapsed, the panel's verdict still shows: the daemon's light,
               and a red one whenever there is an error to read. */}
@@ -214,6 +215,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
           )}
         </button>
         <div className="flex items-center gap-0.5">
+          <ThemeMenu />
           {/* No confirmation: sleep takes nothing away that waking does not
               give back, and the scheduled queue keeps sending either way. */}
           <button
@@ -281,7 +283,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </button>
             <button
               onClick={() => setActiveTab('scheduled')}
-              className={tabClass('scheduled', 'text-mc-live')}
+              className={tabClass('scheduled', 'text-mc-accent')}
               aria-label={`Later (${scheduledCount})`}
               aria-pressed={activeTab === 'scheduled'}
               title="Later: scheduled messages"
@@ -291,7 +293,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </button>
             <button
               onClick={() => setActiveTab('saved')}
-              className={tabClass('saved', 'text-mc-live')}
+              className={tabClass('saved', 'text-mc-accent')}
               aria-label={`Saved (${bookmarks.length})`}
               aria-pressed={activeTab === 'saved'}
               title="Saved: bookmarked messages"
@@ -301,7 +303,7 @@ export const StatusStrip: React.FC<StatusStripProps> = ({ wsConnected, width = 2
             </button>
             <button
               onClick={() => setActiveTab('waiting')}
-              className={tabClass('waiting', 'text-mc-live')}
+              className={tabClass('waiting', 'text-mc-accent')}
               aria-label={`Waiting (${waitingQuery.data?.total ?? 0})`}
               aria-pressed={activeTab === 'waiting'}
               title="Waiting: messages you sent that have had no reply"

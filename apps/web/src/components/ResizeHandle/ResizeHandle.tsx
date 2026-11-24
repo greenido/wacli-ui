@@ -62,15 +62,15 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       onDoubleClick={onReset}
       className={`relative w-1.5 shrink-0 select-none cursor-col-resize z-20 transition-colors group flex items-center justify-center ${
         isDragging
-          ? 'bg-mc-live shadow-[0_0_8px_rgba(37,211,102,0.4)]'
-          : 'bg-mc-border hover:bg-mc-live/70 active:bg-mc-live'
+          ? 'bg-mc-accent shadow-[0_0_8px_rgb(var(--mc-accent)/0.4)]'
+          : 'bg-mc-border hover:bg-mc-accent/70 active:bg-mc-accent'
       }`}
       title="Drag to resize panel (Double-click to reset)"
     >
       {/* Visual grip pill on hover */}
       <div
         className={`w-0.5 h-6 rounded-full transition-colors pointer-events-none ${
-          isDragging ? 'bg-[#12151B]' : 'bg-transparent group-hover:bg-[#12151B]'
+          isDragging ? 'bg-mc-bg' : 'bg-transparent group-hover:bg-mc-bg'
         }`}
       />
     </div>

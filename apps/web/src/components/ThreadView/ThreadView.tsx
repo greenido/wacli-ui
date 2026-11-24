@@ -451,12 +451,12 @@ export const ThreadView: React.FC = () => {
       {windowAt && (
         <div className="px-4 py-1.5 border-b border-mc-border bg-mc-surface flex items-center justify-between gap-3 text-[11px] font-mono text-mc-textMuted shrink-0">
           <span className="flex items-center gap-1.5 min-w-0">
-            <History size={12} className="shrink-0 text-mc-live" />
+            <History size={12} className="shrink-0 text-mc-accent" />
             <span className="truncate">Reading history from {archiveDate(windowAt) ?? 'an earlier date'}</span>
           </span>
           <button
             onClick={backToLatest}
-            className="shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded border border-mc-border hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+            className="shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded border border-mc-border hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors"
             title="Back to the newest messages in this chat"
           >
             <ArrowDownToLine size={12} />
@@ -515,7 +515,7 @@ export const ThreadView: React.FC = () => {
             <button
               onClick={loadOlderMessages}
               disabled={isFetchingNextPage}
-              className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
+              className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
               title="Load the previous 200 messages from the local archive"
             >
               {isFetchingNextPage ? (
@@ -539,7 +539,7 @@ export const ThreadView: React.FC = () => {
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-            <div className="w-10 h-10 rounded-full bg-mc-surface flex items-center justify-center text-mc-live border border-mc-border">
+            <div className="w-10 h-10 rounded-full bg-mc-surface flex items-center justify-center text-mc-accent border border-mc-border">
               <Reply size={18} />
             </div>
             <div className="space-y-1">
@@ -586,7 +586,7 @@ export const ThreadView: React.FC = () => {
               <button
                 onClick={loadNewerMessages}
                 disabled={windowThread.isFetchingPreviousPage}
-                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
+                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-wait"
                 title="Load the next 200 messages from the local archive"
               >
                 {windowThread.isFetchingPreviousPage ? (
@@ -604,7 +604,7 @@ export const ThreadView: React.FC = () => {
             ) : (
               <button
                 onClick={backToLatest}
-                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors"
+                className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors"
                 title="Back to the live thread"
               >
                 <ArrowDownToLine size={12} />

@@ -17,6 +17,7 @@ import { isHeartbeatStale } from '../../lib/heartbeat.ts';
 import { CopyableError } from '../CopyableError/CopyableError.tsx';
 import { useAppStore } from '../../store/appStore.ts';
 import { useModalDialog } from '../../hooks/useModalDialog.ts';
+import { AppearanceSettings } from '../ThemePicker/AppearanceSettings.tsx';
 
 /**
  * Desktop notifications are opt-in twice over: the operator has to switch them
@@ -56,7 +57,7 @@ const NotificationToggle: React.FC = () => {
     <div className="p-3 bg-mc-bg rounded border border-mc-border space-y-2">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-mc-text flex items-center gap-2">
-          {isOn ? <Bell size={16} className="text-mc-live" /> : <BellOff size={16} className="text-mc-textMuted" />}
+          {isOn ? <Bell size={16} className="text-mc-accent" /> : <BellOff size={16} className="text-mc-textMuted" />}
           DESKTOP NOTIFICATIONS
         </span>
         <button
@@ -65,7 +66,7 @@ const NotificationToggle: React.FC = () => {
           aria-pressed={isOn}
           className={`px-3 py-1 rounded text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
             isOn
-              ? 'bg-mc-live/20 text-mc-live border border-mc-live/60 hover:bg-mc-live/30'
+              ? 'bg-mc-accent/20 text-mc-accent border border-mc-accent/60 hover:bg-mc-accent/30'
               : 'bg-mc-surfaceHover text-mc-text border border-mc-border hover:bg-mc-border/50'
           }`}
         >
@@ -170,6 +171,8 @@ export const SettingsModal: React.FC = () => {
           </div>
 
           <NotificationToggle />
+
+          <AppearanceSettings />
 
           {sleeping && (
             <p className="text-[11px] text-mc-textMuted font-sans">

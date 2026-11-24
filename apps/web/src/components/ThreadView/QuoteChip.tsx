@@ -73,12 +73,12 @@ export function QuoteChip({ quotedMsgId, quoted, quotedText, chatJid, onJump }: 
       type="button"
       onClick={() => void handleClick()}
       disabled={lookup === 'missing'}
-      className="mb-1.5 w-full min-w-0 text-start rounded bg-mc-bg/60 border-l-2 border-mc-live px-2 py-1 font-mono text-[11px] hover:bg-mc-surfaceHover transition-colors disabled:cursor-default disabled:hover:bg-mc-bg/60"
+      className="mb-1.5 w-full min-w-0 text-start rounded bg-mc-bg/60 border-l-2 border-mc-accent px-2 py-1 font-mono text-[11px] hover:bg-mc-surfaceHover transition-colors disabled:cursor-default disabled:hover:bg-mc-bg/60"
       title={quoted || lookup === 'idle' ? 'Jump to the quoted message' : heading}
     >
       <span
         className={`flex items-center gap-1.5 truncate ${
-          quoted ? 'text-mc-live font-semibold' : 'italic text-mc-textMuted'
+          quoted ? 'text-mc-accent font-semibold' : 'italic text-mc-textMuted'
         }`}
       >
         {lookup === 'looking' && <Loader2 size={11} className="animate-spin shrink-0" />}

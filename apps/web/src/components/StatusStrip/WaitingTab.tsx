@@ -20,7 +20,7 @@ interface WaitingTabProps {
 }
 
 const actionClass =
-  'flex items-center gap-1 px-1.5 py-0.5 rounded border border-mc-border/70 text-[10px] text-mc-textMuted hover:text-mc-text hover:border-mc-live/60 transition-colors disabled:opacity-50';
+  'flex items-center gap-1 px-1.5 py-0.5 rounded border border-mc-border/70 text-[10px] text-mc-textMuted hover:text-mc-text hover:border-mc-accent/60 transition-colors disabled:opacity-50';
 
 /**
  * WAITING: messages the operator sent that the other side has and has not
@@ -109,9 +109,9 @@ export const WaitingTab: React.FC<WaitingTabProps> = ({
                   open(item);
                 }
               }}
-              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-accent/60 hover:bg-mc-surfaceHover/80 ${
                 isSelected
-                  ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                  ? 'border-mc-accent/60 bg-mc-surfaceHover/50 ring-1 ring-mc-accent/30'
                   : 'border-mc-border/70'
               }`}
               title="Open the conversation at this message"
@@ -126,7 +126,7 @@ export const WaitingTab: React.FC<WaitingTabProps> = ({
               </div>
               <div className="text-mc-text truncate font-semibold flex items-center justify-between gap-1">
                 <span className="truncate">{item.chatName}</span>
-                <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">OPEN →</span>
+                <span className="text-[9px] text-mc-accent font-mono opacity-80 shrink-0">OPEN →</span>
               </div>
               <div dir={detectTextDirection(preview)} className="text-mc-textMuted truncate text-start">
                 {preview}

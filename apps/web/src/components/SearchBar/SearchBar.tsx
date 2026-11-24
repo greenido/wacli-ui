@@ -143,7 +143,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
       >
         {/* Input Bar */}
         <div className="p-3 border-b border-mc-border flex items-center gap-2">
-          <Search size={16} className="text-mc-live shrink-0" />
+          <Search size={16} className="text-mc-accent shrink-0" />
           <input
             type="text"
             autoFocus
@@ -158,7 +158,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
             }
             className="flex-1 min-w-0 bg-transparent text-sm text-mc-text placeholder-mc-textMuted/60 focus:outline-none font-sans"
           />
-          {isSearching && <span className="text-xs font-mono text-mc-live animate-pulse">searching...</span>}
+          {isSearching && <span className="text-xs font-mono text-mc-accent animate-pulse">searching...</span>}
           {selectedChat && (
             <button
               type="button"
@@ -169,7 +169,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
               }}
               className={`shrink-0 text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
                 thisChatOnly
-                  ? 'border-mc-live/60 text-mc-live bg-mc-live/10'
+                  ? 'border-mc-accent/60 text-mc-accent bg-mc-accent/10'
                   : 'border-mc-border text-mc-textMuted hover:text-mc-text'
               }`}
               title={`Search only ${selectedChat.name}`}
@@ -207,12 +207,12 @@ export const SearchBar: React.FC<SearchBarProps> = ({ onClose }) => {
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`w-full text-left p-3 rounded transition-colors flex flex-col gap-1 ${
                     isSelected
-                      ? 'bg-mc-surfaceHover ring-1 ring-mc-live/50'
+                      ? 'bg-mc-surfaceHover ring-1 ring-mc-accent/50'
                       : 'hover:bg-mc-surfaceHover'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="font-semibold text-mc-live flex items-center gap-1">
+                    <span className="font-semibold text-mc-accent flex items-center gap-1">
                       <MessageSquare size={12} />
                       {msg.chatName || msg.chatJid}
                     </span>

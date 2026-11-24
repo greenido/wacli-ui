@@ -195,7 +195,7 @@ export const Composer: React.FC = () => {
 
   if (isReadOnly) {
     return (
-      <div className="border-t border-[#E8B96A]/30 bg-[#E8B96A]/5 p-3 shrink-0">
+      <div className="border-t border-mc-safe/30 bg-mc-safe/5 p-3 shrink-0">
         <div className="flex items-center justify-between gap-3 text-xs font-mono">
           <div className="flex items-center gap-2 min-w-0 text-mc-safe">
             <ShieldAlert size={14} className="shrink-0" />
@@ -207,7 +207,7 @@ export const Composer: React.FC = () => {
             type="button"
             onClick={() => void setSafeMode(false)}
             disabled={isSettingMode}
-            className="shrink-0 flex items-center gap-1.5 bg-[#E8B96A]/20 hover:bg-[#E8B96A]/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2.5 py-1.5 rounded text-[11px] font-semibold transition-all"
+            className="shrink-0 flex items-center gap-1.5 bg-mc-safe/20 hover:bg-mc-safe/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2.5 py-1.5 rounded text-[11px] font-semibold transition-all"
             title="Switch to live write mode to send messages"
           >
             <Unlock size={12} />
@@ -323,19 +323,19 @@ export const Composer: React.FC = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`relative border-t border-mc-border bg-mc-surface p-3 shrink-0 ${
-        isDraggingFile ? 'ring-2 ring-inset ring-mc-live' : ''
+        isDraggingFile ? 'ring-2 ring-inset ring-mc-accent' : ''
       }`}
     >
       {isDraggingFile && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-mc-surface/90 text-xs font-mono font-bold text-mc-live pointer-events-none">
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-mc-surface/90 text-xs font-mono font-bold text-mc-accent pointer-events-none">
           DROP TO ATTACH
         </div>
       )}
       {/* Reply-to Bar */}
       {replyingTo && (
-        <div className="mb-2 p-2 rounded bg-mc-bg border-l-2 border-mc-live flex items-center justify-between text-xs font-mono">
+        <div className="mb-2 p-2 rounded bg-mc-bg border-l-2 border-mc-accent flex items-center justify-between text-xs font-mono">
           <div className="min-w-0 truncate">
-            <span className="text-mc-live font-semibold">Replying to {replyingTo.senderName || replyingTo.senderJid}:</span>{' '}
+            <span className="text-mc-accent font-semibold">Replying to {replyingTo.senderName || replyingTo.senderJid}:</span>{' '}
             <span
               dir={detectTextDirection(replyingTo.displayText || replyingTo.text)}
               className="text-mc-textMuted truncate"
@@ -397,7 +397,7 @@ export const Composer: React.FC = () => {
           }}
           aria-expanded={pickerOpen}
           className={`p-2 rounded hover:bg-mc-surfaceHover transition-colors ${
-            pickerOpen ? 'text-mc-live' : 'text-mc-textMuted hover:text-mc-text'
+            pickerOpen ? 'text-mc-accent' : 'text-mc-textMuted hover:text-mc-text'
           }`}
           title="Quick replies (or type / to start a message)"
         >
@@ -446,7 +446,7 @@ export const Composer: React.FC = () => {
             rows={1}
             dir={detectTextDirection(composerDraft)}
             placeholder={`Message ${selectedChat.name}... (Press Enter to send)`}
-            className="w-full bg-mc-bg border border-mc-border rounded p-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live resize-none font-sans max-h-32 text-start"
+            className="w-full bg-mc-bg border border-mc-border rounded p-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent resize-none font-sans max-h-32 text-start"
           />
         </div>
 
@@ -458,7 +458,7 @@ export const Composer: React.FC = () => {
           className={`p-2 rounded font-mono text-xs flex items-center justify-center gap-1 transition-all ${
             !hasContent
               ? 'text-mc-textMuted/40 hover:text-mc-textMuted/40 cursor-not-allowed'
-              : 'text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover border border-mc-border'
+              : 'text-mc-textMuted hover:text-mc-accent hover:bg-mc-surfaceHover border border-mc-border'
           }`}
           title="Schedule message for later dispatch"
         >
@@ -472,7 +472,7 @@ export const Composer: React.FC = () => {
           className={`p-2 rounded font-mono text-xs flex items-center justify-center gap-1.5 transition-all ${
             !hasContent
               ? 'bg-mc-surfaceHover text-mc-textMuted/50 cursor-not-allowed'
-              : 'bg-mc-live text-[#12151B] font-bold hover:bg-mc-live/90 shadow-sm'
+              : 'bg-mc-live text-mc-onLive font-bold hover:bg-mc-live/90 shadow-sm'
           }`}
           title={
             !hasContent

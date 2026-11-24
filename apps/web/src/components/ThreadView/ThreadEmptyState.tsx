@@ -32,7 +32,7 @@ export const ThreadEmptyState: React.FC<{ health: MissionControlStatus | undefin
             <div className="text-[11px] text-mc-textMuted flex items-center gap-1">
               <Terminal size={12} /> Install command:
             </div>
-            <code className="text-mc-live text-xs block select-all">
+            <code className="text-mc-accent text-xs block select-all">
               brew install openclaw/tap/wacli
             </code>
           </div>
@@ -66,7 +66,7 @@ export const ThreadEmptyState: React.FC<{ health: MissionControlStatus | undefin
             <div className="text-[11px] text-mc-textMuted flex items-center gap-1">
               <Terminal size={12} /> Terminal command:
             </div>
-            <code className="text-mc-live text-xs block select-all">
+            <code className="text-mc-accent text-xs block select-all">
               wacli auth
             </code>
           </div>

@@ -138,7 +138,7 @@ export const TemplateManagerModal: React.FC = () => {
             save();
           }
         }}
-        className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text focus:outline-none focus:border-mc-live"
+        className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text focus:outline-none focus:border-mc-accent"
       />
       <textarea
         aria-label="Template text"
@@ -156,14 +156,14 @@ export const TemplateManagerModal: React.FC = () => {
             save();
           }
         }}
-        className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text font-sans focus:outline-none focus:border-mc-live resize-y"
+        className="w-full bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text font-sans focus:outline-none focus:border-mc-accent resize-y"
       />
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={save}
           disabled={isBusy}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-live/15 border border-mc-live/40 text-mc-live text-[10px] hover:bg-mc-live/25 disabled:opacity-50"
+          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-accent/15 border border-mc-accent/40 text-mc-accent text-[10px] hover:bg-mc-accent/25 disabled:opacity-50"
         >
           {saveMutation.isPending ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
           <span>SAVE</span>
@@ -195,7 +195,7 @@ export const TemplateManagerModal: React.FC = () => {
             id="template-manager-title"
             className="flex items-center gap-2 font-semibold text-sm text-mc-text min-w-0"
           >
-            <MessageSquareText size={15} className="text-mc-live shrink-0" />
+            <MessageSquareText size={15} className="text-mc-accent shrink-0" />
             <span className="truncate">Quick Replies</span>
           </h2>
           <button
@@ -210,12 +210,12 @@ export const TemplateManagerModal: React.FC = () => {
 
         <div className="p-4 space-y-3 overflow-y-auto">
           {editing === 'new' ? (
-            <div className="border border-mc-live/40 rounded bg-mc-bg">{form}</div>
+            <div className="border border-mc-accent/40 rounded bg-mc-bg">{form}</div>
           ) : (
             <button
               type="button"
               onClick={startNew}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-mc-border text-mc-text text-[11px] hover:border-mc-live hover:text-mc-live"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-mc-border text-mc-text text-[11px] hover:border-mc-accent hover:text-mc-accent"
             >
               <Plus size={12} />
               <span>NEW TEMPLATE</span>
@@ -288,7 +288,7 @@ export const TemplateManagerModal: React.FC = () => {
                       onClick={() => startEdit(template)}
                       aria-label={`Edit template "${template.name}"`}
                       title={`Edit template "${template.name}"`}
-                      className="p-1 rounded text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover shrink-0"
+                      className="p-1 rounded text-mc-textMuted hover:text-mc-accent hover:bg-mc-surfaceHover shrink-0"
                     >
                       <Pencil size={12} />
                     </button>
