@@ -35,6 +35,7 @@ export const SLEEP_ROUTES = {
     'POST /api/send/file',
     'POST /api/send/react',
     'POST /api/chats/mark-read',
+    'POST /api/chats/state',
     'POST /api/contacts/alias',
     'POST /api/history/backfill',
     'POST /api/media/download',
