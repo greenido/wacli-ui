@@ -15,6 +15,7 @@ import { HelpModal } from './components/HelpModal/HelpModal.tsx';
 import { TagManagerModal } from './components/TagManagerModal/TagManagerModal.tsx';
 import { TemplateManagerModal } from './components/TemplateManagerModal/TemplateManagerModal.tsx';
 import { ModeConfirmModal } from './components/ModeConfirmModal/ModeConfirmModal.tsx';
+import { MessageActionModal } from './components/MessageActionModal/MessageActionModal.tsx';
 import { SearchBar } from './components/SearchBar/SearchBar.tsx';
 import { ResizeHandle } from './components/ResizeHandle/ResizeHandle.tsx';
 import { useUnreadTitle } from './hooks/useUnreadBadge.ts';
@@ -127,6 +128,7 @@ export const App: React.FC = () => {
       <TagManagerModal />
       <TemplateManagerModal />
       <ModeConfirmModal />
+      <MessageActionModal />
       <HelpModal />
       {isSearchOpen && <SearchBar onClose={() => setIsSearchOpen(false)} />}
     </div>

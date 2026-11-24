@@ -29,6 +29,7 @@ import { ArchiveBoundary } from './ArchiveBoundary.tsx';
 import { useThreadPages } from './useThreadPages.ts';
 import { useThreadReactions } from './useThreadReactions.ts';
 import type { UnifiedMessage } from '../../types.ts';
+import type { MessageActionKind } from '../../lib/messageActions.ts';
 
 /** Shared by every row without reactions, so none of them looks changed. */
 const NO_REACTIONS: ThreadReaction[] = [];
@@ -62,6 +63,7 @@ function archiveDate(ts: string | null): string | null {
 export const ThreadView: React.FC = () => {
   const selectedChat = useAppStore((s) => s.selectedChat);
   const setReplyingTo = useAppStore((s) => s.setReplyingTo);
+  const openMessageAction = useAppStore((s) => s.openMessageAction);
   const highlightedMessageId = useAppStore((s) => s.highlightedMessageId);
   const highlightedMessageHint = useAppStore((s) => s.highlightedMessageHint);
   const highlightedMessageAt = useAppStore((s) => s.highlightedMessageAt);
@@ -382,6 +384,15 @@ export const ThreadView: React.FC = () => {
 
   const { mutate: bookmark } = bookmarkMutation;
   const selectedChatName = selectedChat?.name;
+
+  const onMessageAction = useCallback(
+    (msg: UnifiedMessage, kind: MessageActionKind) => {
+      if (!selectedJid) return;
+      openMessageAction({ kind, msg, chatJid: msg.chatJid || selectedJid, chatName: selectedChatName ?? selectedJid });
+    },
+    [selectedJid, selectedChatName, openMessageAction]
+  );
+
   const handleToggleBookmark = useCallback(
     (msg: UnifiedMessage) => {
       if (!selectedJid) return;
@@ -561,6 +572,7 @@ export const ThreadView: React.FC = () => {
                 onCloseReactionDrawer={closeReactionDrawer}
                 onReact={onReact}
                 onJumpToMessage={onJumpToMessage}
+                onMessageAction={onMessageAction}
               />
             </React.Fragment>
           ))

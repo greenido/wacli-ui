@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { TYPING_TTL_MS } from '../lib/presence.ts';
 import type { UiCommand } from '../lib/shortcuts.ts';
+import type { MessageActionKind } from '../lib/messageActions.ts';
 import type { UnifiedChat, UnifiedMessage, SendLogEntry } from '../types.ts';
 
 export type ActiveModal =
@@ -11,7 +12,8 @@ export type ActiveModal =
   | 'tag-manager'
   | 'templates'
   | 'help'
-  | 'mode-confirm';
+  | 'mode-confirm'
+  | 'message-action';
 
 /**
  * Where focus belongs once a chat opens. Clicking a conversation means you
@@ -117,6 +119,13 @@ interface AppState {
      */
     error?: string;
   } | null;
+  /** The message an edit, delete or forward dialog is about, and its chat. */
+  messageAction: {
+    kind: MessageActionKind;
+    msg: UnifiedMessage;
+    chatJid: string;
+    chatName: string;
+  } | null;
 
   setSelectedChat: (chat: UnifiedChat | null, focusIntent?: ChatFocusIntent) => void;
   setSearchQuery: (query: string) => void;
@@ -136,6 +145,8 @@ interface AppState {
   setActiveModal: (modal: ActiveModal | null) => void;
   runCommand: (name: UiCommand) => void;
   setSendConfirmData: (data: AppState['sendConfirmData']) => void;
+  /** Opens the dialog for `action`, or closes it with null. */
+  openMessageAction: (action: AppState['messageAction']) => void;
   setComposerDraft: (chatJid: string, draft: string) => void;
   setComposerFile: (chatJid: string, file: File | null) => void;
   clearComposer: (chatJid: string) => void;
@@ -167,6 +178,7 @@ export const useAppStore = create<AppState>((set) => ({
   composerFiles: {},
   focusComposerTrigger: 0,
   sendConfirmData: null,
+  messageAction: null,
 
   // Moving to another conversation drops any pending jump target. A highlight
   // that outlived its chat made the new thread announce that the message was
@@ -249,6 +261,8 @@ export const useAppStore = create<AppState>((set) => ({
   runCommand: (name) =>
     set((s) => ({ uiCommand: { name, seq: (s.uiCommand?.seq ?? 0) + 1 } })),
   setSendConfirmData: (data) => set({ sendConfirmData: data }),
+  openMessageAction: (action) =>
+    set({ messageAction: action, activeModal: action ? 'message-action' : null }),
   setComposerDraft: (chatJid, draft) =>
     set((s) => ({
       composerDrafts: draft

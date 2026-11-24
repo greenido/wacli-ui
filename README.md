@@ -114,11 +114,12 @@ There's no `--host` flag, and that's on purpose. See [Security & privacy](#secur
 - **Expired media isn't a dead end.** When WhatsApp's servers no longer have a file, the tile says so and offers **ASK PHONE**, which asks your phone to send it again (wacli 0.22+, live mode only). A phone that doesn't answer is probably just offline, not proof the file is gone.
 - **Links are clickable.** `http://`, `https://` and bare `www.` links open in a new tab, and the site isn't told where you came from. Anything else that looks like a link (`javascript:`, `file:` and friends) stays plain text, and hovering shows the real address, so a lookalike domain shows up under its true name.
 - Hover a message to reply, react, copy or bookmark. The emoji drawer has a quick row, four categories, a search box, and the good sense to open where a sidebar won't cover it.
+- **Typo? Wrong chat? Fix it.** The same hover bar can **forward** a message (pick a chat and it's read back to you before it goes), **edit** your own text for 20 minutes after sending (WhatsApp's limit, not ours), and **delete** it, for everyone (your own, within about two and a half days) or just for you. The buttons only show up where WhatsApp would actually allow them.
 - A composer that keeps a separate draft, attachment and reply target for every chat, with [quick replies](#-quick-replies) one `/` away.
 
 **Right: mission status.**
 - Mode, wacli version, daemon state and PID, WebSocket relay, heartbeat, store lock and linked identity, plus a **Restart Daemon** button for bad days.
-- **ACTIVITY**: every outgoing send with a status badge. The server records it, so it survives a refresh, reads the same in every tab, and includes scheduled messages that fired while no console was open. Scroll for more; entries expire after 90 days.
+- **ACTIVITY**: every outgoing send with a status badge, plus edits, unsends and forwards. The server records it, so it survives a refresh, reads the same in every tab, and includes scheduled messages that fired while no console was open. Scroll for more; entries expire after 90 days.
 - **LATER**: the scheduled queue. Everything pending is always shown, because a queue that hides what's about to go out isn't one you can trust.
 
 Drag either splitter to resize a rail, and double-click it to snap back. The widths are remembered.
@@ -127,7 +128,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 
 - **Read-only on first run.** A fresh install can't send, reply, react, pin, mute, archive, set an alias, backfill history or fire a scheduled message. It won't even send read receipts. You unlock live sends when you're ready.
 - **Your choice sticks.** Safe mode is a first-run default, not a nag. Unlock it once and it stays unlocked across restarts. Nothing but you ever changes it.
-- **Read-back before anything leaves.** Texts, files, replies and Send Later all stop at a confirmation step that shows the recipient JID, the exact payload, and the message you're replying to. Reactions skip it (it's one emoji, and you just picked it), but safe mode still blocks them.
+- **Read-back before anything leaves.** Texts, files, replies, Send Later, edits, deletes and forwards all stop at a confirmation step that shows the recipient JID, the exact payload, and the message you're replying to (or changing). Reactions skip it (it's one emoji, and you just picked it), but safe mode still blocks them.
 - **`Cmd+Shift+L` asks first.** Unlocking is the one guardrail a stray key chord could drop, so the shortcut opens a confirmation instead of flipping the switch.
 - **Belt and suspenders.** In safe mode, every wacli command runs with `WACLI_READONLY=1`, so even a request that somehow slipped past the API's lock would run into wacli's.
 - **Drafts stay in their lane.** Switching chats can never carry a draft, an attachment, or a reply aimed at one thread into another.
@@ -175,6 +176,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
   - search, or open New chat or Chat info;
   - load older messages, export, or request older history from your phone;
   - send, reply or react;
+  - edit, delete or forward a message;
   - pin, mute, archive or mark a chat unread;
   - reload the page, or open another tab.
 
@@ -388,6 +390,9 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/send/text` | Send a text or a reply (`{ to, message, replyTo?, confirm: true }`) |
 | `POST` | `/api/send/file` | Send a file (`multipart/form-data`: `file`, `to`, `caption?`, `replyTo?`, `confirm`) |
 | `POST` | `/api/send/react` | React with an emoji (`{ to, id, reaction, sender?, confirm: true }`) |
+| `POST` | `/api/messages/edit` | Edit one of your texts within 20 minutes (`{ chat, id, message, confirm: true }`). WhatsApp's own refusals come back as `409` |
+| `POST` | `/api/messages/delete` | Delete a message (`{ chat, id, forEveryone, confirm: true }`): `true` unsends your own, `false` removes it from your devices only |
+| `POST` | `/api/messages/forward` | Forward a stored message, text or media (`{ chat, id, to, confirm: true }`) |
 | `POST` | `/api/send/schedule` | Schedule a text (`{ to, message, scheduledAt, replyTo?, confirm: true }`) |
 | `POST` | `/api/send/schedule-file` | Schedule a file (`multipart/form-data`, as for `/send/file` plus `scheduledAt`) |
 | `GET` | `/api/send/scheduled` | The LATER queue: every pending message, then resolved ones paged (`?chat=&limit=&before=`) |

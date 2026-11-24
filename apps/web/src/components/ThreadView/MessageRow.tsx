@@ -1,5 +1,5 @@
 import React from 'react';
-import { Reply, Smile, Check, CheckCheck, Clock, Copy, Star, Bookmark } from 'lucide-react';
+import { Reply, Smile, Check, CheckCheck, Clock, Copy, Star, Bookmark, Forward, Pencil, Trash2 } from 'lucide-react';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
@@ -7,6 +7,7 @@ import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
 import { QuoteChip } from './QuoteChip.tsx';
 import { LinkifiedText } from './LinkifiedText.tsx';
 import { deliveryTitle } from '../../lib/deliveryStatus.ts';
+import { canDeleteForMe, canEdit, canForward, type MessageActionKind } from '../../lib/messageActions.ts';
 import type { UnifiedMessage } from '../../types.ts';
 import type { ThreadReaction } from '../../lib/reactionFold.ts';
 
@@ -31,6 +32,8 @@ interface MessageRowProps {
   onCloseReactionDrawer: () => void;
   onReact: (msg: UnifiedMessage, emoji: string) => void;
   onJumpToMessage: (msgId: string, at: string) => void;
+  /** Opens the edit, delete or forward dialog for this message. */
+  onMessageAction: (msg: UnifiedMessage, kind: MessageActionKind) => void;
 }
 
 /**
@@ -56,6 +59,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
   onCloseReactionDrawer,
   onReact,
   onJumpToMessage,
+  onMessageAction,
 }) {
   const isMe = msg.fromMe;
   // Still on its way out, under a local id WhatsApp has never seen: a reply,
@@ -223,6 +227,36 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
             >
               <Smile size={12} />
             </button>
+
+            {/* Changes that reach other phones. Offered only where WhatsApp
+                would take them; the dialog is the read-back step. */}
+            {canForward(msg) && (
+              <button
+                onClick={() => onMessageAction(msg, 'forward')}
+                className="p-1 text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover rounded transition-colors"
+                title="Forward"
+              >
+                <Forward size={12} />
+              </button>
+            )}
+            {canEdit(msg) && (
+              <button
+                onClick={() => onMessageAction(msg, 'edit')}
+                className="p-1 text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover rounded transition-colors"
+                title="Edit (within 20 minutes of sending)"
+              >
+                <Pencil size={12} />
+              </button>
+            )}
+            {canDeleteForMe(msg) && (
+              <button
+                onClick={() => onMessageAction(msg, 'delete')}
+                className="p-1 text-mc-textMuted hover:text-mc-danger hover:bg-mc-surfaceHover rounded transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
           </div>
         )}
 

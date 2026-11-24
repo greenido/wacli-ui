@@ -1388,3 +1388,50 @@ describe('ThreadView jump to a message older than the loaded thread', () => {
     );
   });
 });
+
+describe('ThreadView message changes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null, messageAction: null, activeModal: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, messageAction: null, activeModal: null });
+  });
+
+  it('offers edit only on your own text still inside the window, and opens the dialog for it', async () => {
+    const user = userEvent.setup();
+    const mine = { ...message(2), msgId: 'MSG-MINE', fromMe: true, text: 'mine', displayText: 'mine', ts: new Date().toISOString() };
+    getMessages.mockResolvedValue({ messages: [mine, message(1)], hasMore: false });
+    renderThread();
+
+    await screen.findByText('mine');
+    // Theirs can be forwarded and deleted for you, never edited.
+    expect(screen.getAllByTitle('Edit (within 20 minutes of sending)')).toHaveLength(1);
+    expect(screen.getAllByTitle('Forward')).toHaveLength(2);
+    expect(screen.getAllByTitle('Delete')).toHaveLength(2);
+
+    await user.click(screen.getByTitle('Edit (within 20 minutes of sending)'));
+
+    expect(useAppStore.getState().messageAction).toMatchObject({
+      kind: 'edit',
+      chatJid: CHAT.jid,
+      chatName: 'Alice',
+      msg: { msgId: 'MSG-MINE' },
+    });
+    expect(useAppStore.getState().activeModal).toBe('message-action');
+  });
+
+  it('offers nothing to change on a deleted message', async () => {
+    getMessages.mockResolvedValue({ messages: [{ ...message(1), revoked: true }], hasMore: false });
+    renderThread();
+
+    await screen.findByText('This message was deleted.');
+    expect(screen.queryByTitle('Forward')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Delete')).not.toBeInTheDocument();
+  });
+});
