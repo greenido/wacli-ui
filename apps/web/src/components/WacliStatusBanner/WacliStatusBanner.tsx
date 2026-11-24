@@ -104,8 +104,8 @@ export const WacliStatusBanner: React.FC = () => {
       aria-label="System diagnostic warning"
       className={`border-b text-xs font-mono select-none transition-all shadow-md ${
         isNotInstalled || isExternalLock
-          ? 'bg-[#2A1515] border-mc-danger/60 text-mc-danger'
-          : 'bg-[#2A2315] border-mc-safe/60 text-mc-safe'
+          ? 'bg-mc-danger/10 border-mc-danger/60 text-mc-danger'
+          : 'bg-mc-safe/10 border-mc-safe/60 text-mc-safe'
       }`}
     >
       <div className="px-4 py-2.5 flex items-center justify-between gap-3">
@@ -197,7 +197,7 @@ export const WacliStatusBanner: React.FC = () => {
                     <span>macOS / Linux (Homebrew)</span>
                     <button
                       onClick={() => handleCopy(BREW_INSTALL_CMD)}
-                      className="text-mc-live hover:underline flex items-center gap-1 text-[10px]"
+                      className="text-mc-accent hover:underline flex items-center gap-1 text-[10px]"
                     >
                       {copiedCmd === BREW_INSTALL_CMD ? (
                         <>
@@ -210,7 +210,7 @@ export const WacliStatusBanner: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  <code className="text-mc-live text-[11px] block select-all break-words">
+                  <code className="text-mc-accent text-[11px] block select-all break-words">
                     {BREW_INSTALL_CMD}
                   </code>
                 </div>
@@ -221,7 +221,7 @@ export const WacliStatusBanner: React.FC = () => {
                     <span>Go (from source)</span>
                     <button
                       onClick={() => handleCopy(GO_INSTALL_CMD)}
-                      className="text-mc-live hover:underline flex items-center gap-1 text-[10px]"
+                      className="text-mc-accent hover:underline flex items-center gap-1 text-[10px]"
                     >
                       {copiedCmd === GO_INSTALL_CMD ? (
                         <>
@@ -234,7 +234,7 @@ export const WacliStatusBanner: React.FC = () => {
                       )}
                     </button>
                   </div>
-                  <code className="text-mc-live text-[11px] block select-all break-words">
+                  <code className="text-mc-accent text-[11px] block select-all break-words">
                     {GO_INSTALL_CMD}
                   </code>
                   <div className="text-[10px] text-mc-textMuted">
@@ -250,13 +250,13 @@ export const WacliStatusBanner: React.FC = () => {
                     href={INSTALL_GUIDE_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-mc-live hover:underline"
+                    className="text-mc-accent hover:underline"
                   >
                     {INSTALL_GUIDE_URL}
                   </a>
                 </div>
                 <div>
-                  Once installed, click <span className="text-mc-live font-semibold">RE-CHECK</span> above to connect Mission Control.
+                  Once installed, click <span className="text-mc-accent font-semibold">RE-CHECK</span> above to connect Mission Control.
                 </div>
               </div>
             </div>
@@ -270,7 +270,7 @@ export const WacliStatusBanner: React.FC = () => {
                   <span>Pair WhatsApp Account</span>
                   <button
                     onClick={() => handleCopy('wacli auth')}
-                    className="text-mc-live hover:underline flex items-center gap-1 text-[10px]"
+                    className="text-mc-accent hover:underline flex items-center gap-1 text-[10px]"
                   >
                     {copiedCmd === 'wacli auth' ? (
                       <>
@@ -283,7 +283,7 @@ export const WacliStatusBanner: React.FC = () => {
                     )}
                   </button>
                 </div>
-                <code className="text-mc-live text-[11px] block select-all">wacli auth</code>
+                <code className="text-mc-accent text-[11px] block select-all">wacli auth</code>
                 <p className="text-[10px] text-mc-textMuted pt-1 font-sans">
                   Scan the QR code printed in your terminal with WhatsApp on your phone (Linked Devices &gt; Link a Device).
                 </p>

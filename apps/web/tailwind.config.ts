@@ -5,16 +5,21 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Channels come from the active theme in src/index.css.
         mc: {
-          bg: '#12151B',
-          surface: '#1B1F27',
-          surfaceHover: '#232834',
-          border: '#2A2F3A',
-          text: '#E7E9EE',
-          textMuted: '#8A93A3',
-          live: '#4FD1A5',
-          safe: '#E8B96A',
-          danger: '#E8637A',
+          bg: 'rgb(var(--mc-bg) / <alpha-value>)',
+          surface: 'rgb(var(--mc-surface) / <alpha-value>)',
+          surfaceHover: 'rgb(var(--mc-surface-hover) / <alpha-value>)',
+          border: 'rgb(var(--mc-border) / <alpha-value>)',
+          text: 'rgb(var(--mc-text) / <alpha-value>)',
+          textMuted: 'rgb(var(--mc-text-muted) / <alpha-value>)',
+          live: 'rgb(var(--mc-live) / <alpha-value>)',
+          safe: 'rgb(var(--mc-safe) / <alpha-value>)',
+          danger: 'rgb(var(--mc-danger) / <alpha-value>)',
+          star: 'rgb(var(--mc-star) / <alpha-value>)',
+          onLive: 'rgb(var(--mc-on-live) / <alpha-value>)',
+          accent: 'rgb(var(--mc-accent) / <alpha-value>)',
+          onAccent: 'rgb(var(--mc-on-accent) / <alpha-value>)',
         },
       },
       fontFamily: {

@@ -37,7 +37,7 @@ export const ArchiveBoundary: React.FC<ArchiveBoundaryProps> = ({ chatJid, archi
       <button
         onClick={() => backfillMutation.mutate(chatJid)}
         disabled={backfillMutation.isPending || readOnly}
-        className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-1.5 text-[11px] font-mono px-2.5 py-1 rounded border border-mc-border text-mc-textMuted hover:text-mc-accent hover:border-mc-accent/50 hover:bg-mc-surfaceHover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         title={
           readOnly
             ? 'Safe read-only mode is active: a backfill writes the local store, so it is disabled.'

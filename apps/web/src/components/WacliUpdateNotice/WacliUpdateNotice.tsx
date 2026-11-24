@@ -52,12 +52,12 @@ export const WacliUpdateNotice: React.FC = () => {
       className="bg-mc-surface border-b border-mc-border px-4 py-1.5 text-[11px] font-mono flex items-center justify-between gap-3"
     >
       <div className="flex items-center gap-2 min-w-0 text-mc-text">
-        <ArrowUpCircle size={14} className="shrink-0 text-mc-live" />
+        <ArrowUpCircle size={14} className="shrink-0 text-mc-accent" />
         <span className="truncate">
           wacli {update.latestVersion} is available{installed ? ` (you have ${installed})` : ''}.{' '}
           {update.upgradeCommand ? (
             <>
-              Run <code className="text-mc-live select-all">{update.upgradeCommand}</code>, then restart
+              Run <code className="text-mc-accent select-all">{update.upgradeCommand}</code>, then restart
               Mission Control.
             </>
           ) : (
@@ -69,7 +69,7 @@ export const WacliUpdateNotice: React.FC = () => {
         {update.upgradeCommand && (
           <button
             onClick={() => handleCopy(update.upgradeCommand!)}
-            className="text-mc-live hover:underline flex items-center gap-1"
+            className="text-mc-accent hover:underline flex items-center gap-1"
           >
             {copied ? <Check size={11} /> : <Copy size={11} />}
             <span>{copied ? 'Copied' : 'Copy'}</span>

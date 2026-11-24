@@ -6,7 +6,7 @@ import { SHORTCUT_SECTIONS, resolveChord } from '../../lib/shortcuts.ts';
 
 /** One key, drawn as a key. */
 const Key: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <kbd className="inline-block min-w-[1.4rem] text-center px-1.5 py-0.5 rounded border border-mc-border bg-mc-bg text-mc-text font-mono text-[10px] leading-none shadow-[0_1px_0_#2A2F3A]">
+  <kbd className="inline-block min-w-[1.4rem] text-center px-1.5 py-0.5 rounded border border-mc-border bg-mc-bg text-mc-text font-mono text-[10px] leading-none shadow-[0_1px_0_rgb(var(--mc-border))]">
     {children}
   </kbd>
 );
@@ -25,7 +25,7 @@ const Chord: React.FC<{ keys: string[] }> = ({ keys }) => (
 
 const Topic: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="space-y-1.5">
-    <h3 className="font-mono text-[11px] tracking-wider uppercase text-mc-live font-semibold">
+    <h3 className="font-mono text-[11px] tracking-wider uppercase text-mc-accent font-semibold">
       {title}
     </h3>
     <div className="text-[12px] leading-relaxed text-mc-textMuted space-y-2">{children}</div>
@@ -192,7 +192,7 @@ const ShortcutsTab: React.FC = () => (
     {SHORTCUT_SECTIONS.map((section) => (
       <section key={section.title} className="space-y-2">
         <div className="space-y-1">
-          <h3 className="font-mono text-[11px] tracking-wider uppercase text-mc-live font-semibold">
+          <h3 className="font-mono text-[11px] tracking-wider uppercase text-mc-accent font-semibold">
             {section.title}
           </h3>
           <p className="text-[11px] leading-relaxed text-mc-textMuted">{section.blurb}</p>
@@ -251,7 +251,7 @@ export const HelpModal: React.FC = () => {
             id="help-title"
             className="flex items-center gap-2 font-mono font-semibold text-sm text-mc-text"
           >
-            <LifeBuoy size={16} className="text-mc-live" />
+            <LifeBuoy size={16} className="text-mc-accent" />
             <span>HELP</span>
           </h2>
           <button
@@ -273,7 +273,7 @@ export const HelpModal: React.FC = () => {
               onClick={() => setTab(id)}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 font-mono text-[11px] tracking-wider transition-colors border-b-2 ${
                 tab === id
-                  ? 'text-mc-live border-mc-live bg-mc-live/5'
+                  ? 'text-mc-accent border-mc-accent bg-mc-accent/5'
                   : 'text-mc-textMuted border-transparent hover:text-mc-text hover:bg-mc-surfaceHover'
               }`}
             >

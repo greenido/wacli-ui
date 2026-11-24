@@ -32,7 +32,7 @@ function AskPhoneButton({ onAsk, busy }: { onAsk: () => void; busy: boolean }) {
     <button
       onClick={onAsk}
       disabled={busy || isReadOnly}
-      className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-live font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
+      className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-accent font-bold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
       title={
         isReadOnly
           ? 'Unlock live sends to ask your phone for it'
@@ -166,7 +166,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
         <button
           onClick={handleManualDownload}
           disabled={isDownloading}
-          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-live font-bold transition-colors disabled:opacity-60 shrink-0"
+          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-accent font-bold transition-colors disabled:opacity-60 shrink-0"
           title="Download it from WhatsApp again"
         >
           {isDownloading ? <Loader2 size={12} className="animate-spin" /> : <RotateCw size={12} />}
@@ -222,7 +222,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
             <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity bg-black/70 backdrop-blur-sm rounded px-1.5 py-1">
               <button
                 onClick={() => setIsLightboxOpen(true)}
-                className="p-1 hover:text-mc-live text-mc-text transition-colors"
+                className="p-1 hover:text-mc-accent text-mc-text transition-colors"
                 title="View full size"
               >
                 <Maximize2 size={13} />
@@ -230,7 +230,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
               <a
                 href={downloadSrc}
                 download={filename}
-                className="p-1 hover:text-mc-live text-mc-text transition-colors"
+                className="p-1 hover:text-mc-accent text-mc-text transition-colors"
                 title="Download image"
               >
                 <Download size={13} />
@@ -261,7 +261,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
                   <a
                     href={downloadSrc}
                     download={filename}
-                    className="flex items-center gap-1 bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border px-2.5 py-1 rounded text-mc-text hover:text-mc-live transition-colors"
+                    className="flex items-center gap-1 bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border px-2.5 py-1 rounded text-mc-text hover:text-mc-accent transition-colors"
                   >
                     <Download size={13} />
                     <span>DOWNLOAD</span>
@@ -319,7 +319,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
         <a
           href={downloadSrc}
           download={filename}
-          className="absolute top-1 right-1 p-1 rounded bg-black/70 backdrop-blur-sm text-mc-text hover:text-mc-live opacity-0 group-hover/sticker:opacity-100 focus:opacity-100 transition-opacity"
+          className="absolute top-1 right-1 p-1 rounded bg-black/70 backdrop-blur-sm text-mc-text hover:text-mc-accent opacity-0 group-hover/sticker:opacity-100 focus:opacity-100 transition-opacity"
           title="Download sticker"
         >
           <Download size={12} />
@@ -355,7 +355,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
           <button
             onClick={togglePlayAudio}
             disabled={isDownloading}
-            className="w-8 h-8 rounded-full bg-mc-live text-[#12151B] flex items-center justify-center hover:bg-mc-live/90 transition-transform active:scale-95 shrink-0"
+            className="w-8 h-8 rounded-full bg-mc-accent text-mc-onAccent flex items-center justify-center hover:bg-mc-accent/90 transition-transform active:scale-95 shrink-0"
             title={isPlaying ? 'Pause voice note' : 'Play voice note'}
           >
             {isDownloading ? (
@@ -381,7 +381,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
                   audioRef.current.currentTime = newTime;
                 }
               }}
-              className="w-full h-1 bg-mc-border rounded-lg appearance-none cursor-pointer accent-mc-live"
+              className="w-full h-1 bg-mc-border rounded-lg appearance-none cursor-pointer accent-mc-accent"
             />
             <div className="flex justify-between text-[10px] text-mc-textMuted">
               <span>{formatTime(currentTime)}</span>
@@ -393,7 +393,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
           <div className="flex items-center gap-1">
             <button
               onClick={togglePlaybackRate}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-mc-surface border border-mc-border text-mc-text hover:text-mc-live transition-colors"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-mc-surface border border-mc-border text-mc-text hover:text-mc-accent transition-colors"
               title="Change playback speed"
             >
               {playbackRate}x
@@ -401,7 +401,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
             <a
               href={downloadSrc}
               download={filename}
-              className="p-1 text-mc-textMuted hover:text-mc-live transition-colors"
+              className="p-1 text-mc-textMuted hover:text-mc-accent transition-colors"
               title="Download voice note"
             >
               <Download size={13} />
@@ -443,7 +443,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
           <a
             href={downloadSrc}
             download={filename}
-            className="flex items-center gap-1 text-mc-live hover:underline"
+            className="flex items-center gap-1 text-mc-accent hover:underline"
           >
             <Download size={12} />
             <span>DOWNLOAD</span>
@@ -457,7 +457,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
   return (
     <div className="mb-2 p-2.5 rounded-md bg-mc-bg/80 border border-mc-border flex items-center justify-between gap-3 font-mono text-xs max-w-sm">
       <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-8 h-8 rounded bg-mc-surface border border-mc-border flex items-center justify-center text-mc-live shrink-0">
+        <div className="w-8 h-8 rounded bg-mc-surface border border-mc-border flex items-center justify-center text-mc-accent shrink-0">
           <FileText size={16} />
         </div>
         <div className="min-w-0">
@@ -474,7 +474,7 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ msg, chatJid }) => {
         <a
           href={downloadSrc}
           download={filename}
-          className="flex items-center gap-1 px-2.5 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-live hover:text-mc-live text-[11px] font-bold transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 rounded bg-mc-surface hover:bg-mc-surfaceHover border border-mc-border text-mc-accent hover:text-mc-accent text-[11px] font-bold transition-colors"
           title="Download file"
         >
           <Download size={12} />

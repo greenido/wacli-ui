@@ -144,7 +144,7 @@ export const EmojiReactionDrawer: React.FC<EmojiReactionDrawerProps> = ({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter emojis..."
-          className="w-full bg-mc-bg border border-mc-border rounded pl-6 pr-6 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live"
+          className="w-full bg-mc-bg border border-mc-border rounded pl-6 pr-6 py-1 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent"
         />
         {search && (
           <button
@@ -173,7 +173,7 @@ export const EmojiReactionDrawer: React.FC<EmojiReactionDrawerProps> = ({
                 }}
                 className={`p-1 rounded flex items-center gap-1 transition-colors ${
                   isActive
-                    ? 'bg-mc-surfaceHover text-mc-live font-semibold'
+                    ? 'bg-mc-surfaceHover text-mc-accent font-semibold'
                     : 'hover:text-mc-text hover:bg-mc-surfaceHover/50'
                 }`}
                 title={cat.name}

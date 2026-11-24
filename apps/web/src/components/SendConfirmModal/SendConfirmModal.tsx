@@ -313,7 +313,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
           {/* Safe Mode notice if active and immediate send */}
           {isReadOnly && !isScheduled && (
-            <div className="p-3 bg-[#E8B96A]/10 border border-[#E8B96A]/40 rounded text-mc-safe flex items-start gap-2.5 text-xs">
+            <div className="p-3 bg-mc-safe/10 border border-mc-safe/40 rounded text-mc-safe flex items-start gap-2.5 text-xs">
               <ShieldAlert size={16} className="shrink-0 mt-0.5" />
               <div>
                 <span className="font-bold">Safe Read-Only Mode is active.</span>
@@ -336,7 +336,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
                 onClick={() => setIsScheduled(false)}
                 className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
                   !isScheduled
-                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    ? 'bg-mc-live text-mc-onLive font-bold'
                     : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
                 }`}
               >
@@ -350,7 +350,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
                 }}
                 className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
                   isScheduled
-                    ? 'bg-mc-live text-[#12151B] font-bold'
+                    ? 'bg-mc-live text-mc-onLive font-bold'
                     : 'text-mc-textMuted hover:text-mc-text bg-mc-surface border border-mc-border'
                 }`}
               >
@@ -406,7 +406,7 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
                 onChange={(e) => setScheduleTime(e.target.value)}
                 onKeyDown={handleTimeKeyDown}
                 min={getPresetTime(1)}
-                className="w-full bg-mc-surface border border-mc-border rounded p-2 text-xs text-mc-text focus:outline-none focus:border-mc-live font-mono"
+                className="w-full bg-mc-surface border border-mc-border rounded p-2 text-xs text-mc-text focus:outline-none focus:border-mc-accent font-mono"
               />
             </div>
           )}
@@ -507,8 +507,8 @@ const SendConfirmDialog: React.FC<{ sendConfirmData: SendConfirmRequest }> = ({
               data-autofocus
               className={`px-4 py-1.5 rounded font-bold flex items-center gap-1.5 transition-all ${
                 isCommitted
-                  ? 'bg-mc-live text-[#12151B]'
-                  : 'bg-mc-live hover:bg-mc-live/90 text-[#12151B]'
+                  ? 'bg-mc-live text-mc-onLive'
+                  : 'bg-mc-live hover:bg-mc-live/90 text-mc-onLive'
               }`}
             >
               {isCommitted ? (

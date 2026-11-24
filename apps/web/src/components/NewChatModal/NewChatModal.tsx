@@ -157,7 +157,7 @@ export const NewChatModal: React.FC = () => {
   };
 
   const enterHint = (
-    <span className="text-[10px] bg-mc-live text-[#12151B] px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ml-2 shrink-0">
+    <span className="text-[10px] bg-mc-accent text-mc-onAccent px-1.5 py-0.5 rounded font-bold flex items-center gap-1 ml-2 shrink-0">
       ENTER <ArrowRight size={10} />
     </span>
   );
@@ -173,7 +173,7 @@ export const NewChatModal: React.FC = () => {
       >
         {/* Header */}
         <div className="p-4 border-b border-mc-border flex items-center justify-between">
-          <h2 id="new-chat-title" className="flex items-center gap-2 text-mc-live font-semibold">
+          <h2 id="new-chat-title" className="flex items-center gap-2 text-mc-accent font-semibold">
             <UserPlus size={15} />
             <span>START NEW CONVERSATION</span>
           </h2>
@@ -200,7 +200,7 @@ export const NewChatModal: React.FC = () => {
               onChange={(e) => setInputQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search contact name, or type phone number (+1555...)..."
-              className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-live font-sans"
+              className="w-full bg-mc-bg border border-mc-border rounded pl-8 pr-3 py-2 text-xs text-mc-text placeholder-mc-textMuted/60 focus:outline-none focus:border-mc-accent font-sans"
             />
           </div>
 
@@ -211,8 +211,8 @@ export const NewChatModal: React.FC = () => {
               aria-current={selectedIndex === 0 ? 'true' : undefined}
               onClick={handleStartCustomNumber}
               onMouseEnter={() => selectOption(0)}
-              className={`w-full text-left p-2.5 rounded bg-mc-live/15 hover:bg-mc-live/25 border text-mc-live flex items-center justify-between font-semibold transition-colors ${
-                selectedIndex === 0 ? 'border-mc-live ring-1 ring-mc-live/50' : 'border-mc-live/50'
+              className={`w-full text-left p-2.5 rounded bg-mc-accent/15 hover:bg-mc-accent/25 border text-mc-accent flex items-center justify-between font-semibold transition-colors ${
+                selectedIndex === 0 ? 'border-mc-accent ring-1 ring-mc-accent/50' : 'border-mc-accent/50'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -249,7 +249,7 @@ export const NewChatModal: React.FC = () => {
                     onMouseEnter={() => selectOption(index)}
                     className={`w-full text-left p-2.5 rounded border flex items-center justify-between transition-colors ${
                       isSelected
-                        ? 'bg-mc-surfaceHover border-transparent ring-1 ring-mc-live/50'
+                        ? 'bg-mc-surfaceHover border-transparent ring-1 ring-mc-accent/50'
                         : 'border-transparent hover:bg-mc-surfaceHover hover:border-mc-border'
                     }`}
                   >
@@ -257,7 +257,7 @@ export const NewChatModal: React.FC = () => {
                       <div className="text-mc-text font-semibold truncate">{c.name}</div>
                       <div className="text-mc-textMuted text-[10px] font-mono truncate">{c.jid}</div>
                     </div>
-                    <span className="text-mc-live text-[10px] uppercase ml-2 shrink-0">{c.kind}</span>
+                    <span className="text-mc-accent text-[10px] uppercase ml-2 shrink-0">{c.kind}</span>
                     {isSelected && enterHint}
                   </button>
                 );

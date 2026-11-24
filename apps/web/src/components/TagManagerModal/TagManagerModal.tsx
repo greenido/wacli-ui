@@ -154,7 +154,7 @@ export const TagManagerModal: React.FC = () => {
             id="tag-manager-title"
             className="flex items-center gap-2 font-semibold text-sm text-mc-text min-w-0"
           >
-            <Tag size={15} className="text-mc-live shrink-0" />
+            <Tag size={15} className="text-mc-accent shrink-0" />
             <span className="truncate">Manage Tags</span>
           </h2>
           <button
@@ -211,12 +211,12 @@ export const TagManagerModal: React.FC = () => {
                               commitRename();
                             }
                           }}
-                          className="flex-1 min-w-0 bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text focus:outline-none focus:border-mc-live"
+                          className="flex-1 min-w-0 bg-mc-surface border border-mc-border rounded px-2 py-1 text-[11px] text-mc-text focus:outline-none focus:border-mc-accent"
                         />
                         <button
                           onClick={commitRename}
                           disabled={isBusy}
-                          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-live/15 border border-mc-live/40 text-mc-live text-[10px] hover:bg-mc-live/25 disabled:opacity-50"
+                          className="flex items-center gap-1 px-2 py-1 rounded bg-mc-accent/15 border border-mc-accent/40 text-mc-accent text-[10px] hover:bg-mc-accent/25 disabled:opacity-50"
                         >
                           {renameMutation.isPending ? (
                             <Loader2 size={10} className="animate-spin" />
@@ -288,7 +288,7 @@ export const TagManagerModal: React.FC = () => {
                       onClick={() => startRename(tag)}
                       aria-label={`Rename tag "${tag}"`}
                       title={`Rename tag "${tag}"`}
-                      className="p-1 rounded text-mc-textMuted hover:text-mc-live hover:bg-mc-surfaceHover shrink-0"
+                      className="p-1 rounded text-mc-textMuted hover:text-mc-accent hover:bg-mc-surfaceHover shrink-0"
                     >
                       <Pencil size={12} />
                     </button>

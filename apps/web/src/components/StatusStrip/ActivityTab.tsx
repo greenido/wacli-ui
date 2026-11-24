@@ -44,9 +44,9 @@ export const ActivityTab: React.FC<ActivityTabProps> = ({
                   onOpen(log);
                 }
               }}
-              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+              className={`p-2 rounded bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-accent/60 hover:bg-mc-surfaceHover/80 ${
                 isSelected
-                  ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                  ? 'border-mc-accent/60 bg-mc-surfaceHover/50 ring-1 ring-mc-accent/30'
                   : isFailedSend
                   ? 'border-mc-danger/50'
                   : 'border-mc-border/70'

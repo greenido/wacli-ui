@@ -24,6 +24,7 @@ import { useWebSocket } from './hooks/useWebSocket.ts';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 import { useSleepEffects } from './hooks/useSleepMode.ts';
 import { useWakeOnIntent } from './hooks/useWakeOnIntent.ts';
+import { useThemeSync } from './hooks/useTheme.ts';
 import {
   CHAT_LIST_PANE,
   STATUS_STRIP_PANE,
@@ -32,6 +33,8 @@ import {
 } from './lib/paneWidths.ts';
 
 export const App: React.FC = () => {
+  // Keeps <html> on the chosen theme, and on the OS setting under System.
+  useThemeSync();
   const { isConnected } = useWebSocket();
   // Puts the waiting count in the tab title, so a backgrounded console still
   // says whether anything needs the operator.

@@ -55,7 +55,7 @@ export const ReadOnlyBanner: React.FC = () => {
   }
 
   return (
-    <header className="h-8 bg-[#E8B96A]/10 border-b border-[#E8B96A]/40 flex items-center justify-between px-3 text-xs font-mono text-mc-safe select-none">
+    <header className="h-8 bg-mc-safe/10 border-b border-mc-safe/40 flex items-center justify-between px-3 text-xs font-mono text-mc-safe select-none">
       <div className="flex items-center gap-2">
         <ShieldAlert size={15} className="text-mc-safe shrink-0" />
         <span className="font-semibold">SAFE READ-ONLY MODE ACTIVE:</span>
@@ -65,7 +65,7 @@ export const ReadOnlyBanner: React.FC = () => {
         <button
           onClick={() => void setSafeMode(false)}
           disabled={isSettingMode}
-          className="flex items-center gap-1.5 bg-[#E8B96A]/20 hover:bg-[#E8B96A]/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2 py-0.5 rounded text-[11px] font-semibold transition-all"
+          className="flex items-center gap-1.5 bg-mc-safe/20 hover:bg-mc-safe/30 text-mc-safe border border-mc-safe/50 hover:border-mc-safe px-2 py-0.5 rounded text-[11px] font-semibold transition-all"
           title="Switch to live mode to allow outgoing messages"
         >
           <Unlock size={12} />

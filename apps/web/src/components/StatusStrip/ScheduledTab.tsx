@@ -90,13 +90,13 @@ export const ScheduledTab: React.FC<ScheduledTabProps> = ({
                       handleActivate();
                     }
                   }}
-                  className={`p-2 bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-live/60 hover:bg-mc-surfaceHover/80 ${
+                  className={`p-2 bg-mc-bg border transition-all cursor-pointer space-y-1 text-[11px] hover:border-mc-accent/60 hover:bg-mc-surfaceHover/80 ${
                     isExpanded ? 'rounded-t' : 'rounded'
                   } ${
                     isFailed
                       ? 'border-mc-danger/50'
                       : isSelected
-                      ? 'border-mc-live/60 bg-mc-surfaceHover/50 ring-1 ring-mc-live/30'
+                      ? 'border-mc-accent/60 bg-mc-surfaceHover/50 ring-1 ring-mc-accent/30'
                       : 'border-mc-border/70'
                   }`}
                   title={
@@ -133,7 +133,7 @@ export const ScheduledTab: React.FC<ScheduledTabProps> = ({
                         <span>DETAILS</span>
                       </span>
                     ) : (
-                      <span className="text-[9px] text-mc-live font-mono opacity-80 shrink-0">
+                      <span className="text-[9px] text-mc-accent font-mono opacity-80 shrink-0">
                         OPEN →
                       </span>
                     )}
@@ -216,7 +216,7 @@ export const ScheduledTab: React.FC<ScheduledTabProps> = ({
                       <button
                         onClick={() => actions.openResend(item)}
                         disabled={resend.isPending || discard.isPending}
-                        className="flex items-center gap-1 text-[10px] text-mc-live hover:text-mc-text border border-mc-live/40 hover:border-mc-live px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1 text-[10px] text-mc-live hover:text-mc-text border border-mc-live/40 hover:border-mc-accent px-1.5 py-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Send this message again, now or at a new time"
                       >
                         {resend.isPending && resendTarget?.id === item.id ? (
