@@ -14,6 +14,7 @@ import type {
   QuickReplyTemplate,
   WaitingList,
 } from '../types.ts';
+import type { ChatStateAction, ChatStateChange } from '../lib/chatState.ts';
 
 const API_BASE =
   import.meta.env.VITE_API_URL ??
@@ -148,6 +149,19 @@ export const api = {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ chat, through }),
+    }),
+
+  /**
+   * Pin, mute, archive or mark unread, or undo one. Changes the account on
+   * every linked device, so safe read-only mode refuses it.
+   */
+  setChatState: (data: { chat: string } & ChatStateChange) =>
+    request<{ chat: string; action: ChatStateAction }>('/api/chats/state', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
     }),
 
   getMessages: (params: {

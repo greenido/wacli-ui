@@ -92,6 +92,27 @@ export function markChatAsRead(queryClient: QueryClient, jid: string): void {
   );
 }
 
+/**
+ * Whether `jid` has a receipt still waiting out its debounce. The archive does
+ * not know the chat was read until it goes, so a rail fetched meanwhile has to
+ * be told, or the badge the operator just cleared comes back for a few seconds.
+ */
+export function hasPendingRead(jid: string): boolean {
+  return pending.has(jid);
+}
+
+/**
+ * Drops a receipt still waiting out its debounce. Marking a chat unread right
+ * after opening it would otherwise be undone a few seconds later by the
+ * receipt the opening queued.
+ */
+export function cancelPendingRead(jid: string): void {
+  const timer = pending.get(jid);
+  if (!timer) return;
+  clearTimeout(timer);
+  pending.delete(jid);
+}
+
 /** Sends any receipt still waiting out its debounce. For tests and teardown. */
 export function flushPendingReads(): void {
   for (const [jid, timer] of pending) {

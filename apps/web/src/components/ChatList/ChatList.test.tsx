@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatList } from './ChatList.tsx';
@@ -16,9 +16,11 @@ const getSleep = vi.hoisted(() =>
 const getChats = vi.hoisted(() => vi.fn());
 const getTags = vi.hoisted(() => vi.fn());
 const markChatRead = vi.hoisted(() => vi.fn());
+const getMode = vi.hoisted(() => vi.fn(async () => ({ readOnly: false })));
+const setChatState = vi.hoisted(() => vi.fn());
 
 vi.mock('../../api/client.ts', () => ({
-  api: { getHealth, getSleep, getChats, getTags, markChatRead },
+  api: { getHealth, getSleep, getChats, getTags, markChatRead, getMode, setChatState },
   ApiClientError: class extends Error {},
 }));
 
@@ -299,5 +301,197 @@ describe('ChatList opening a chat on load', () => {
     flushPendingReads();
 
     expect(markChatRead).toHaveBeenCalledWith(ALICE.jid);
+  });
+
+  it('keeps a chat read while its receipt waits, even when the rail is fetched again', async () => {
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <ChatList />
+      </QueryClientProvider>
+    );
+
+    await user.click(await screen.findByText('Alice'));
+    expect(container.textContent).not.toContain('3');
+
+    // The archive still says unread: the receipt has not gone yet.
+    const fetchesBefore = getChats.mock.calls.length;
+    await act(() => client.invalidateQueries({ queryKey: ['chats'] }));
+    expect(getChats.mock.calls.length).toBeGreaterThan(fetchesBefore);
+
+    const rail = client.getQueriesData<UnifiedChat[]>({ queryKey: ['chats'] })[0][1];
+    expect(rail?.find((c) => c.jid === ALICE.jid)).toMatchObject({ unread: false, unreadCount: 0 });
+    flushPendingReads();
+  });
+});
+
+describe('ChatList chat actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem('wacli_safe_mode');
+    getHealth.mockResolvedValue({
+      wacliInstalled: true,
+      wacliWorking: true,
+      processState: 'running',
+      statusSummary: 'ok',
+    });
+    getChats.mockResolvedValue([ALICE, BOB]);
+    getTags.mockResolvedValue({ tags: [], byJid: {} });
+    getMode.mockResolvedValue({ readOnly: false });
+    markChatRead.mockResolvedValue({});
+    setChatState.mockImplementation(async ({ chat, action }) => ({ chat, action }));
+    useAppStore.setState({
+      selectedChat: null,
+      chatFilter: 'all',
+      tagFilter: null,
+      searchQuery: '',
+      uiCommand: null,
+    });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, uiCommand: null });
+    localStorage.removeItem('wacli_safe_mode');
+  });
+
+  /** Live mode, as the server has confirmed it. */
+  async function renderLive() {
+    renderList();
+    await screen.findByText('Alice');
+    await waitFor(() => expect(getMode).toHaveBeenCalled());
+    await waitFor(() => expect(localStorage.getItem('wacli_safe_mode')).toBe('false'));
+  }
+
+  it('pins a chat from its row menu, and says so', async () => {
+    const user = userEvent.setup();
+    await renderLive();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Bob' }));
+    await user.click(screen.getByRole('menuitem', { name: /Pin chat/ }));
+
+    expect(setChatState).toHaveBeenCalledWith({ chat: BOB.jid, action: 'pin' });
+    expect(await screen.findByRole('status')).toHaveTextContent('Pinned Bob');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('offers the three mute lengths, and sends the one picked', async () => {
+    const user = userEvent.setup();
+    await renderLive();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Alice' }));
+    expect(screen.getByRole('menuitem', { name: /Mute for 8 hours/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Mute always/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: /Mute for 1 week/ }));
+
+    expect(setChatState).toHaveBeenCalledWith({ chat: ALICE.jid, action: 'mute', duration: '168h' });
+  });
+
+  it('opening the menu does not open the chat', async () => {
+    const user = userEvent.setup();
+    await renderLive();
+    expect(useAppStore.getState().selectedChat?.jid).toBe(ALICE.jid);
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Bob' }));
+
+    expect(useAppStore.getState().selectedChat?.jid).toBe(ALICE.jid);
+  });
+
+  it('acts on the open chat from the shortcuts', async () => {
+    await renderLive();
+
+    act(() => useAppStore.getState().runCommand('chat:toggle-pin'));
+    await waitFor(() => expect(setChatState).toHaveBeenCalledWith({ chat: ALICE.jid, action: 'pin' }));
+
+    act(() => useAppStore.getState().runCommand('chat:toggle-archive'));
+    await waitFor(() =>
+      expect(setChatState).toHaveBeenCalledWith({ chat: ALICE.jid, action: 'archive' })
+    );
+
+    act(() => useAppStore.getState().runCommand('chat:toggle-unread'));
+    await waitFor(() =>
+      expect(setChatState).toHaveBeenCalledWith({ chat: ALICE.jid, action: 'mark-unread' })
+    );
+  });
+
+  it('asks how long on M, and moves straight to the lengths', async () => {
+    await renderLive();
+
+    act(() => useAppStore.getState().runCommand('chat:mute'));
+
+    expect(await screen.findByRole('menuitem', { name: /Mute for 8 hours/ })).toHaveFocus();
+    expect(setChatState).not.toHaveBeenCalled();
+  });
+
+  it('unmutes on M without asking', async () => {
+    getChats.mockResolvedValue([{ ...ALICE, mutedUntil: -1 }, BOB]);
+    await renderLive();
+
+    act(() => useAppStore.getState().runCommand('chat:mute'));
+
+    await waitFor(() => expect(setChatState).toHaveBeenCalledWith({ chat: ALICE.jid, action: 'unmute' }));
+  });
+
+  it('marks a chat read again on U, through the receipt path', async () => {
+    getChats.mockResolvedValue([{ ...ALICE, unread: true }, BOB]);
+    await renderLive();
+
+    act(() => useAppStore.getState().runCommand('chat:toggle-unread'));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Marked Alice read');
+    expect(setChatState).not.toHaveBeenCalled();
+  });
+
+  it('shows a chat marked unread with a dot', async () => {
+    getChats.mockResolvedValue([ALICE, { ...BOB, unread: true }]);
+    renderList();
+
+    expect(await screen.findByRole('img', { name: 'Marked unread' })).toBeInTheDocument();
+  });
+
+  it('counts a chat muted for always as muted', async () => {
+    getChats.mockResolvedValue([ALICE, { ...BOB, mutedUntil: -1 }]);
+    useAppStore.setState({ chatFilter: 'muted' });
+    renderList();
+
+    expect(await screen.findByText('Bob')).toBeInTheDocument();
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+  });
+
+  it('takes the change back and says why when WhatsApp refuses it', async () => {
+    const user = userEvent.setup();
+    setChatState.mockRejectedValue(new Error('pin chat: connection lost'));
+    await renderLive();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Bob' }));
+    await user.click(screen.getByRole('menuitem', { name: /Pin chat/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not pin Bob: pin chat: connection lost');
+    // The rail asks the archive again rather than keeping what it guessed.
+    await waitFor(() => expect(getChats.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('changes nothing in safe mode, and says why', async () => {
+    getMode.mockResolvedValue({ readOnly: true });
+    renderList();
+    await screen.findByText('Alice');
+    await waitFor(() => expect(localStorage.getItem('wacli_safe_mode')).toBe('true'));
+
+    act(() => useAppStore.getState().runCommand('chat:toggle-pin'));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Safe mode is on');
+    expect(setChatState).not.toHaveBeenCalled();
+  });
+
+  it('greys the menu out in safe mode', async () => {
+    const user = userEvent.setup();
+    getMode.mockResolvedValue({ readOnly: true });
+    renderList();
+    await screen.findByText('Alice');
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Bob' }));
+
+    expect(screen.getByRole('menuitem', { name: /Pin chat/ })).toBeDisabled();
+    expect(screen.getByRole('menu')).toHaveTextContent('Safe mode is on');
   });
 });

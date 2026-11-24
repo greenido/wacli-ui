@@ -237,3 +237,100 @@ describe('Sends handed to the running daemon', () => {
     }
   });
 });
+
+/**
+ * Pin, mute, archive and mark unread change the account on every linked
+ * device. They go to the daemon like a send, and are refused like one in safe
+ * mode.
+ */
+describe('Chat state changes', () => {
+  const chat = '15550100001@s.whatsapp.net';
+  let pm: WacliProcessManager;
+  let child: ReturnType<typeof connectedDaemon>['child'];
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    ({ pm, child } = connectedDaemon());
+    app = createApp(pm);
+    modeManager.setReadOnly(false);
+    execWacliMock.mockReset();
+    execWacliMock.mockResolvedValue({ ok: true, action: 'pin', chat });
+  });
+
+  afterEach(() => {
+    modeManager.setReadOnly(true);
+    pm.dispose();
+  });
+
+  it.each(['pin', 'unpin', 'archive', 'unarchive', 'unmute', 'mark-unread'])(
+    '%s is handed to the daemon',
+    async (action) => {
+      const res = await request(app).post('/api/chats/state').send({ chat, action });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ chat, action });
+      expect(execWacliMock).toHaveBeenCalledWith(['chats', action, '--chat', chat], handedOver);
+      expect(child.kill).not.toHaveBeenCalled();
+    }
+  );
+
+  it('mutes for as long as asked', async () => {
+    await request(app).post('/api/chats/state').send({ chat, action: 'mute', duration: '8h' });
+    expect(execWacliMock).toHaveBeenCalledWith(
+      ['chats', 'mute', '--chat', chat, '--duration', '8h'],
+      handedOver
+    );
+  });
+
+  it('mutes for always when no length is given', async () => {
+    await request(app).post('/api/chats/state').send({ chat, action: 'mute' });
+    expect(execWacliMock.mock.calls[0][0]).toEqual(['chats', 'mute', '--chat', chat, '--duration', '0']);
+  });
+
+  it('runs exclusive when an older daemon will not take it', async () => {
+    execWacliMock
+      .mockRejectedValueOnce(new StoreLockedError('store is locked (another wacli is running?)', null))
+      .mockResolvedValueOnce({ ok: true });
+
+    const res = await request(app).post('/api/chats/state').send({ chat, action: 'pin' });
+
+    expect(res.status).toBe(200);
+    expect(execWacliMock).toHaveBeenCalledTimes(2);
+    expect(child.kill).toHaveBeenCalled();
+  });
+
+  it('reports a failure, so the UI can take back what it showed', async () => {
+    execWacliMock.mockRejectedValue(new Error('pin chat: connection lost'));
+
+    const res = await request(app).post('/api/chats/state').send({ chat, action: 'pin' });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toContain('connection lost');
+  });
+
+  it('is refused in safe mode without reaching wacli', async () => {
+    modeManager.setReadOnly(true);
+
+    const res = await request(app).post('/api/chats/state').send({ chat, action: 'pin' });
+
+    expect(res.status).toBe(403);
+    expect(execWacliMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ action: 'pin' }, 'chat'],
+    [{ chat: ` ${chat}`, action: 'pin' }, 'chat'],
+    [{ chat, action: 'delete' }, 'action'],
+    [{ chat, action: 'mark-read' }, 'action'],
+    [{ chat, action: 'pin', duration: '8h' }, 'duration'],
+    [{ chat, action: 'mute', duration: '8 hours' }, 'duration'],
+    [{ chat, action: 'mute', duration: '--help' }, 'duration'],
+    [{ chat, action: 'mute', duration: 8 }, 'duration'],
+  ])('refuses %j', async (body, field) => {
+    const res = await request(app).post('/api/chats/state').send(body);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain(`"${field}"`);
+    expect(execWacliMock).not.toHaveBeenCalled();
+  });
+});

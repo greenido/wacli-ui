@@ -1,5 +1,6 @@
 import type { UnifiedChat, UnifiedMessage } from '../types.ts';
 import { messagePreviewText } from './messagePreview.ts';
+import { isChatMuted } from './chatState.ts';
 
 export const NOTIFICATIONS_STORAGE_KEY = 'wacli_notifications_enabled';
 
@@ -77,7 +78,7 @@ export function shouldNotify(params: {
   // Reactions are not conversation content anywhere else in this app either.
   if (msg.reactionToId) return { show: false, reason: 'reaction' };
   // Mirrors the rail's own Muted filter, so the two never disagree.
-  if (chat && chat.mutedUntil > 0) return { show: false, reason: 'muted' };
+  if (chat && isChatMuted(chat)) return { show: false, reason: 'muted' };
   // The operator is already looking at the message land.
   if (isViewingChat && documentVisible) return { show: false, reason: 'already-watching' };
 

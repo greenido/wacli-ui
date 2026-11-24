@@ -189,6 +189,26 @@ export function useKeyboardShortcuts({ isSearchOpen, onToggleSearch }: KeyboardS
           e.preventDefault();
           runCommand('thread:jump-newest');
           return;
+        case 'p':
+          if (!selectedChat) return;
+          e.preventDefault();
+          runCommand('chat:toggle-pin');
+          return;
+        case 'm':
+          if (!selectedChat) return;
+          e.preventDefault();
+          runCommand('chat:mute');
+          return;
+        case 'a':
+          if (!selectedChat) return;
+          e.preventDefault();
+          runCommand('chat:toggle-archive');
+          return;
+        case 'u':
+          if (!selectedChat) return;
+          e.preventDefault();
+          runCommand('chat:toggle-unread');
+          return;
         default:
           break;
       }

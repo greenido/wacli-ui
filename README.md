@@ -103,6 +103,7 @@ There's no `--host` flag, and that's on purpose. See [Security & privacy](#secur
 - Unread counts, names, and a last-message preview (`You:` when it's yours; media is described instead of left blank).
 - Live `typing...` indicators.
 - Quick filters (**All · Unread · Pinned · Muted · Archived**) plus a tag row that narrows the list to your own labels.
+- **Pin, mute, archive, mark unread.** Hover a chat for its **⋯** menu, or press <kbd>P</kbd>, <kbd>M</kbd>, <kbd>A</kbd> or <kbd>U</kbd> on the open one. Mute asks how long (8 hours, a week, or forever, the same choices your phone gives you). These sync to every linked device, so they count as live changes: safe mode blocks them, but they skip the confirmation step, because undoing one is the same click again.
 - A filter box for names and JIDs, debounced so a word costs one query instead of one per letter.
 - **+** starts a new chat with a saved contact or a phone number.
 
@@ -124,7 +125,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
 
 ### 🦺 Safety rails (a.k.a. "are you *sure* sure?")
 
-- **Read-only on first run.** A fresh install can't send, reply, react, set an alias, backfill history or fire a scheduled message. It won't even send read receipts. You unlock live sends when you're ready.
+- **Read-only on first run.** A fresh install can't send, reply, react, pin, mute, archive, set an alias, backfill history or fire a scheduled message. It won't even send read receipts. You unlock live sends when you're ready.
 - **Your choice sticks.** Safe mode is a first-run default, not a nag. Unlock it once and it stays unlocked across restarts. Nothing but you ever changes it.
 - **Read-back before anything leaves.** Texts, files, replies and Send Later all stop at a confirmation step that shows the recipient JID, the exact payload, and the message you're replying to. Reactions skip it (it's one emoji, and you just picked it), but safe mode still blocks them.
 - **`Cmd+Shift+L` asks first.** Unlocking is the one guardrail a stray key chord could drop, so the shortcut opens a confirmation instead of flipping the switch.
@@ -174,6 +175,7 @@ Drag either splitter to resize a rail, and double-click it to snap back. The wid
   - search, or open New chat or Chat info;
   - load older messages, export, or request older history from your phone;
   - send, reply or react;
+  - pin, mute, archive or mark a chat unread;
   - reload the page, or open another tab.
 
   Every wake is logged with its reason. Scrolling, bookmarks, tags, quick replies, Help, Settings, safe mode, queueing a Send Later, and the LATER queue's own buttons all leave it asleep.
@@ -256,6 +258,10 @@ Clicking a chat puts the caret in the composer. Press <kbd>Esc</kbd> to step out
 | <kbd>E</kbd> | Export this conversation |
 | <kbd>O</kbd> | Load older messages |
 | <kbd>G</kbd> | Jump to the newest message |
+| <kbd>P</kbd> | Pin or unpin this chat |
+| <kbd>M</kbd> | Mute (pick how long) or unmute this chat |
+| <kbd>A</kbd> | Archive or unarchive this chat |
+| <kbd>U</kbd> | Mark this chat unread, or read again |
 
 ---
 
@@ -357,6 +363,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/sleep` | Sleep or wake (`{ sleeping: boolean, reason? }`); the reason is only logged |
 | `GET` | `/api/chats` | Chats with unread counts and previews (`?query=&limit=&unread=&pinned=&muted=&archived=`) |
 | `POST` | `/api/chats/mark-read` | Send a read receipt for a chat (`{ chat, through? }`), stopping at message `through` on wacli 0.22+; refused in safe mode |
+| `POST` | `/api/chats/state` | Pin, mute, archive or mark a chat unread, or undo one (`{ chat, action, duration? }`). `action` is `pin`, `unpin`, `mute`, `unmute`, `archive`, `unarchive` or `mark-unread`; `duration` is mute-only, `8h`-style or `0` for always. Refused in safe mode |
 | `GET` | `/api/messages` | A chat's messages (`?chat=<jid>&limit=100`, plus `before`, `after`, `asc`); raise `limit` to page further back |
 | `POST` | `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
 | `GET` | `/api/waiting` | Your messages in direct chats that were delivered or read and have had no reply since, longest wait first (`?limit=`, up to 200). Returns `{ items, total, snoozed }` |

@@ -82,6 +82,34 @@ function boundaryRefused(err: unknown): 'anchor' | 'daemon' | null {
   return null;
 }
 
+/**
+ * The chat-state changes the console makes: each is a `wacli chats <action>`.
+ * WhatsApp syncs them to every linked device, so they change the account, not
+ * just this machine, and safe mode refuses them.
+ */
+const CHAT_STATE_ACTIONS = new Set([
+  'pin',
+  'unpin',
+  'mute',
+  'unmute',
+  'archive',
+  'unarchive',
+  'mark-unread',
+]);
+
+/**
+ * How long a mute lasts, the way wacli spells it: whole hours, or `0` for
+ * always. Narrower than wacli accepts on purpose: the console only offers a
+ * handful of lengths, and nothing else needs to reach the command line.
+ */
+const MUTE_DURATION = /^(0|[1-9]\d{0,4}h)$/;
+
+/**
+ * The same budget as a read receipt, for the same reason: the daemon runs what
+ * it is handed one at a time, so this is how long a send could wait behind it.
+ */
+const CHAT_STATE_TIMEOUT_MS = 10_000;
+
 /** Test seam: the scan is cached module state, so suites must be able to clear it. */
 export function resetChatPreviewCache(): void {
   resetRecentMessages();
@@ -291,6 +319,63 @@ export function createChatsRouter(processManager: WacliProcessManager): Router {
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Pin, mute, archive or mark unread, and their inverses. Handed to the
+   * running daemon (wacli 0.20+ takes them without blocking its send queue);
+   * an older daemon refuses the hand-off and the command runs exclusive.
+   *
+   * Unlike a read receipt, a failure here is reported: the operator asked for
+   * it, and the UI has to take back what it showed.
+   */
+  router.post('/chats/state', requireMutationPermission, async (req, res, next) => {
+    try {
+      const { chat, action, duration } = req.body as {
+        chat?: unknown;
+        action?: unknown;
+        duration?: unknown;
+      };
+
+      if (typeof chat !== 'string' || chat === '' || chat !== chat.trim()) {
+        res.status(400).json({ success: false, data: null, error: 'Field "chat" (JID) is required.' });
+        return;
+      }
+      if (typeof action !== 'string' || !CHAT_STATE_ACTIONS.has(action)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Field "action" must be one of: ${[...CHAT_STATE_ACTIONS].join(', ')}.`,
+        });
+        return;
+      }
+      if (duration !== undefined && (action !== 'mute' || typeof duration !== 'string' || !MUTE_DURATION.test(duration))) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: 'Field "duration" applies to mute only, in whole hours ("8h") or "0" for always.',
+        });
+        return;
+      }
+
+      const args = ['chats', action, '--chat', chat];
+      // wacli's own default is forever too; saying so keeps the command line
+      // honest in the log.
+      if (action === 'mute') args.push('--duration', typeof duration === 'string' ? duration : '0');
+
+      await processManager.runDelegated((lock) =>
+        execWacli<Record<string, unknown> | null>(args, {
+          allowMutation: true,
+          timeoutMs: CHAT_STATE_TIMEOUT_MS,
+          ...lock,
+        })
+      );
+
+      logger.info('api', 'Chat state changed', { chat, action, duration });
+      res.json({ success: true, data: { chat, action }, error: null });
     } catch (err) {
       next(err);
     }
