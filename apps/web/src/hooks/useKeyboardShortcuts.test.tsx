@@ -124,6 +124,23 @@ describe('useKeyboardShortcuts', () => {
     expect(command()).toBeUndefined();
   });
 
+  it.each([
+    ['p', 'chat:toggle-pin'],
+    ['m', 'chat:mute'],
+    ['a', 'chat:toggle-archive'],
+    ['u', 'chat:toggle-unread'],
+  ])('publishes %s as %s for the open chat, and nothing without one', async (key, name) => {
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.keyboard(key);
+    expect(command()).toBe(name);
+
+    useAppStore.setState({ selectedChat: null, uiCommand: null });
+    await user.keyboard(key);
+    expect(command()).toBeUndefined();
+  });
+
   it('hands the keyboard to whichever dialog is up', async () => {
     const user = userEvent.setup();
     useAppStore.setState({ activeModal: 'settings' });

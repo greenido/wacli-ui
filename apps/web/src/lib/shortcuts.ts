@@ -14,6 +14,10 @@ export type UiCommand =
   | 'chat:next'
   | 'chat:prev'
   | 'chatlist:focus-filter'
+  | 'chat:toggle-pin'
+  | 'chat:mute'
+  | 'chat:toggle-archive'
+  | 'chat:toggle-unread'
   | 'thread:reply-latest'
   | 'thread:load-older'
   | 'thread:jump-newest'
@@ -100,6 +104,10 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { chords: [['E']], action: 'Export this conversation' },
       { chords: [['O']], action: 'Load older messages' },
       { chords: [['G']], action: 'Jump to the newest message' },
+      { chords: [['P']], action: 'Pin or unpin this chat' },
+      { chords: [['M']], action: 'Mute (pick how long) or unmute this chat' },
+      { chords: [['A']], action: 'Archive or unarchive this chat' },
+      { chords: [['U']], action: 'Mark this chat unread, or read again' },
     ],
   },
 ];

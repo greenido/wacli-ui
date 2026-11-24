@@ -98,6 +98,20 @@ describe('shouldNotify', () => {
     });
   });
 
+  // wacli stores "muted always" as -1, which a `> 0` test let through.
+  it('respects a chat muted for always', () => {
+    expect(shouldNotify({ ...ALLOWED, chat: chat({ mutedUntil: -1 }) })).toEqual({
+      show: false,
+      reason: 'muted',
+    });
+  });
+
+  it('pings again once a timed mute has run out', () => {
+    expect(shouldNotify({ ...ALLOWED, chat: chat({ mutedUntil: 1_000_000_000 }) })).toEqual({
+      show: true,
+    });
+  });
+
   it('does not ping for a message the operator is watching land', () => {
     expect(shouldNotify({ ...ALLOWED, isViewingChat: true })).toEqual({
       show: false,

@@ -1,8 +1,11 @@
-import React, { useMemo, useEffect, useCallback, useRef } from 'react';
-import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag, SlidersHorizontal } from 'lucide-react';
+import React, { useMemo, useEffect, useCallback, useRef, useState } from 'react';
+import { MessageSquare, Search, Pin, VolumeX, Archive, Plus, AlertOctagon, AlertTriangle, Tag, SlidersHorizontal, MoreHorizontal, Lock, Check } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiClientError } from '../../api/client.ts';
-import { chatWithUnreadCleared, markChatAsRead } from '../../lib/chatRead.ts';
+import { chatWithUnreadCleared, hasPendingRead, markChatAsRead } from '../../lib/chatRead.ts';
+import { isChatMuted, isMarkedUnread, toggleArchive, togglePin } from '../../lib/chatState.ts';
+import { ChatActionsMenu, type ChatMenuPick } from './ChatActionsMenu.tsx';
+import { useChatActions } from './useChatActions.ts';
 import { POLL_CHATS_MS, wacliReadQueryOptions } from '../../lib/queryOptions.ts';
 import { isWacliReadyForReads } from '../../lib/wacliReady.ts';
 import { detectTextDirection } from '../../lib/textDirection.ts';
@@ -49,15 +52,18 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
 
   const { data: chats = [], isLoading, isError, error, isFetching } = useQuery({
     queryKey: ['chats', debouncedSearchQuery, chatFilter],
-    queryFn: () =>
-      api.getChats({
+    queryFn: async () => {
+      const fetched = await api.getChats({
         query: debouncedSearchQuery || undefined,
         limit: 100,
         unread: chatFilter === 'unread' ? true : undefined,
         pinned: chatFilter === 'pinned' ? true : undefined,
         archived: chatFilter === 'archived' ? true : chatFilter === 'all' ? false : undefined,
         muted: chatFilter === 'muted' ? true : undefined,
-      }),
+      });
+      // Read here, but not yet in the archive: the receipt is still waiting.
+      return fetched.map((c) => (hasPendingRead(c.jid) ? chatWithUnreadCleared(c) : c));
+    },
     refetchInterval: POLL_CHATS_MS,
     ...readQueryOpts,
   });
@@ -82,7 +88,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
       if (chatFilter === 'unread') return c.unread || c.unreadCount > 0;
       if (chatFilter === 'pinned') return c.pinned;
       if (chatFilter === 'archived') return c.archived;
-      if (chatFilter === 'muted') return c.mutedUntil > 0;
+      if (chatFilter === 'muted') return isChatMuted(c);
       return true;
     });
   }, [chats, chatFilter, tagFilter, tagData]);
@@ -137,6 +143,62 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
     filterInputRef.current?.focus();
     filterInputRef.current?.select();
   });
+
+  // Pin, mute, archive and read state. The shortcuts act on the open chat as
+  // the rail has it now: the store's copy is a snapshot from when it opened.
+  const chatActions = useChatActions();
+  const { run: runChatAction, markRead } = chatActions;
+  const [menu, setMenu] = useState<{ jid: string; anchor: DOMRect; focusMute: boolean } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  const currentChat = useCallback(
+    (jid: string) => chats.find((c) => c.jid === jid) ?? (selectedChat?.jid === jid ? selectedChat : null),
+    [chats, selectedChat]
+  );
+
+  const pickFromMenu = useCallback(
+    (chat: UnifiedChat, pick: ChatMenuPick) => {
+      if (pick.action === 'mark-read') markRead(chat);
+      else runChatAction(chat, pick);
+    },
+    [markRead, runChatAction]
+  );
+
+  const openMenu = useCallback(
+    (jid: string, focusMute: boolean) => {
+      const trigger = listRef.current?.querySelector<HTMLElement>(
+        `[data-chat-jid="${jid}"] [data-chat-menu-trigger]`
+      );
+      // A chat the current filter hides has no row to hang from; the top of
+      // the rail stands in.
+      const anchor = (trigger ?? listRef.current)?.getBoundingClientRect();
+      if (anchor) setMenu({ jid, anchor, focusMute });
+    },
+    []
+  );
+
+  const withOpenChat = (act: (chat: UnifiedChat) => void) => {
+    const chat = selectedChat ? currentChat(selectedChat.jid) : null;
+    if (chat) act(chat);
+  };
+
+  useUiCommand('chat:toggle-pin', () => withOpenChat((chat) => runChatAction(chat, togglePin(chat))));
+  useUiCommand('chat:toggle-archive', () =>
+    withOpenChat((chat) => runChatAction(chat, toggleArchive(chat)))
+  );
+  useUiCommand('chat:toggle-unread', () =>
+    withOpenChat((chat) =>
+      chat.unread || chat.unreadCount > 0 ? markRead(chat) : runChatAction(chat, { action: 'mark-unread' })
+    )
+  );
+  // Unmuting has one answer; muting asks how long.
+  useUiCommand('chat:mute', () =>
+    withOpenChat((chat) =>
+      isChatMuted(chat) ? runChatAction(chat, { action: 'unmute' }) : openMenu(chat.jid, true)
+    )
+  );
+
+  const menuChat = menu ? currentChat(menu.jid) : null;
 
   // A selection reached by keyboard can easily be off-screen in a long rail.
   useEffect(() => {
@@ -257,6 +319,47 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
         )}
       </div>
 
+      {chatActions.status && (
+        <div
+          role={chatActions.status.kind === 'error' ? 'alert' : 'status'}
+          className={`mx-3 mt-2 p-2 rounded bg-mc-bg border text-[11px] font-mono flex items-start gap-2 ${
+            chatActions.status.kind === 'error'
+              ? 'border-mc-danger/40 text-mc-danger'
+              : chatActions.status.kind === 'blocked'
+                ? 'border-mc-safe/40 text-mc-safe'
+                : 'border-mc-live/40 text-mc-live'
+          }`}
+        >
+          {chatActions.status.kind === 'error' ? (
+            <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+          ) : chatActions.status.kind === 'blocked' ? (
+            <Lock size={12} className="shrink-0 mt-0.5" />
+          ) : (
+            <Check size={12} className="shrink-0 mt-0.5" />
+          )}
+          <span className="flex-1 min-w-0 break-words">{chatActions.status.text}</span>
+          {chatActions.status.kind !== 'done' && (
+            <button
+              onClick={chatActions.dismiss}
+              className="shrink-0 px-1.5 rounded border border-mc-border hover:bg-mc-surfaceHover transition-colors"
+            >
+              DISMISS
+            </button>
+          )}
+        </div>
+      )}
+
+      {menu && menuChat && (
+        <ChatActionsMenu
+          chat={menuChat}
+          anchor={menu.anchor}
+          readOnly={chatActions.isReadOnly}
+          focusMute={menu.focusMute}
+          onPick={(pick) => pickFromMenu(menuChat, pick)}
+          onClose={closeMenu}
+        />
+      )}
+
       {/* Chat List */}
       <div ref={listRef} className="flex-1 overflow-y-auto divide-y divide-mc-border/40">
         {isLoading || (isFetching && chats.length === 0 && !readsReady) ? (
@@ -301,10 +404,13 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
             const presence = presenceMap[chat.jid];
             const isTyping = presence && presence.state === 'composing';
 
+            const menuOpen = menu?.jid === chat.jid;
+
             return (
+              // The menu trigger sits beside the row rather than inside it: a
+              // button cannot hold another button.
+              <div key={chat.jid} data-chat-jid={chat.jid} className="relative group">
               <button
-                key={chat.jid}
-                data-chat-jid={chat.jid}
                 onClick={() => handleSelectChat(chat)}
                 className={`w-full text-left p-3 flex items-start justify-between gap-2 transition-colors ${
                   isSelected
@@ -315,7 +421,7 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     {chat.pinned && <Pin size={11} className="text-mc-safe shrink-0" />}
-                    {chat.mutedUntil > 0 && <VolumeX size={11} className="text-mc-textMuted shrink-0" />}
+                    {isChatMuted(chat) && <VolumeX size={11} className="text-mc-textMuted shrink-0" />}
                     {chat.archived && <Archive size={11} className="text-mc-textMuted shrink-0" />}
                     <span className="font-medium text-xs text-mc-text truncate">
                       {chat.name}
@@ -351,7 +457,12 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                 </div>
 
                 <div className="flex flex-col items-end gap-1 shrink-0 font-mono text-[10px]">
-                  <span className="text-mc-textMuted">
+                  {/* Gives way to the menu trigger that appears on top of it. */}
+                  <span
+                    className={`text-mc-textMuted group-hover:opacity-0 group-focus-within:opacity-0 ${
+                      menuOpen ? 'opacity-0' : ''
+                    }`}
+                  >
                     {formatTimestamp(chat.lastMessageTs)}
                   </span>
                   {chat.unreadCount > 0 && (
@@ -359,8 +470,39 @@ export const ChatList: React.FC<ChatListProps> = ({ width = 320 }) => {
                       {chat.unreadCount}
                     </span>
                   )}
+                  {/* Marked unread by hand: a dot, like the phone, with no
+                      count because nothing new arrived. */}
+                  {isMarkedUnread(chat) && (
+                    <span
+                      role="img"
+                      aria-label="Marked unread"
+                      title="Marked unread"
+                      className="w-2.5 h-2.5 rounded-full bg-mc-live"
+                    />
+                  )}
                 </div>
               </button>
+              <button
+                data-chat-menu-trigger
+                onClick={(e) => {
+                  if (menuOpen) closeMenu();
+                  else setMenu({ jid: chat.jid, anchor: e.currentTarget.getBoundingClientRect(), focusMute: false });
+                }}
+                // Opening the menu is not opening the chat.
+                onMouseDown={(e) => e.stopPropagation()}
+                aria-label={`Actions for ${chat.name}`}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                title="Pin, mute, archive, mark unread"
+                // Over the timestamp rather than the unread count, which is
+                // the one worth keeping in sight while the menu is reached for.
+                className={`absolute right-2 top-2 p-0.5 rounded border border-mc-border bg-mc-surface text-mc-textMuted hover:text-mc-live hover:border-mc-live/50 transition-opacity focus:opacity-100 group-hover:opacity-100 ${
+                  menuOpen ? 'opacity-100' : 'opacity-0'
+                }`}
+              >
+                <MoreHorizontal size={12} />
+              </button>
+              </div>
             );
           })
         )}
