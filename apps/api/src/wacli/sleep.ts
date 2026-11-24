@@ -27,6 +27,8 @@ export const SLEEP_ROUTES = {
     'GET /api/search',
     // Reads the recent-message scan, which is a wacli subprocess.
     'GET /api/waiting',
+    // The change feed is a wacli read like any other.
+    'GET /api/changes',
   ],
   // Writes that reach wacli. These are the operator acting, which is what
   // waking is for, so they wake the app and then run.

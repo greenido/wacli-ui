@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThreadView } from './ThreadView.tsx';
 import { ApiClientError } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
+import { refreshChangedChats } from '../../hooks/useChangeFeed.ts';
 import type { MissionControlStatus, SleepState, UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
@@ -1433,5 +1434,54 @@ describe('ThreadView message changes', () => {
     await screen.findByText('This message was deleted.');
     expect(screen.queryByTitle('Forward')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Delete')).not.toBeInTheDocument();
+  });
+});
+
+describe('ThreadView behind the change feed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null });
+  });
+
+  // Finding #17: a thread paged back stopped polling, so it went stale while
+  // the socket was down. The feed names the chat, and every page refetches.
+  it('refetches every page of a thread read far back when the feed names its chat', async () => {
+    const user = userEvent.setup();
+    getMessages
+      .mockResolvedValueOnce({ messages: [message(2)], hasMore: true })
+      .mockResolvedValueOnce({ messages: [message(1)], hasMore: false });
+    const { client } = renderThread();
+
+    await user.click(await screen.findByRole('button', { name: /LOAD OLDER MESSAGES/i }));
+    expect(await screen.findByText('message body 1')).toBeInTheDocument();
+
+    getMessages.mockClear();
+    getMessages
+      .mockResolvedValueOnce({ messages: [{ ...message(2), text: 'edited 2', displayText: 'edited 2' }], hasMore: true })
+      .mockResolvedValueOnce({ messages: [{ ...message(1), text: 'edited 1', displayText: 'edited 1' }], hasMore: false });
+    await act(async () => refreshChangedChats(client, [CHAT.jid]));
+
+    expect(await screen.findByText('edited 1')).toBeInTheDocument();
+    expect(screen.getByText('edited 2')).toBeInTheDocument();
+    expect(getMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a thread alone when the feed names other chats', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1)], hasMore: false });
+    const { client } = renderThread();
+    await screen.findByText('message body 1');
+
+    getMessages.mockClear();
+    await act(async () => refreshChangedChats(client, ['someone-else@s.whatsapp.net']));
+
+    expect(getMessages).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { api } from '../../api/client.ts';
 import { isHeartbeatStale } from '../../lib/heartbeat.ts';
 import { CopyableError } from '../CopyableError/CopyableError.tsx';
 import { statusColor } from '../../lib/statusColor.ts';
+import { useAppStore } from '../../store/appStore.ts';
 import type { MissionControlStatus } from '../../types.ts';
 
 interface HealthPanelProps {
@@ -24,6 +25,7 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
   sleepError,
 }) => {
   const queryClient = useQueryClient();
+  const changeFeedLive = useAppStore((s) => s.changeFeedLive);
   const restartDaemonMutation = useMutation({
     mutationFn: () => api.restartDaemon(),
     onSuccess: () => {
@@ -149,6 +151,23 @@ export const HealthPanel: React.FC<HealthPanelProps> = ({
             {wsConnected ? 'ONLINE' : 'DISCONNECTED'}
           </span>
         </div>
+
+        {/* Whether threads refresh on what changed, or on a timer. */}
+        {!sleeping && (
+          <div className="flex items-center justify-between text-[11px] text-mc-textMuted">
+            <span>CHANGE FEED</span>
+            <span
+              className={changeFeedLive ? 'text-mc-live' : 'text-mc-textMuted'}
+              title={
+                changeFeedLive
+                  ? 'Threads refresh when wacli reports they changed'
+                  : 'Polling on a timer (wacli 0.22+ is needed for the change feed)'
+              }
+            >
+              {changeFeedLive ? 'LIVE' : 'POLLING'}
+            </span>
+          </div>
+        )}
 
         {!sleeping && heartbeatAge !== null && heartbeatAge !== undefined && (
           <div className="flex items-center justify-between text-[11px] text-mc-textMuted">

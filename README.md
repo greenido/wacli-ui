@@ -286,10 +286,11 @@ flowchart TB
 ```
 
 1. **The daemon.** Mission Control spawns `wacli sync --follow --events` and supervises it. The daemon posts `message`, `receipt` and `chat_presence` events to an internal webhook, signed with HMAC-SHA256 using a secret generated fresh on every start.
-2. **The bridge.** The API verifies each webhook and pushes it to the browser over `/ws`. Arriving messages are folded straight into the cached chat rail and thread, so the common case costs no request at all. A slow poll stays on as the safety net for anything the socket misses.
-3. **Reads.** Chats, messages, search, contacts, groups and archive coverage run as one-shot `wacli … --json` commands with `WACLI_READONLY=1`.
-4. **Sends.** Sends, reactions and read receipts run as `wacli send …`, which hands the job to the running daemon over the store's `.send.sock`, so the daemon stays connected throughout. If the daemon isn't connected yet (or your wacli is too old to hand off), Mission Control pauses the daemon for the send and brings it back afterwards. A contact alias or a history backfill always pauses it. A Restart, Sleep or shutdown waits for any send the daemon is carrying to finish first.
-5. **Its own memory.** Safe mode, the scheduled queue, the activity log, bookmarks, tags, what you've done with the WAITING list and sleep state live in `~/.wacli-mission-control/mission-control.db`, built on Node's own `node:sqlite` and created with mode `0600`.
+2. **The bridge.** The API verifies each webhook and pushes it to the browser over `/ws`. Arriving messages are folded straight into the cached chat rail and thread, so the common case costs no request at all.
+3. **The change feed.** For anything the socket misses, the console asks wacli's change feed (`messages changes`, wacli 0.22+) every 10 seconds which chats' messages changed, and refetches exactly those threads, every page you've scrolled back through included. It's one small read when nothing changed, instead of re-reading the rail and the open thread on a timer. Receipts and pins/mutes/unread counts aren't in the feed, so a slow two-minute poll still covers those. On an older wacli, the old 30-second polling carries on as before, and the status panel shows which one you're on (CHANGE FEED: LIVE or POLLING).
+4. **Reads.** Chats, messages, search, contacts, groups and archive coverage run as one-shot `wacli … --json` commands with `WACLI_READONLY=1`.
+5. **Sends.** Sends, reactions and read receipts run as `wacli send …`, which hands the job to the running daemon over the store's `.send.sock`, so the daemon stays connected throughout. If the daemon isn't connected yet (or your wacli is too old to hand off), Mission Control pauses the daemon for the send and brings it back afterwards. A contact alias or a history backfill always pauses it. A Restart, Sleep or shutdown waits for any send the daemon is carrying to finish first.
+6. **Its own memory.** Safe mode, the scheduled queue, the activity log, bookmarks, tags, what you've done with the WAITING list and sleep state live in `~/.wacli-mission-control/mission-control.db`, built on Node's own `node:sqlite` and created with mode `0600`.
 
 **Stack**
 - `apps/api`: Node.js 22.13+, Express 5, `ws`, `multer`, `node:sqlite`, TypeScript.
@@ -373,6 +374,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `POST` | `/api/waiting/snooze` | Hide one until a time within the next year (`{ chat, id, until }`, ISO 8601). Local only, allowed in safe mode |
 | `GET` | `/api/messages/export` | Export a conversation (`?chat=<jid>&limit=1000`); answers `truncated` when the cap was hit |
 | `GET` | `/api/search` | Full-text search (`?q=<query>&limit=50`, plus `chat`, `before`, `after`, `type`) |
+| `GET` | `/api/changes` | Which chats' messages changed since a checkpoint (`?since=`, wacli 0.22+). Returns `{ supported, checkpoint, chats, reset }`; without `since`, or once a checkpoint expires, it starts over with `reset: true` |
 | `GET` | `/api/history/coverage` | How far back the local archive reaches (`?chat=<jid>`, or every chat when omitted) |
 | `POST` | `/api/history/backfill` | Ask your phone for older messages (`{ chat, count? }`); refused in safe mode |
 | `GET` | `/api/contacts/show` | One contact's metadata and tags (`?jid=<jid>`) |

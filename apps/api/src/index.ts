@@ -17,6 +17,7 @@ import { createWebhookRouter } from './routes/webhook.js';
 import { createChatsRouter } from './routes/chats.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createSearchRouter } from './routes/search.js';
+import { createChangesRouter } from './routes/changes.js';
 import { createHistoryRouter } from './routes/history.js';
 import { createContactsRouter } from './routes/contacts.js';
 import { createSendRouter } from './routes/send.js';
@@ -226,6 +227,7 @@ export function createApp(
   app.use('/api', createChatsRouter(processManager));
   app.use('/api', createMessagesRouter());
   app.use('/api', createSearchRouter());
+  app.use('/api', createChangesRouter());
   app.use('/api', createHistoryRouter(processManager));
   app.use('/api', createContactsRouter(processManager));
   app.use('/api', createSendRouter(processManager));

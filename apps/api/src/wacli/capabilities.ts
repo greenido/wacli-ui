@@ -13,6 +13,8 @@ const SINCE = {
   readBoundary: [0, 22, 0],
   /** `media download --retry-on-phone`. */
   phoneMediaRecovery: [0, 22, 0],
+  /** `messages changes`, the content-free change feed. */
+  changeFeed: [0, 22, 0],
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 export type WacliCapability = keyof typeof SINCE;

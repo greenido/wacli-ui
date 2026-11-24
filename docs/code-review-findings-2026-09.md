@@ -36,7 +36,7 @@ Checked against the code on 2026-11-18. Each row names the PR that closed it.
 | 14 | Cancel/discard report a no-op as success | Fixed: answered 409 | [#20](https://github.com/greenido/wacli-ui/pull/20) |
 | 15 | WebSocket reconnect without backoff | Fixed | [#20](https://github.com/greenido/wacli-ui/pull/20) |
 | 16 | `scheduled.json` never pruned | Fixed: SQLite, history pruned after 90 days | [#21](https://github.com/greenido/wacli-ui/pull/21), [#55](https://github.com/greenido/wacli-ui/pull/55) |
-| 17 | Paged-back thread goes stale while the socket is down | **Open** | — |
+| 17 | Paged-back thread goes stale while the socket is down | Fixed: wacli's change feed refetches every page of a chat that changed | [#70](https://github.com/greenido/wacli-ui/pull/70) |
 | 18 | `handleProcessExit` runs twice | Fixed | [#34](https://github.com/greenido/wacli-ui/pull/34) |
 | 19 | Per-chat scheduled list unsorted | Fixed: `getPage` sorts both lists | [#21](https://github.com/greenido/wacli-ui/pull/21) |
 | 20 | `hasMore` costs a wasted round trip | Fixed: wacli 0.22's exact `has_more` | [#54](https://github.com/greenido/wacli-ui/pull/54) |
