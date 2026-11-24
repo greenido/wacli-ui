@@ -15,6 +15,7 @@ vi.mock('../wacli/commands.js', async (importOriginal) => {
 import { createApp } from '../index.js';
 import { resetMarkReadReceipts } from '../routes/chats.js';
 import { POST_SEND_WAIT } from '../wacli/commands.js';
+import { activityStore } from '../wacli/activity.js';
 import { modeManager } from '../wacli/mode.js';
 import { WacliProcessManager } from '../wacli/process-manager.js';
 import { Scheduler } from '../wacli/scheduler.js';
@@ -331,6 +332,168 @@ describe('Chat state changes', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain(`"${field}"`);
+    expect(execWacliMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Editing, unsending and forwarding reach other people's phones, so they are
+ * gated like sends: safe mode refuses them and each needs confirm: true.
+ */
+describe('Message changes', () => {
+  const chat = '15550100001@s.whatsapp.net';
+  const other = '15550100002@s.whatsapp.net';
+  let pm: WacliProcessManager;
+  let child: ReturnType<typeof connectedDaemon>['child'];
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    ({ pm, child } = connectedDaemon());
+    app = createApp(pm);
+    modeManager.setReadOnly(false);
+    execWacliMock.mockReset();
+    execWacliMock.mockResolvedValue({ edited: true, id: 'STUBMSG0009' });
+  });
+
+  afterEach(() => {
+    modeManager.setReadOnly(true);
+    pm.dispose();
+  });
+
+  /** The newest activity row, which each change here writes. */
+  const latestActivity = () => activityStore.list({ limit: 1 }).items[0];
+
+  it('edits through the daemon, and logs the new text against the original', async () => {
+    const res = await request(app)
+      .post('/api/messages/edit')
+      .send({ chat, id: 'STUBMSG0001', message: 'Coffee at ten', chatName: 'Ada', confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ edited: true, chat, id: 'STUBMSG0001' });
+    expect(execWacliMock).toHaveBeenCalledWith(
+      ['messages', 'edit', '--chat', chat, '--id', 'STUBMSG0001', '--message', 'Coffee at ten', '--post-send-wait', '0s'],
+      handedOver
+    );
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(latestActivity()).toMatchObject({
+      to: chat,
+      chatName: 'Ada',
+      message: 'Edited: Coffee at ten',
+      status: 'success',
+      messageId: 'STUBMSG0001',
+    });
+  });
+
+  it('unsends with revoke, and logs it', async () => {
+    const res = await request(app)
+      .post('/api/messages/delete')
+      .send({ chat, id: 'STUBMSG0001', forEveryone: true, preview: 'see you at 9', confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(execWacliMock.mock.calls[0][0]).toEqual([
+      'messages', 'revoke', '--chat', chat, '--id', 'STUBMSG0001', '--post-send-wait', '0s',
+    ]);
+    expect(latestActivity()).toMatchObject({ message: 'Deleted for everyone: see you at 9', status: 'success' });
+  });
+
+  it('deletes for me without a send-log row, since nobody else hears of it', async () => {
+    const before = activityStore.list({ limit: 1 }).total;
+
+    const res = await request(app)
+      .post('/api/messages/delete')
+      .send({ chat, id: 'STUBMSG0001', forEveryone: false, confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(execWacliMock.mock.calls[0][0]).toEqual([
+      'messages', 'delete', '--chat', chat, '--id', 'STUBMSG0001', '--for-me', '--post-send-wait', '0s',
+    ]);
+    expect(activityStore.list({ limit: 1 }).total).toBe(before);
+  });
+
+  it('forwards to another chat, and logs the new message id', async () => {
+    execWacliMock.mockResolvedValue({ forwarded: true, id: 'STUBMSG0010' });
+
+    const res = await request(app)
+      .post('/api/messages/forward')
+      .send({ chat, id: 'STUBMSG0001', to: other, toName: 'Charles', preview: 'minutes.pdf', confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ forwarded: true, to: other, messageId: 'STUBMSG0010' });
+    expect(execWacliMock.mock.calls[0][0]).toEqual([
+      'messages', 'forward', '--chat', chat, '--id', 'STUBMSG0001', '--to', other, '--post-send-wait', '0s',
+    ]);
+    expect(latestActivity()).toMatchObject({
+      to: other,
+      chatName: 'Charles',
+      message: 'Forwarded: minutes.pdf',
+      messageId: 'STUBMSG0010',
+    });
+  });
+
+  it('runs exclusive when the daemon will not take it, as wacli 0.26 does for revoke', async () => {
+    execWacliMock
+      .mockRejectedValueOnce(new StoreLockedError('store is locked (another wacli is running?)', null))
+      .mockResolvedValueOnce({ revoked: true });
+
+    const res = await request(app)
+      .post('/api/messages/delete')
+      .send({ chat, id: 'STUBMSG0001', forEveryone: true, confirm: true });
+
+    expect(res.status).toBe(200);
+    expect(child.kill).toHaveBeenCalled();
+    // On its own connection the CLI has to wait for retry receipts.
+    expect(execWacliMock.mock.calls[1][0]).toContain(POST_SEND_WAIT);
+  });
+
+  it("answers wacli's refusal as 409 in wacli's words, and logs the failure", async () => {
+    execWacliMock.mockRejectedValue(
+      new Error("message STUBMSG0001 is older than WhatsApp's 20m0s edit window")
+    );
+
+    const res = await request(app)
+      .post('/api/messages/edit')
+      .send({ chat, id: 'STUBMSG0001', message: 'too late', confirm: true });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('edit window');
+    expect(latestActivity()).toMatchObject({ status: 'error' });
+  });
+
+  it('answers any other failure as a server error', async () => {
+    execWacliMock.mockRejectedValue(new Error('forward: connection lost'));
+
+    const res = await request(app)
+      .post('/api/messages/forward')
+      .send({ chat, id: 'STUBMSG0001', to: other, confirm: true });
+
+    expect(res.status).toBe(500);
+  });
+
+  it.each([
+    ['/api/messages/edit', { chat, id: 'STUBMSG0001', message: 'hi', confirm: true }],
+    ['/api/messages/delete', { chat, id: 'STUBMSG0001', forEveryone: true, confirm: true }],
+    ['/api/messages/forward', { chat, id: 'STUBMSG0001', to: other, confirm: true }],
+  ])('%s is refused in safe mode without reaching wacli', async (route, body) => {
+    modeManager.setReadOnly(true);
+
+    const res = await request(app).post(route).send(body);
+
+    expect(res.status).toBe(403);
+    expect(execWacliMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/api/messages/edit', { chat, id: 'STUBMSG0001', message: 'hi' }],
+    ['/api/messages/edit', { chat, id: 'STUBMSG0001', message: '   ', confirm: true }],
+    ['/api/messages/edit', { chat, message: 'hi', confirm: true }],
+    ['/api/messages/delete', { chat, id: 'STUBMSG0001', confirm: true }],
+    ['/api/messages/delete', { chat, id: ' STUBMSG0001', forEveryone: true, confirm: true }],
+    ['/api/messages/forward', { chat, id: 'STUBMSG0001', confirm: true }],
+    ['/api/messages/forward', { chat, id: 'STUBMSG0001', to: other, confirm: 'true' }],
+  ])('%s refuses %j', async (route, body) => {
+    const res = await request(app).post(route).send(body);
+
+    expect(res.status).toBe(400);
     expect(execWacliMock).not.toHaveBeenCalled();
   });
 });

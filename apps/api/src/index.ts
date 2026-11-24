@@ -20,6 +20,7 @@ import { createSearchRouter } from './routes/search.js';
 import { createHistoryRouter } from './routes/history.js';
 import { createContactsRouter } from './routes/contacts.js';
 import { createSendRouter } from './routes/send.js';
+import { createMessageActionsRouter } from './routes/message-actions.js';
 import { createMediaRouter } from './routes/media.js';
 import { createSleepRouter } from './routes/sleep.js';
 import { createTemplatesRouter } from './routes/templates.js';
@@ -228,6 +229,7 @@ export function createApp(
   app.use('/api', createHistoryRouter(processManager));
   app.use('/api', createContactsRouter(processManager));
   app.use('/api', createSendRouter(processManager));
+  app.use('/api', createMessageActionsRouter(processManager));
   app.use('/api', createMediaRouter(processManager));
   app.use('/api', createTemplatesRouter());
   app.use('/api', createWaitingRouter());
