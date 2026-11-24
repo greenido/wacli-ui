@@ -17,3 +17,4 @@ coverage/
 docs/wacrawl-history-tier-PRD.md
 *.db-wal
 *.db-shm
+.claude/launch.json
