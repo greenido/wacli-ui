@@ -329,6 +329,46 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  /**
+   * One of your own recent texts, within WhatsApp's 20-minute window. Labels
+   * (`chatName`, `preview`, `toName`) only name the ACTIVITY row.
+   */
+  editMessage: (data: { chat: string; id: string; message: string; chatName?: string; confirm: true }) =>
+    request<{ edited: boolean; chat: string; id: string }>('/api/messages/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  /** `forEveryone` unsends your own message; otherwise it goes from your devices only. */
+  deleteMessage: (data: {
+    chat: string;
+    id: string;
+    forEveryone: boolean;
+    chatName?: string;
+    preview?: string;
+    confirm: true;
+  }) =>
+    request<{ deleted: boolean; forEveryone: boolean }>('/api/messages/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  forwardMessage: (data: {
+    chat: string;
+    id: string;
+    to: string;
+    toName?: string;
+    preview?: string;
+    confirm: true;
+  }) =>
+    request<{ forwarded: boolean; to: string; messageId: string | null }>('/api/messages/forward', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
   scheduleText: (data: {
     to: string;
     recipientName?: string;

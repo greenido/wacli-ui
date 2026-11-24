@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useWakeOnIntent } from './useWakeOnIntent.ts';
 import { ensureAwake, useSleepMode } from './useSleepMode.ts';
 import { useAppStore } from '../store/appStore.ts';
-import type { SleepState, UnifiedChat } from '../types.ts';
+import type { SleepState, UnifiedChat, UnifiedMessage } from '../types.ts';
+import type { MessageActionKind } from '../lib/messageActions.ts';
 
 const getSleep = vi.hoisted(() => vi.fn());
 const setSleep = vi.hoisted(() => vi.fn());
@@ -121,7 +122,7 @@ describe('useWakeOnIntent', () => {
   });
 
   afterEach(() => {
-    useAppStore.setState({ selectedChat: null, activeModal: null, searchQuery: '', chatFilter: 'all' });
+    useAppStore.setState({ selectedChat: null, activeModal: null, messageAction: null, searchQuery: '', chatFilter: 'all' });
   });
 
   it('wakes a page that loads asleep, once', async () => {
@@ -150,12 +151,21 @@ describe('useWakeOnIntent', () => {
     expect(setSleep).not.toHaveBeenCalled();
   });
 
+  /** Only the kind matters to waking; the message is a stand-in. */
+  const messageAction = (kind: MessageActionKind) => ({
+    kind,
+    msg: { msgId: 'MSG000001' } as UnifiedMessage,
+    chatJid: ADA.jid,
+    chatName: 'Ada',
+  });
+
   it.each([
     ['open chat', () => useAppStore.setState({ selectedChat: GRACE })],
     ['rail filter', () => useAppStore.setState({ chatFilter: 'unread' })],
     ['rail search', () => useAppStore.setState({ searchQuery: 'ada' })],
     ['new chat', () => useAppStore.setState({ activeModal: 'new-chat' })],
     ['chat info', () => useAppStore.setState({ activeModal: 'chat-info' })],
+    ['forward', () => useAppStore.getState().openMessageAction(messageAction('forward'))],
   ])('wakes it for %s', async (reason, act_) => {
     const { result } = await mountAsleepAfterLoad();
 
@@ -183,6 +193,9 @@ describe('useWakeOnIntent', () => {
     ['the safe-mode switch', () => useAppStore.setState({ activeModal: 'mode-confirm' })],
     ['the chat already open', () => useAppStore.setState({ selectedChat: { ...ADA } })],
     ['a tag filter', () => useAppStore.setState({ tagFilter: 'work' })],
+    // Only writes, and the server wakes for those itself.
+    ['an edit dialog', () => useAppStore.getState().openMessageAction(messageAction('edit'))],
+    ['a delete dialog', () => useAppStore.getState().openMessageAction(messageAction('delete'))],
   ])('leaves it asleep for %s', async (_what, act_) => {
     const { result } = await mountAsleepAfterLoad();
 

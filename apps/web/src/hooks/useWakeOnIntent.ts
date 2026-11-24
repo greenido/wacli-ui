@@ -24,6 +24,11 @@ export function wakeReason(state: AppState, prev: AppState): string | null {
   if (state.activeModal !== prev.activeModal) {
     if (state.activeModal === 'new-chat') return 'new chat';
     if (state.activeModal === 'chat-info') return 'chat info';
+    // Picking where to forward reads the chat list; edit and delete only write,
+    // and the server wakes for the write itself.
+    if (state.activeModal === 'message-action' && state.messageAction?.kind === 'forward') {
+      return 'forward';
+    }
   }
   return null;
 }
