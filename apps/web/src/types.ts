@@ -65,6 +65,22 @@ export interface UnifiedMessage {
   quotedText?: string | null;
 }
 
+/** How a call ended, as far as the archive can tell. Mirrors `CallOutcome` in `apps/api/src/types.ts`. */
+export type CallOutcome = 'answered' | 'missed' | 'declined' | 'unknown';
+
+/** One call, folded from wacli's call events. Mirrors `CallRecord` in `apps/api/src/types.ts`. */
+export interface CallRecord {
+  callId: string;
+  chatJid: string;
+  callerName: string;
+  ts: string;
+  direction: 'inbound' | 'outbound';
+  video: boolean;
+  group: boolean;
+  outcome: CallOutcome;
+  durationSecs: number | null;
+}
+
 /**
  * How far back the local archive actually reaches for one chat. Mirrors
  * `ChatCoverage` in `apps/api/src/types.ts`.

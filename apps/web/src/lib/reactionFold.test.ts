@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { foldReactions } from './reactionFold.ts';
+import { foldReactions, groupReactions } from './reactionFold.ts';
 import type { UnifiedMessage } from '../types.ts';
 
 function message(overrides: Partial<UnifiedMessage>): UnifiedMessage {
@@ -81,5 +81,22 @@ describe('foldReactions', () => {
     );
     expect(after.reactionsMap.get('M1')?.map((r) => r.emoji)).toEqual(['😮']);
     expect(after.myArchivedReactions.get('M1')).toBe('😮');
+  });
+});
+
+describe('groupReactions', () => {
+  it('counts by emoji, the most used first, ties in arrival order', () => {
+    const rx = (emoji: string, sender: string) => ({ emoji, sender, fromMe: false });
+    const groups = groupReactions([
+      rx('❤️', 'Ada'),
+      rx('😂', 'Grace'),
+      rx('👍', 'Alan'),
+      rx('👍', 'Edsger'),
+    ]);
+    expect(groups.map((g) => [g.emoji, g.reactors.map((r) => r.sender)])).toEqual([
+      ['👍', ['Alan', 'Edsger']],
+      ['❤️', ['Ada']],
+      ['😂', ['Grace']],
+    ]);
   });
 });

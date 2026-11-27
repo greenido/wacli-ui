@@ -17,6 +17,11 @@ export const POLL_CHATS_MS = 30_000;
 export const POLL_MESSAGES_MS = 30_000;
 export const POLL_SCHEDULED_MS = 15_000;
 /**
+ * Calls reach neither the socket nor the change feed, so the open thread polls
+ * for them — slowly, since a call row is news only once it has ended.
+ */
+export const POLL_CALLS_MS = 60_000;
+/**
  * The activity log is served from Mission Control's own database rather than
  * through a wacli subprocess, so it costs no store contention and can be read
  * more often than the lists that do.

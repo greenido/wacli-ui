@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   exportConversation: vi.fn(),
   getMediaUrl: vi.fn(() => ''),
   sendReact: vi.fn(),
+  getCalls: vi.fn(async () => ({ calls: [], supported: true })),
 }));
 
 vi.mock('../../api/client.ts', () => ({ api, ApiClientError: class extends Error {} }));

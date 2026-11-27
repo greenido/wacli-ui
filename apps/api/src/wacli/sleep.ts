@@ -21,6 +21,7 @@ export const SLEEP_ROUTES = {
     'GET /api/messages',
     'GET /api/messages/export',
     'GET /api/messages/show',
+    'GET /api/calls',
     'GET /api/history/coverage',
     'GET /api/contacts/show',
     'GET /api/groups',

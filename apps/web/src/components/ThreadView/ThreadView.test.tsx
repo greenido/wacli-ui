@@ -6,7 +6,7 @@ import { ThreadView } from './ThreadView.tsx';
 import { ApiClientError } from '../../api/client.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { refreshChangedChats } from '../../hooks/useChangeFeed.ts';
-import type { MissionControlStatus, SleepState, UnifiedChat, UnifiedMessage } from '../../types.ts';
+import type { CallRecord, MissionControlStatus, SleepState, UnifiedChat, UnifiedMessage } from '../../types.ts';
 
 const getHealth = vi.hoisted(() => vi.fn());
 // Health waits to hear the app is awake before it asks; these tests are awake.
@@ -23,6 +23,12 @@ const getHistoryCoverage = vi.hoisted(() => vi.fn());
 const backfillHistory = vi.hoisted(() => vi.fn());
 const exportConversation = vi.hoisted(() => vi.fn());
 const sendReact = vi.hoisted(() => vi.fn());
+const getCalls = vi.hoisted(() =>
+  vi.fn(async (_params: { chat: string; after?: string; before?: string }) => ({
+    calls: [] as CallRecord[],
+    supported: true,
+  }))
+);
 const getMediaUrl = vi.hoisted(() =>
   vi.fn((_params: { chat?: string; id?: string; path?: string }) => '')
 );
@@ -42,6 +48,7 @@ vi.mock('../../api/client.ts', () => ({
     exportConversation,
     getMediaUrl,
     sendReact,
+    getCalls,
   },
   ApiClientError: class extends Error {
     constructor(
@@ -827,6 +834,39 @@ describe('ThreadView reactions', () => {
     expect(await screen.findAllByText('\u{1F44D}')).toHaveLength(1);
   });
 
+  it('counts reactions by emoji and lists who left them on click', async () => {
+    const user = userEvent.setup();
+    getMessages.mockResolvedValue({
+      messages: [
+        message(1),
+        reactionRow(),
+        reactionRow({ msgId: 'RX-2', fromMe: false, senderJid: 'grace@s.whatsapp.net', senderName: 'Grace Hopper' }),
+        reactionRow({
+          msgId: 'RX-3',
+          fromMe: false,
+          senderJid: 'alan@s.whatsapp.net',
+          senderName: 'Alan Turing',
+          reactionEmoji: '\u2764\uFE0F',
+        }),
+      ],
+      hasMore: false,
+    });
+    renderThread();
+
+    const badge = await screen.findByRole('button', { name: /^Reactions:/ });
+    expect(badge).toHaveTextContent('\u{1F44D}2\u2764\uFE0F');
+    expect(screen.queryByRole('dialog', { name: 'Who reacted' })).not.toBeInTheDocument();
+
+    await user.click(badge);
+    const list = await screen.findByRole('dialog', { name: 'Who reacted' });
+    expect(list).toHaveTextContent('3 reactions');
+    const rows = Array.from(list.querySelectorAll('li')).map((li) => li.textContent);
+    expect(rows).toEqual(['\u{1F44D}You', '\u{1F44D}Grace Hopper', '\u2764\uFE0FAlan Turing']);
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Who reacted' })).not.toBeInTheDocument();
+  });
+
   it('takes the emoji back and says why when the send is refused', async () => {
     const user = userEvent.setup();
     sendReact.mockRejectedValue(new Error('Safe read-only mode is active.'));
@@ -1483,5 +1523,68 @@ describe('ThreadView behind the change feed', () => {
     await act(async () => refreshChangedChats(client, ['someone-else@s.whatsapp.net']));
 
     expect(getMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe('ThreadView calls', () => {
+  function call(over: Partial<CallRecord>): CallRecord {
+    return {
+      callId: 'CALL-1',
+      chatJid: CHAT.jid,
+      callerName: 'Alice',
+      ts: '2026-09-01T10:01:30.000Z',
+      direction: 'inbound',
+      video: false,
+      group: false,
+      outcome: 'missed',
+      durationSecs: null,
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Element.prototype.scrollIntoView = vi.fn();
+    getHealth.mockResolvedValue(HEALTHY);
+    getScheduled.mockResolvedValue([]);
+    getHistoryCoverage.mockResolvedValue([COVERAGE]);
+    useAppStore.setState({ selectedChat: CHAT, highlightedMessageId: null });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ selectedChat: null, highlightedMessageId: null });
+  });
+
+  it('draws each call between the messages it came between, a missed one marked', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: false });
+    getCalls.mockResolvedValueOnce({
+      calls: [
+        call({}),
+        call({ callId: 'CALL-2', ts: '2026-09-01T10:05:00.000Z', direction: 'outbound', outcome: 'answered', durationSecs: 125 }),
+      ],
+      supported: true,
+    });
+    const { container } = renderThread();
+
+    const missed = await screen.findByText('Missed voice call');
+    expect(missed.parentElement?.className).toMatch(/text-mc-danger/);
+    expect(screen.getByText('Outgoing voice call · 2m 5s')).toBeInTheDocument();
+
+    const order = Array.from(container.querySelectorAll('[id^="msg-"], [data-call-id]')).map(
+      (el) => el.getAttribute('data-call-id') ?? el.id
+    );
+    expect(order).toEqual(['msg-MSG-1', 'CALL-1', 'msg-MSG-2', 'CALL-2']);
+    // The whole history is loaded, so every call of the chat belongs here.
+    expect(getCalls).toHaveBeenCalledWith({ chat: CHAT.jid, after: undefined, before: undefined });
+  });
+
+  it('asks only for calls since the oldest loaded message while older ones remain', async () => {
+    getMessages.mockResolvedValue({ messages: [message(1), message(2)], hasMore: true });
+    renderThread();
+
+    await screen.findByText('message body 1');
+    await waitFor(() =>
+      expect(getCalls).toHaveBeenCalledWith({ chat: CHAT.jid, after: message(1).ts, before: undefined })
+    );
   });
 });
