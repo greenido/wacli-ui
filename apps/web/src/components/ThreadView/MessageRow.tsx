@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { Reply, Smile, Check, CheckCheck, Clock, Copy, Star, Bookmark, Forward, Pencil, Trash2 } from 'lucide-react';
 import { detectTextDirection } from '../../lib/textDirection.ts';
 import { fullTimestamp } from '../../lib/messageDates.ts';
 import { MediaViewer } from './MediaViewer.tsx';
 import { EmojiReactionDrawer } from './EmojiReactionDrawer.tsx';
+import { ReactionSummary } from './ReactionSummary.tsx';
 import { QuoteChip } from './QuoteChip.tsx';
 import { LinkifiedText } from './LinkifiedText.tsx';
 import { deliveryTitle } from '../../lib/deliveryStatus.ts';
@@ -66,10 +67,17 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
   // reaction or bookmark aimed at it would point at nothing.
   const isPending = msg.deliveryStatus === 'pending';
 
+  // Who reacted: only this row cares, so the state lives here.
+  const [whoReactedOpen, setWhoReactedOpen] = useState(false);
+  const toggleWhoReacted = useCallback(() => setWhoReactedOpen((open) => !open), []);
+  const closeWhoReacted = useCallback(() => setWhoReactedOpen(false), []);
+  // Either popover has to clear the bubbles below it.
+  const raised = isReactionDrawerOpen || whoReactedOpen;
+
   return (
     <div
       className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'} ${
-        isReactionDrawerOpen ? 'relative z-40' : 'relative z-0'
+        raised ? 'relative z-40' : 'relative z-0'
       }`}
     >
       {/* Sender Name in group */}
@@ -83,7 +91,7 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
       <div
         id={`msg-${msg.msgId}`}
         className={`relative max-w-[80%] rounded-mc p-2.5 text-xs shadow-sm transition-all duration-300 ${
-          isReactionDrawerOpen ? 'z-40' : 'z-0'
+          raised ? 'z-40' : 'z-0'
         } ${
           isFocused
             ? 'ring-2 ring-mc-accent ring-offset-2 ring-offset-mc-bg shadow-[0_0_20px_rgb(var(--mc-accent)/0.7)] bg-mc-accent/20 border-mc-accent animate-pulse'
@@ -167,13 +175,13 @@ export const MessageRow = React.memo<MessageRowProps>(function MessageRow({
 
         {/* Reactions Badge */}
         {reactions.length > 0 && (
-          <div className="absolute -bottom-2 right-2 flex gap-0.5 bg-mc-surface border border-mc-border rounded-full px-1.5 py-0.2 text-[11px] shadow-sm">
-            {reactions.map((rx, i) => (
-              <span key={i} title={rx.sender}>
-                {rx.emoji}
-              </span>
-            ))}
-          </div>
+          <ReactionSummary
+            reactions={reactions}
+            open={whoReactedOpen}
+            onToggle={toggleWhoReacted}
+            onClose={closeWhoReacted}
+            align={isMe ? 'right' : 'left'}
+          />
         )}
 
         {/* Hover Quick Actions Menu (FR-SR-7) */}

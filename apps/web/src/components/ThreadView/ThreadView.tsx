@@ -18,8 +18,9 @@ import { useUiCommand } from '../../hooks/useUiCommand.ts';
 import { useAppStore } from '../../store/appStore.ts';
 import { resolveJumpTarget } from '../../lib/messageJump.ts';
 import { distanceFromBottom, shouldFollowNewest } from '../../lib/threadScroll.ts';
-import { localDayKey } from '../../lib/messageDates.ts';
+import { dayStartKeys, mergeTimeline } from '../../lib/callTimeline.ts';
 import { flattenMessagePages, patchMessages, type MessagePages } from '../../lib/messagePages.ts';
+import { CallRow } from './CallRow.tsx';
 import { DayDivider } from './DayDivider.tsx';
 import { MessageRow, type ThreadReaction } from './MessageRow.tsx';
 import { ThreadEmptyState } from './ThreadEmptyState.tsx';
@@ -28,6 +29,7 @@ import { ScheduledBanner } from './ScheduledBanner.tsx';
 import { ArchiveBoundary } from './ArchiveBoundary.tsx';
 import { useThreadPages } from './useThreadPages.ts';
 import { useThreadReactions } from './useThreadReactions.ts';
+import { useThreadCalls } from './useThreadCalls.ts';
 import type { UnifiedMessage } from '../../types.ts';
 import type { MessageActionKind } from '../../lib/messageActions.ts';
 
@@ -233,17 +235,18 @@ export const ThreadView: React.FC = () => {
     [messages]
   );
 
-  // The first message of each local day, which is where a divider goes.
-  const dayStarts = useMemo(() => {
-    const starts = new Set<string>();
-    let previous: string | null = null;
-    for (const msg of messages) {
-      const day = localDayKey(msg.ts);
-      if (day !== previous) starts.add(msg.msgId);
-      previous = day;
-    }
-    return starts;
-  }, [messages]);
+  // Calls sit between the messages they came between.
+  const calls = useThreadCalls({
+    chatJid: selectedChat?.jid ?? null,
+    readsReady,
+    messages,
+    canLoadOlder,
+    canLoadNewer: Boolean(windowAt && windowThread.hasPreviousPage),
+  });
+  const timeline = useMemo(() => mergeTimeline(messages, calls), [messages, calls]);
+
+  // The first line of each local day, which is where a divider goes.
+  const dayStarts = useMemo(() => dayStartKeys(timeline), [timeline]);
 
   // A jump target that is not in the loaded window — an old search hit, or a
   // send-log entry whose optimistic id has since been replaced by a real one.
@@ -537,7 +540,7 @@ export const ThreadView: React.FC = () => {
           <div className="text-center py-12 text-xs font-mono text-mc-textMuted">
             Loading message history...
           </div>
-        ) : messages.length === 0 ? (
+        ) : timeline.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
             <div className="w-10 h-10 rounded-full bg-mc-surface flex items-center justify-center text-mc-accent border border-mc-border">
               <Reply size={18} />
@@ -550,32 +553,44 @@ export const ThreadView: React.FC = () => {
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            // The divider's slot is there, empty, for every message, so a row
+          timeline.map((item) => {
+            // The divider's slot is there, empty, for every line, so a row
             // keeps its place (and its memoised render) when older history
-            // lands and the day's first message changes.
-            <React.Fragment key={msg.msgId}>
-              {dayStarts.has(msg.msgId) && <DayDivider ts={msg.ts} />}
-              <MessageRow
-                msg={msg}
-                reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
-                quoted={(msg.quotedMsgId && messagesById.get(msg.quotedMsgId)) || null}
-                isGroup={selectedChat.kind === 'group'}
-                mediaChatJid={msg.chatJid || selectedChat.jid}
-                isFocused={focusedMessageId === msg.msgId}
-                isCopied={copiedMsgId === msg.msgId}
-                isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
-                onReply={onReply}
-                onCopy={handleCopyText}
-                onToggleBookmark={handleToggleBookmark}
-                onToggleReactionDrawer={toggleReactionDrawer}
-                onCloseReactionDrawer={closeReactionDrawer}
-                onReact={onReact}
-                onJumpToMessage={onJumpToMessage}
-                onMessageAction={onMessageAction}
-              />
-            </React.Fragment>
-          ))
+            // lands and the day's first line changes.
+            const divider = dayStarts.has(item.key) && <DayDivider ts={item.ts} />;
+            if (item.kind === 'call') {
+              return (
+                <React.Fragment key={item.key}>
+                  {divider}
+                  <CallRow call={item.call} />
+                </React.Fragment>
+              );
+            }
+            const msg = item.msg;
+            return (
+              <React.Fragment key={item.key}>
+                {divider}
+                <MessageRow
+                  msg={msg}
+                  reactions={reactionsMap.get(msg.msgId) ?? NO_REACTIONS}
+                  quoted={(msg.quotedMsgId && messagesById.get(msg.quotedMsgId)) || null}
+                  isGroup={selectedChat.kind === 'group'}
+                  mediaChatJid={msg.chatJid || selectedChat.jid}
+                  isFocused={focusedMessageId === msg.msgId}
+                  isCopied={copiedMsgId === msg.msgId}
+                  isReactionDrawerOpen={activeReactionMsgId === msg.msgId}
+                  onReply={onReply}
+                  onCopy={handleCopyText}
+                  onToggleBookmark={handleToggleBookmark}
+                  onToggleReactionDrawer={toggleReactionDrawer}
+                  onCloseReactionDrawer={closeReactionDrawer}
+                  onReact={onReact}
+                  onJumpToMessage={onJumpToMessage}
+                  onMessageAction={onMessageAction}
+                />
+              </React.Fragment>
+            );
+          })
         )}
 
         {/* A window's own end: more of it, or, once it reaches the newest

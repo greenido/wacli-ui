@@ -301,3 +301,43 @@ export interface RawWebhookChatPresence {
   State: 'composing' | 'paused' | string;
   Media?: 'audio' | string;
 }
+
+/** One row of `wacli calls list --json`: a single event in a call's life. */
+export interface RawCallEvent {
+  chat_jid: string;
+  chat_name?: string;
+  sender_jid?: string;
+  sender_name?: string;
+  call_id: string;
+  /** offer, accept, reject, terminate, relay_latency, or call_log (history sync). */
+  event_type: string;
+  direction?: string;
+  media?: string;
+  /** call_log only: connected, missed or rejected. */
+  outcome?: string;
+  /** terminate only: accepted_elsewhere, rejected_elsewhere, group_call_ended, or none. */
+  reason?: string;
+  duration_secs?: number;
+  timestamp: string;
+}
+
+/**
+ * How a call ended, as far as the archive can tell. `unknown` is a call wacli
+ * saw ring but never saw end: still ringing, or sync was down when it did.
+ */
+export type CallOutcome = 'answered' | 'missed' | 'declined' | 'unknown';
+
+/** One call, folded from its events. */
+export interface CallRecord {
+  callId: string;
+  chatJid: string;
+  /** Who started it. For an outbound call, that is us. */
+  callerName: string;
+  ts: string;
+  direction: 'inbound' | 'outbound';
+  video: boolean;
+  group: boolean;
+  outcome: CallOutcome;
+  /** Known only from the phone's call log; null for calls seen live. */
+  durationSecs: number | null;
+}

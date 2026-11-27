@@ -113,6 +113,8 @@ There's no `--host` flag, and that's on purpose. See [Security & privacy](#secur
 - Inline media: images, stickers, video, voice notes with 1× / 1.5× / 2× playback, and documents to download.
 - **Expired media isn't a dead end.** When WhatsApp's servers no longer have a file, the tile says so and offers **ASK PHONE**, which asks your phone to send it again (wacli 0.22+, live mode only). A phone that doesn't answer is probably just offline, not proof the file is gone.
 - **Links are clickable.** `http://`, `https://` and bare `www.` links open in a new tab, and the site isn't told where you came from. Anything else that looks like a link (`javascript:`, `file:` and friends) stays plain text, and hovering shows the real address, so a lookalike domain shows up under its true name.
+- **Calls show up where they happened.** Incoming, outgoing, declined and unanswered calls sit between the messages around them, and a missed one is red so you can't pretend you didn't see it. wacli only sees what reaches a linked device, so a call it saw ring but never saw end says "outcome unknown" rather than guessing. Group calls get the same honesty: the phone joins them without telling anyone.
+- **Who reacted, not just how.** The reaction badge counts by emoji (👍 3 ❤️), and a click lists everyone behind each one.
 - Hover a message to reply, react, copy or bookmark. The emoji drawer has a quick row, four categories, a search box, and the good sense to open where a sidebar won't cover it.
 - **Typo? Wrong chat? Fix it.** The same hover bar can **forward** a message (pick a chat and it's read back to you before it goes), **edit** your own text for 20 minutes after sending (WhatsApp's limit, not ours), and **delete** it, for everyone (your own, within about two and a half days) or just for you. The buttons only show up where WhatsApp would actually allow them.
 - A composer that keeps a separate draft, attachment and reply target for every chat, with [quick replies](#-quick-replies) one `/` away.
@@ -375,6 +377,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 | `GET` | `/api/chats` | Chats with unread counts and previews (`?query=&limit=&unread=&pinned=&muted=&archived=`) |
 | `POST` | `/api/chats/mark-read` | Send a read receipt for a chat (`{ chat, through? }`), stopping at message `through` on wacli 0.22+; refused in safe mode |
 | `POST` | `/api/chats/state` | Pin, mute, archive or mark a chat unread, or undo one (`{ chat, action, duration? }`). `action` is `pin`, `unpin`, `mute`, `unmute`, `archive`, `unarchive` or `mark-unread`; `duration` is mute-only, `8h`-style or `0` for always. Refused in safe mode |
+| `GET` | `/api/calls` | A chat's calls, one record per call with its outcome (`?chat=<jid>`, plus `after`, `before`) |
 | `GET` | `/api/messages` | A chat's messages (`?chat=<jid>&limit=100`, plus `before`, `after`, `asc`); raise `limit` to page further back |
 | `POST` | `/api/messages/bookmark` | Add or remove a local bookmark (`{ chat, id, bookmarked }`) |
 | `GET` | `/api/waiting` | Your messages in direct chats that were delivered or read and have had no reply since, longest wait first (`?limit=`, up to 200). Returns `{ items, total, snoozed }` |
@@ -416,7 +419,7 @@ The UI is just a client of a small local API, so you can script against it too. 
 
 JSON responses share the shape `{ success, data, error }`. The six send and schedule routes refuse to run without `confirm: true`. In safe mode, sends, reactions, scheduling, mark-read, alias and backfill all answer `403`. A command that can't get wacli's store lock answers `503` with `"code": "STORE_LOCKED"`.
 
-While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it: health, chats, messages, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what's already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download or daemon restart) wakes the app first.
+While asleep, a route that reads from wacli answers `409` with `"code": "ASLEEP"` instead of running it: health, chats, messages, calls, export, coverage, contacts, groups and search. `GET /api/media/content` serves only what's already on disk. A route that writes through wacli (a send, reaction, mark-read, alias, backfill, media download or daemon restart) wakes the app first.
 
 </details>
 

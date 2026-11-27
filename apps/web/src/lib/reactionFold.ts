@@ -108,3 +108,26 @@ export function foldReactions(
   visibleMsgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
   return { messages: visibleMsgs, reactionsMap: rxMap, myArchivedReactions: mine };
 }
+
+/** Everyone who reacted with one emoji. */
+export interface ReactionGroup {
+  emoji: string;
+  reactors: ThreadReaction[];
+}
+
+/**
+ * A message's reactions by emoji, the most-used first and ties in the order
+ * they arrived, so a badge reads "👍 3 ❤️" rather than "👍❤️👍👍".
+ */
+export function groupReactions(reactions: ThreadReaction[]): ReactionGroup[] {
+  const groups = new Map<string, ThreadReaction[]>();
+  for (const rx of reactions) {
+    const reactors = groups.get(rx.emoji) ?? [];
+    reactors.push(rx);
+    groups.set(rx.emoji, reactors);
+  }
+  // Array.prototype.sort is stable, which keeps arrival order among ties.
+  return [...groups]
+    .map(([emoji, reactors]) => ({ emoji, reactors }))
+    .sort((a, b) => b.reactors.length - a.reactors.length);
+}

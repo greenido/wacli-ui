@@ -14,6 +14,7 @@ import type {
   QuickReplyTemplate,
   WaitingList,
   ChangesAnswer,
+  CallRecord,
 } from '../types.ts';
 import type { ChatStateAction, ChatStateChange } from '../lib/chatState.ts';
 
@@ -179,6 +180,10 @@ export const api = {
    * a fresh checkpoint to start from.
    */
   getChanges: (since?: string) => request<ChangesAnswer>('/api/changes', {}, { since }),
+
+  /** One chat's calls between two moments, oldest first. */
+  getCalls: (params: { chat: string; after?: string; before?: string }) =>
+    request<{ calls: CallRecord[]; supported: boolean }>('/api/calls', {}, params),
 
   /** One message by id. A 404 means the local archive does not hold it. */
   getMessage: (params: { chat: string; id: string }) =>
